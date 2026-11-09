@@ -12,6 +12,8 @@ Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 - Inspektor: nazwa, wzór obrazu i sygnał audio kanału aktywnego.
 - Sprawdzian środowiska: `IsoRecorder.exe --check-env` oraz ☰ → Diagnostyka.
 - Tryby pomocnicze: `--demo N`, `--screenshot plik.png`.
+- Paczka samodzielna: `scripts/package.ps1` składa `dist\IsoRecorder\` (EXE + Qt + GStreamer, uruchamiana dwuklikiem);
+  składana przy każdej wersji, zastępuje poprzednią, nie trafia do repo.
 
 Jeszcze nie działa (przyciski widoczne, ale nieaktywne lub z komunikatem): nagrywanie (0.2), split (0.3), pauza (0.4),
 zapis/wczytanie listy (0.5), prawdziwe wejścia (0.6–0.8, 1.0), scheduler i widok Lista (0.9).

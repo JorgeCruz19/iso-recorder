@@ -2,6 +2,8 @@
 #include <QTimer>
 
 #include <cstdio>
+#include <cstdlib>
+#include <filesystem>
 #include <gst/gst.h>
 #include <windows.h>
 
@@ -14,8 +16,31 @@
 //   --check-env           raport o elementach GStreamera (kod wyjscia 1, gdy brakuje obowiazkowych)
 //   --demo N              start z N kanalami testowymi
 //   --screenshot plik.png zrzut okna po 4 s i wyjscie (do porownania z mockupem)
+// Paczka samodzielna: gdy obok EXE lezy katalog gstreamer-1.0\, GStreamer bierze wtyczki tylko stamtad
+// (instalacja systemowa jest ignorowana), a rejestr wtyczek trafia do %LOCALAPPDATA%\IsoRecorder.
+static void useBundledGStreamer() {
+    namespace fs = std::filesystem;
+    wchar_t exe[MAX_PATH * 4];
+    if (!GetModuleFileNameW(nullptr, exe, DWORD(std::size(exe)))) return;
+    const fs::path dir = fs::path(exe).parent_path();
+    std::error_code ec;
+    if (!fs::is_directory(dir / L"gstreamer-1.0", ec)) return;
+    _wputenv_s(L"GST_PLUGIN_SYSTEM_PATH_1_0", (dir / L"gstreamer-1.0").c_str());
+    _wputenv_s(L"GST_PLUGIN_PATH_1_0", L"");
+    _wputenv_s(L"GST_PLUGIN_PATH", L"");
+    _wputenv_s(L"GST_PLUGIN_SCANNER_1_0", (dir / L"gst-plugin-scanner.exe").c_str());
+    _wputenv_s(L"GIO_MODULE_DIR", (dir / L"gio" / L"modules").c_str());
+    wchar_t local[MAX_PATH * 4];
+    if (GetEnvironmentVariableW(L"LOCALAPPDATA", local, DWORD(std::size(local)))) {
+        const fs::path data = fs::path(local) / L"IsoRecorder";
+        fs::create_directories(data, ec);
+        _wputenv_s(L"GST_REGISTRY_1_0", (data / L"gst-registry.bin").c_str());
+    }
+}
+
 int main(int argc, char* argv[]) {
     SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS);
+    useBundledGStreamer();
     gst_init(&argc, &argv);
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("IsoRecorder"));
