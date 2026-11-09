@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="pl"><head><meta charset="utf-8"><title>ISO Recorder</title>
+<link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#1f1f1f; --bar:#262626; --panel:#2a2a2a; --sec:#232323; --field:#1a1a1a;
+  --b1:#151515; --b2:#3b3b3b; --b3:#4a4a4a;
+  --t1:#d6d6d6; --t2:#9d9d9d; --t3:#6e6e6e;
+  --red:#e0242b; --amber:#f2a516; --green:#1fae52; --orange:#e8842a; --white:#f0f0f0;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{width:1920px;height:1080px;overflow:hidden;background:var(--bg);color:var(--t1);
+  font:12px "Open Sans","Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+.app{display:flex;flex-direction:column;height:1080px}
+
+/* window title (centered, like Blackmagic desktop apps) */
+.wt{height:30px;background:#141414;display:flex;align-items:center;justify-content:center;position:relative;color:var(--t2);font-size:12px;border-bottom:1px solid #000}
+.wt .wc{position:absolute;right:0;top:0;display:flex}
+.wt .wc span{width:44px;height:30px;display:grid;place-items:center;color:var(--t3)}
+
+/* header: transport-style status strip */
+.hd{height:72px;background:var(--bar);border-bottom:1px solid var(--b1);display:flex;align-items:stretch}
+.hd .cell{display:flex;flex-direction:column;justify-content:center;padding:0 22px;border-right:1px solid var(--b1)}
+.cap{font-size:10px;font-weight:700;letter-spacing:.9px;color:var(--t3);text-transform:uppercase}
+.hd .proj{font-size:15px;font-weight:600;color:var(--t1);margin-top:3px}
+.tcwrap{display:flex;align-items:center;gap:16px}
+.tc{font:400 38px "Open Sans",sans-serif;letter-spacing:1px;color:var(--white);font-variant-numeric:tabular-nums;line-height:1}
+.recbadge{background:var(--red);color:#fff;font-weight:700;font-size:11px;letter-spacing:1px;padding:3px 8px;border-radius:2px}
+.disk{min-width:300px}
+.disk .row{display:flex;justify-content:space-between;align-items:baseline;margin-top:3px}
+.disk .big{font-size:17px;color:var(--white);font-variant-numeric:tabular-nums}
+.disk .meter{height:5px;background:#111;margin-top:5px;border:1px solid #0c0c0c}
+.disk .meter i{display:block;height:100%;background:#8a8a8a}
+.stats{display:flex;gap:22px}
+.stats div{display:flex;flex-direction:column}
+.stats b{font-size:15px;font-weight:600;color:var(--t1);font-variant-numeric:tabular-nums;margin-top:2px}
+.viewsel{margin-left:auto;display:flex;align-items:center;gap:0;padding:0 18px}
+.vb{height:26px;padding:0 12px;display:grid;place-items:center;background:#333;border:1px solid var(--b1);color:var(--t2);font-size:11px;font-weight:600}
+.vb.on{background:#4a4a4a;color:var(--white)}
+
+/* main */
+.main{flex:1;display:flex;min-height:0}
+.mv{flex:1;background:#0b0b0b;padding:6px;display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(4,1fr);gap:6px}
+.tile{display:flex;flex-direction:column;background:#000;min-height:0;position:relative}
+.vid{position:relative;flex:1;min-height:0;overflow:hidden;outline:2px solid #3c3c3c;outline-offset:-2px}
+.vid img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block}
+.vid:before{content:"";position:absolute;inset:0;border:2px solid #3c3c3c;z-index:3;pointer-events:none}
+.tile.rec .vid:before{border:3px solid var(--red)}
+.tile.pau .vid:before{border:3px solid var(--amber)}
+.tile.prv .vid:before{border:3px solid var(--green)}
+.tile.act .vid:after{z-index:4}
+.tile.sel .strip{background:#3d3d3d}
+.tile.act .vid:after{content:"";position:absolute;inset:3px;border:1px solid #fff;pointer-events:none}
+.lbl{position:absolute;left:50%;bottom:6px;transform:translateX(-50%);background:rgba(0,0,0,.82);color:#fff;font-size:12px;font-weight:600;padding:2px 10px;white-space:nowrap;z-index:2}
+.lbl em{font-style:normal;color:#bdbdbd;margin-right:7px;font-weight:700}
+.fmt{position:absolute;left:30px;top:7px;font-size:10px;font-weight:700;color:#fff;background:rgba(0,0,0,.7);padding:1px 6px;letter-spacing:.3px;z-index:2}
+.sel-box{position:absolute;left:8px;top:7px;width:14px;height:14px;border:1.5px solid #cfcfcf;background:rgba(0,0,0,.55);z-index:2;display:grid;place-items:center;font-size:10px;font-weight:700;color:#000}
+.tile.sel .sel-box{background:#e6e6e6;border-color:#e6e6e6}
+.rtc{position:absolute;right:8px;top:7px;font-size:11px;font-weight:700;color:#fff;background:rgba(0,0,0,.7);padding:1px 6px;font-variant-numeric:tabular-nums;z-index:2;display:flex;align-items:center;gap:5px}
+.rtc i{width:7px;height:7px;border-radius:50%;background:var(--red)}
+.tile.pau .rtc i{background:var(--amber);border-radius:0}
+.am{position:absolute;right:8px;bottom:8px;top:30px;width:12px;display:flex;gap:2px;z-index:2}
+.am span{flex:1;background:rgba(0,0,0,.65);position:relative}
+.am span i{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(to top,#1fae52 0 70%,#e7c11c 70% 88%,#e0242b 88%)}
+.msg{position:absolute;inset:0;display:grid;place-items:center;background:rgba(0,0,0,.62);z-index:1;text-align:center;font-weight:700;letter-spacing:1px;color:#fff;font-size:13px}
+.msg small{display:block;font-weight:400;letter-spacing:0;color:#bbb;font-size:11px;margin-top:3px}
+.dim img{filter:grayscale(1) brightness(.55)}
+.strip{height:26px;background:#2b2b2b;display:flex;align-items:center;gap:3px;padding:0 4px;border-top:1px solid #000}
+.sb{height:19px;min-width:30px;padding:0 6px;display:grid;place-items:center;background:#3a3a3a;border:1px solid #1b1b1b;border-top-color:#4c4c4c;color:#cfcfcf;font-size:9.5px;font-weight:700;letter-spacing:.5px;border-radius:2px}
+.sb.r{color:#ff6d70}
+.sb.r.lit{background:var(--red);color:#fff;border-color:#8a1418}
+.sb.p.lit{background:var(--amber);color:#1a1100;border-color:#8a5d0b}
+.sb.off{opacity:.35}
+.strip .src{color:var(--t2);font-size:10px;margin-left:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.strip .gr{margin-left:auto;color:var(--t3);font-size:12px;letter-spacing:-1px;padding:0 4px}
+.strip .x{color:var(--t2);font-size:12px;padding:0 4px}
+
+/* inspector */
+.insp{width:500px;background:var(--panel);border-left:1px solid var(--b1);display:flex;flex-direction:column}
+.ih{height:34px;display:flex;align-items:center;padding:0 12px;background:var(--bar);border-bottom:1px solid var(--b1);font-size:12px;font-weight:600}
+.ih .r{margin-left:auto;color:var(--t3);font-weight:400}
+.pv{height:236px;background:#000;position:relative;border-bottom:1px solid var(--b1)}
+.pv img{width:100%;height:100%;object-fit:cover;display:block}
+.pv .lbl{bottom:8px}
+.pv .rtc{top:8px;right:8px}
+.itabs{display:flex;background:var(--bar);border-bottom:1px solid var(--b1)}
+.itabs span{flex:1;text-align:center;padding:8px 0;color:var(--t2);font-weight:600;font-size:12px;border-right:1px solid var(--b1)}
+.itabs span:last-child{border-right:0}
+.itabs span.on{color:var(--white);background:var(--panel);box-shadow:inset 0 2px 0 var(--orange)}
+.ib{flex:1;overflow:hidden}
+.sh{height:28px;display:flex;align-items:center;padding:0 12px;background:var(--sec);border-bottom:1px solid var(--b1);border-top:1px solid #333;font-weight:600;font-size:12px;color:var(--t1)}
+.sh .tw{margin-left:auto;width:9px;height:9px;border-radius:50%;background:var(--orange)}
+.sh .ch{color:var(--t3);margin-right:8px;font-size:9px}
+.fr{display:grid;grid-template-columns:150px 1fr;align-items:center;column-gap:12px;padding:4px 12px}
+.fr:first-of-type{padding-top:8px}
+.fr label{text-align:right;color:var(--t2);font-size:11.5px}
+.dd{height:23px;background:var(--field);border:1px solid #3a3a3a;border-radius:2px;display:flex;align-items:center;padding:0 8px;color:var(--t1);font-size:11.5px;gap:8px}
+.dd .v{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dd .ar{width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid #9a9a9a}
+.dd .det{color:var(--t3);font-size:10.5px}
+.two{display:flex;gap:6px}.two>*{flex:1}
+.tg{display:flex;gap:0}
+.tg span{padding:3px 10px;background:#333;border:1px solid var(--b1);font-size:11px;color:var(--t2)}
+.tg span.on{background:#555;color:#fff}
+.ck{display:flex;align-items:center;gap:7px;color:var(--t1);font-size:11.5px}
+.ck i{width:12px;height:12px;border:1px solid #666;background:var(--field);display:grid;place-items:center;font-style:normal;font-size:9px;color:var(--orange);font-weight:700}
+.secb{padding-bottom:6px}
+.sched{display:flex;gap:3px;padding:2px 0}
+.sched span{width:26px;height:20px;display:grid;place-items:center;background:#333;border:1px solid var(--b1);font-size:10px;color:var(--t2);font-weight:600}
+.sched span.on{background:#555;color:#fff}
+
+/* audio meters in inspector */
+.meters{padding:8px 12px 6px;display:flex;gap:8px;align-items:stretch}
+.hm{flex:1;display:flex;flex-direction:column;gap:4px}
+.hm .l{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--t3);font-weight:700}
+.hm .l b{width:14px}
+.hm .bar{flex:1;height:8px;background:#111;position:relative}
+.hm .bar i{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(to right,#1fae52 0 70%,#e7c11c 70% 88%,#e0242b 88%);background-size:452px 100%}
+.hm .sc{display:flex;justify-content:space-between;font-size:9px;color:var(--t3);padding-left:20px}
+
+/* bottom control panel */
+.cp{height:86px;background:var(--bar);border-top:1px solid var(--b1);display:flex;align-items:stretch}
+.grp{display:flex;flex-direction:column;justify-content:center;padding:0 16px;border-right:1px solid var(--b1);gap:6px}
+.grp .btns{display:flex;gap:6px}
+.kb{width:78px;height:42px;border-radius:4px;background:linear-gradient(#3e3e3e,#333);border:1px solid #121212;box-shadow:inset 0 1px 0 #4d4d4d;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10.5px;font-weight:700;letter-spacing:.7px;color:#d9d9d9;gap:3px}
+.kb.w{width:104px}
+.kb .g{display:block}
+.kb.red{color:#ff5a5e}
+.kb.red.lit{background:var(--red);color:#fff;box-shadow:0 0 10px rgba(224,36,43,.45),inset 0 1px 0 #ff6b6f}
+.kb.dis{opacity:.35}
+.dot{width:11px;height:11px;border-radius:50%;background:currentColor}
+.sq{width:11px;height:11px;background:currentColor}
+.ps{width:11px;height:12px;border-left:4px solid currentColor;border-right:4px solid currentColor}
+.cut{width:20px;height:12px;position:relative;border-left:0}
+.cut:before{content:"";position:absolute;left:9px;top:-1px;bottom:-1px;width:2px;background:currentColor}
+.cut:after{content:"";position:absolute;left:0;top:1px;width:20px;height:0;border-top:5px solid transparent;border-bottom:5px solid transparent;
+  background:linear-gradient(currentColor,currentColor) no-repeat;background-size:0 0}
+.cut i{position:absolute;top:1px;width:0;height:0;border-top:5px solid transparent;border-bottom:5px solid transparent}
+.cut i.l{left:0;border-right:6px solid currentColor}
+.cut i.r{right:0;border-left:6px solid currentColor}
+.tri-u{width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-bottom:8px solid currentColor}
+.tri-d{width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:8px solid currentColor}
+.count{margin-left:auto;display:flex;flex-direction:column;justify-content:center;align-items:flex-end;padding:0 20px;border-left:1px solid var(--b1)}
+.count .n{font-size:26px;color:var(--white);font-variant-numeric:tabular-nums;line-height:1.1}
+.count .n span{color:var(--t3)}
+.legend{display:flex;gap:12px;font-size:10.5px;color:var(--t2);margin-top:4px}
+.legend i{display:inline-block;width:9px;height:9px;margin-right:5px;vertical-align:-1px}
+.st{height:22px;background:#161616;border-top:1px solid #000;display:flex;align-items:center;gap:22px;padding:0 12px;font-size:11px;color:var(--t3)}
+.st b{color:var(--t2);font-weight:600}
+</style></head><body><div class="app">
+
+<div class="wt">ISO Recorder — Konferencja_A<div class="wc"><span>—</span><span>☐</span><span>✕</span></div></div>
+
+<div class="hd">
+  <div class="cell" style="min-width:230px"><span class="cap">Sesja</span><span class="proj">Konferencja_A</span></div>
+  <div class="cell"><span class="cap">Czas nagrania — kanał 01</span>
+    <div class="tcwrap"><span class="tc">01:22:33:12</span><span class="recbadge">REC</span></div></div>
+  <div class="cell"><span class="cap">Timecode (RTC)</span><span class="tc" style="font-size:22px;margin-top:4px;color:var(--t1)">10:17:35:12</span></div>
+  <div class="cell disk"><span class="cap">Dysk D: · NVMe</span>
+    <div class="row"><span class="big">11:40:12</span><span style="color:var(--t2)">1,82 TB wolne z 3,84 TB</span></div>
+    <div class="meter"><i style="width:53%"></i></div></div>
+  <div class="cell"><div class="stats">
+    <div><span class="cap">Zapis</span><b>214 Mb/s</b></div>
+    <div><span class="cap">CPU</span><b>38%</b></div>
+    <div><span class="cap">GPU</span><b>57%</b></div>
+    <div><span class="cap">NVENC</span><b>12/∞</b></div>
+    <div><span class="cap">Drop</span><b>0</b></div></div></div>
+  <div class="viewsel"><span class="cap" style="margin-right:10px">Widok</span><span class="vb">2×2</span><span class="vb">3×3</span><span class="vb on">4×4</span><span class="vb">Lista</span></div>
+</div>
+
+<div class="main">
+ <div class="mv">
+  <!-- 01 -->
+  <div class="tile rec sel act"><div class="vid"><img src="../media/7921333-woman-4676131_1920.jpg"><div class="sel-box">✓</div><span class="fmt">1080p50</span><span class="rtc"><i></i>01:22:33</span><div class="am"><span><i style="height:74%"></i></span><span><i style="height:69%"></i></span></div><span class="lbl"><em>01</em>CAM 1 WYWIAD</span></div>
+   <div class="strip"><span class="sb r lit">REC</span><span class="sb p">II</span><span class="sb">STOP</span><span class="sb">SPLIT</span><span class="src">HDMI · DeckLink 1</span><span class="gr">⋮⋮</span><span class="x">✕</span></div></div>
+  <!-- 02 -->
+  <div class="tile rec sel"><div class="vid"><img src="../media/mmamontov-journalist-4987232_1920.jpg"><div class="sel-box">✓</div><span class="fmt">1080p50</span><span class="rtc"><i></i>01:22:33</span><div class="am"><span><i style="height:58%"></i></span><span><i style="height:61%"></i></span></div><span class="lbl"><em>02</em>CAM 2 REPORTER</span></div>
+   <div class="strip"><span class="sb r lit">REC</span><span class="sb p">II</span><span class="sb">STOP</span><span class="sb">SPLIT</span><span class="src">HDMI · DeckLink 2</span><span class="gr">⋮⋮</span><span class="x">✕</span></div></div>
+  <!-- 03 -->
+  <div class="tile rec sel"><div class="vid"><img src="../media/liewald-news-879849_1920.jpg"><div class="sel-box">✓</div><span class="fmt">1080p50</span><span class="rtc"><i></i>01:22:33</span><div class="am"><span><i style="height:44%"></i></span><span><i style="height:47%"></i></span></div><span class="lbl"><em>03</em>STUDIO NEWS</span></div>
+   <div class="strip"><span class="sb r lit">REC</span><span class="sb p">II</span><span class="sb">STOP</span><span class="sb">SPLIT</span><span class="src">HDMI · DeckLink 3</span><span class="gr">⋮⋮</span><span class="x">✕</span></div></div>
+  <!-- 04 -->
+  <div class="tile rec sel"><div class="vid"><img src="../media/broadmark-watch-tv-301528_1920.jpg"><div class="sel-box">✓</div><span class="fmt">2560×1440p30</span><span class="rtc"><i></i>01:22:31</span><div class="am"><span><i style="height:30%"></i></span><span><i style="height:30%"></i></span></div><span class="lbl"><em>04</em>EKRAN 1</span></div>
+   <div class="strip"><span class="sb r lit">REC</span><span class="sb p">II</span><span class="sb">STOP</span><span class="sb">SPLIT</span><span class="src">Screen grab · Monitor 2</span><span class="gr">⋮⋮</span><span class="x">✕</span></div></div>
+  <!-- 05 -->
+  <div class="tile rec"><div class="vid"><img src="../media/dangkhoa1848-choir-5781096_1920.jpg"><div class="sel-box"></div><span class="fmt">1080p50</span><span class="rtc"><i></i>00:58:02</span><div class="am"><span><i style="height:81%"></i></span><span><i style="height:79%"></i></span></div><span class="lbl"><em>05</em>CHÓR</span></div>
+   <div class="strip"><span class="sb r lit">REC</span><span class="sb p">II</span><span class="sb">STOP</span><span class="sb">SPLIT</span><span class="src">NDI · SALA-A (CAM 3)</span><span class="gr">⋮⋮</span><span class="x">✕</span></div></div>
+  <!-- 06 -->
+  <div class="tile rec"><div class="vid"><img src="../media/dotigabrielf-live-music-2219036_1920.jpg"><div class="sel-box"></div><span class="fmt">1080p50</span><span class="rtc"><i></i>00:58:02</span><div class="am"><span><i style="height:90%"></i></span><span><i style="height:86%"></i></span></div><span class="lbl"><em>06</em>SCENA</span></div>
+   <div class="strip"><span class="sb r lit">REC</span><span class="sb p">II</span><span class="sb">STOP</span><span class="sb">SPLIT</span><span class="src">NDI · SALA-A (CAM 4)</span><span class="gr">⋮⋮</span><span class="x">✕</span></div></div>
+  <!-- 07 -->
+  <div class="tile pau"><div class="vid"><img src="../media/firmbee-guitar-756326_1920.jpg"><div class="sel-box"></div><span class="fmt">1080p25</span><span class="rtc"><i></i>00:31:47</span><div class="am"><span><i style="height:52%"></i></span><span><i style="height:50%"></i></span></div><span class="lbl"><em>07</em>GITARA CLOSE</span></div>
+   <div class="strip"><span class="sb r">REC</span><span class="sb p lit">II</span><span class="sb">STOP</span><span class="sb off">SPLIT</span><span class="src">HDMI · UVC Magewell</span><span class="gr">⋮⋮</span><span class="x">✕</span></div></div>
+  <!-- 08 -->
+  <div class="tile rec"><div class="vid"><img src="../media/wikimediaimages-ballet-don-quijote-895062_1920.jpg"><div class="sel-box"></div><span class="fmt">1080p50</span><span class="rtc"><i></i>00:58:01</span><div class="am"><span><i style="height:63%"></i></span><span><i style="height:60%"></i></span></div><span class="lbl"><em>08</em>BALET</span></div>
+   <div class="strip"><span class="sb r lit">REC</span><span class="sb p">II</span><span class="sb">STOP</span><span class="sb">SPLIT</span><span class="src">SRT · listener :9001</span><span class="gr">⋮⋮</span><span class="x">✕</span></div></div>
+  <!-- 09 -->
+  <div class="tile rec"><div class="vid"><img src="../media/pavanprasad_ind-festival-10513401_1920.jpg"><div class="sel-box"></div><span class="fmt">1080p25</span><span class="rtc"><i></i>00:44:19</span><div class="am"><span><i style="height:70%"></i></span><span><i style="height:72%"></i></span></div><span class="lbl"><em>09</em>FESTIWAL</span></div>
+   <div class="strip"><span class="sb r lit">REC</span><span class="sb p">II</span><span class="sb">STOP</span><span class="sb">SPLIT</span><span class="src">RTSP · 10.0.4.21</span><span class="gr">⋮⋮</span><span class="x">✕</span></div></div>
+  <!-- 10 -->
+  <div class="tile rec"><div class="vid"><img src="../media/sepph-soccer-1678992_1920.jpg"><div class="sel-box"></div><span class="fmt">1080p50</span><span class="rtc"><i></i>00:44:19</span><div class="am"><span><i style="height:66%"></i></span><span><i style="height:68%"></i></span></div><span class="lbl"><em>10</em>BOISKO</span></div>
+   <div class="strip"><span class="sb r lit">REC</span><span class="sb p">II</span><span class="sb">STOP</span><span class="sb">SPLIT</span><span class="src">SRT · caller 85.14.2.7</span><span class="gr">⋮⋮</span><span class="x">✕</span></div></div>
+  <!-- 11 -->
+  <div class="tile prv"><div class="vid"><img src="../media/kookay-new-town-hall-4152279_1920.jpg"><div class="sel-box"></div><span class="fmt">2160p25</span><div class="am"><span><i style="height:22%"></i></span><span><i style="height:22%"></i></span></div><span class="lbl"><em>11</em>RATUSZ</span></div>
+   <div class="strip"><span class="sb r">REC</span><span class="sb off">II</span><span class="sb off">STOP</span><span class="sb off">SPLIT</span><span class="src">RTSP · 10.0.4.30</span><span class="gr">⋮⋮</span><span class="x">✕</span></div></div>
+  <!-- 12 -->
+  <div class="tile rec"><div class="vid"><img src="../media/yankypollak-police-1807409_1920.jpg"><div class="sel-box"></div><span class="fmt">720p30</span><span class="rtc"><i></i>00:12:04</span><div class="am"><span><i style="height:55%"></i></span><span><i style="height:51%"></i></span></div><span class="lbl"><em>12</em>MOBILE 1</span></div>
+   <div class="strip"><span class="sb r lit">REC</span><span class="sb p">II</span><span class="sb">STOP</span><span class="sb">SPLIT</span><span class="src">WebRTC WHEP · media01</span><span class="gr">⋮⋮</span><span class="x">✕</span></div></div>
+  <!-- 13 -->
+  <div class="tile prv"><div class="vid"><img src="../media/jatocreate-beach-7436793_1920.jpg"><div class="sel-box"></div><span class="fmt">1080p30</span><div class="am"><span><i style="height:35%"></i></span><span><i style="height:37%"></i></span></div><span class="lbl"><em>13</em>GOŚĆ OBS</span></div>
+   <div class="strip"><span class="sb r">REC</span><span class="sb off">II</span><span class="sb off">STOP</span><span class="sb off">SPLIT</span><span class="src">WebRTC WHIP · :8443/gosc</span><span class="gr">⋮⋮</span><span class="x">✕</span></div></div>
+  <!-- 14 -->
+  <div class="tile rec dim"><div class="vid"><img src="../media/jatocreate-dog-diving-9508975_1920.jpg"><div class="sel-box"></div><span class="fmt">1080p50</span><span class="rtc"><i></i>00:20:55</span><div class="msg"><div>RECONNECTING<small>brak danych 00:00:07 · próba 3</small></div></div><span class="lbl"><em>14</em>DRON</span></div>
+   <div class="strip"><span class="sb r lit">REC</span><span class="sb p">II</span><span class="sb">STOP</span><span class="sb">SPLIT</span><span class="src">SRT · listener :9004</span><span class="gr">⋮⋮</span><span class="x">✕</span></div></div>
+  <!-- 15 -->
+  <div class="tile rec"><div class="vid"><img src="../media/artellliii72-motorboat-rides-7401969_1920.jpg"><div class="sel-box"></div><span class="fmt">1080p50</span><span class="rtc"><i></i>00:20:55</span><div class="am"><span><i style="height:77%"></i></span><span><i style="height:73%"></i></span></div><span class="lbl"><em>15</em>ŁÓDŹ</span></div>
+   <div class="strip"><span class="sb r lit">REC</span><span class="sb p">II</span><span class="sb">STOP</span><span class="sb">SPLIT</span><span class="src">SRT · listener :9005</span><span class="gr">⋮⋮</span><span class="x">✕</span></div></div>
+  <!-- 16 -->
+  <div class="tile"><div class="vid"><img src="../media/wolfgang_hasselmann-volcano-10468212_1920.jpg"><div class="sel-box"></div><span class="fmt">1080p25</span><span class="rtc" style="background:rgba(0,0,0,.7)">START 11:00</span><div class="am"><span><i style="height:12%"></i></span><span><i style="height:12%"></i></span></div><span class="lbl"><em>16</em>KAMERA WULKAN</span></div>
+   <div class="strip"><span class="sb r">REC</span><span class="sb off">II</span><span class="sb off">STOP</span><span class="sb off">SPLIT</span><span class="src">RTSP · webcam.is</span><span class="gr">⋮⋮</span><span class="x">✕</span></div></div>
+ </div>
+
+ <!-- inspector -->
+ <div class="insp">
+  <div class="ih">Inspektor<span class="r">Kanał 01 · CAM 1 WYWIAD</span></div>
+  <div class="pv"><img src="../media/7921333-woman-4676131_1920.jpg"><span class="rtc"><i></i>01:22:33:12</span><span class="lbl"><em>01</em>CAM 1 WYWIAD</span></div>
+  <div class="meters">
+   <div class="hm">
+    <div class="l"><b>L</b><div class="bar"><i style="width:74%"></i></div></div>
+    <div class="l"><b>R</b><div class="bar"><i style="width:69%"></i></div></div>
+    <div class="sc"><span>-60</span><span>-48</span><span>-36</span><span>-24</span><span>-18</span><span>-12</span><span>-6</span><span>0</span></div>
+   </div>
+  </div>
+  <div class="itabs"><span class="on">Input</span><span>Output</span><span>Scheduler</span></div>
+  <div class="ib">
+   <div class="sh"><span class="ch">▼</span>Źródło<span class="tw"></span></div>
+   <div class="secb">
+    <div class="fr"><label>Typ wejścia</label><div class="dd"><span class="v">HDMI — Blackmagic DeckLink</span><span class="ar"></span></div></div>
+    <div class="fr"><label>Urządzenie</label><div class="dd"><span class="v">DeckLink Quad HDMI Recorder (1)</span><span class="ar"></span></div></div>
+    <div class="fr"><label>Format wideo</label><div class="two"><div class="dd"><span class="v">Auto</span><span class="det">1080p50</span><span class="ar"></span></div><div class="dd"><span class="v">YUV 10-bit</span><span class="ar"></span></div></div></div>
+    <div class="fr"><label>Timecode</label><div class="tg"><span>Brak</span><span class="on">RTC</span><span>RP188</span></div></div>
+   </div>
+   <div class="sh"><span class="ch">▼</span>Audio<span class="tw"></span></div>
+   <div class="secb">
+    <div class="fr"><label>Źródło audio</label><div class="dd"><span class="v">Osadzone HDMI</span><span class="ar"></span></div></div>
+    <div class="fr"><label>Kanały</label><div class="two"><div class="dd"><span class="v">1–2 stereo</span><span class="ar"></span></div><div class="dd"><span class="v">Offset 0 ms</span></div></div></div>
+   </div>
+   <div class="sh"><span class="ch">▼</span>Utrata sygnału<span class="tw"></span></div>
+   <div class="secb">
+    <div class="fr"><label>Ponowne łączenie</label><div class="ck"><i>✓</i>Automatycznie, timeout 3 s</div></div>
+    <div class="fr"><label>Podczas zaniku</label><div class="dd"><span class="v">Pauza, po powrocie split</span><span class="ar"></span></div></div>
+   </div>
+   <div class="sh" style="color:var(--t2)"><span class="ch">►</span>Output — MKV · H.264 NVENC 20 Mb/s · split 60 min</div>
+   <div class="sh" style="color:var(--t2)"><span class="ch">►</span>Scheduler — Pn–Pt 08:55 start · 17:05 stop</div>
+  </div>
+ </div>
+</div>
+
+<div class="cp">
+ <div class="grp"><span class="cap">Zaznaczone kanały (4)</span>
+  <div class="btns">
+   <div class="kb red lit"><span class="dot"></span>REC</div>
+   <div class="kb"><span class="ps"></span>PAUSE</div>
+   <div class="kb"><span class="sq"></span>STOP</div>
+   <div class="kb"><span class="cut"><i class="l"></i><i class="r"></i></span>SPLIT</div>
+  </div></div>
+ <div class="grp"><span class="cap">Wybór</span>
+  <div class="btns">
+   <div class="kb w">SELECT ALL</div>
+   <div class="kb w dis">ADD SOURCE</div>
+  </div></div>
+ <div class="grp"><span class="cap">Lista kanałów</span>
+  <div class="btns">
+   <div class="kb"><span class="tri-u"></span>W GÓRĘ</div>
+   <div class="kb"><span class="tri-d"></span>W DÓŁ</div>
+   <div class="kb w">WCZYTAJ</div>
+   <div class="kb w">ZAPISZ</div>
+  </div></div>
+ <div class="count"><span class="cap">Kanały</span><span class="n">16<span> / 16</span></span>
+  <div class="legend"><span><i style="background:var(--red)"></i>REC 12</span><span><i style="background:var(--amber)"></i>PAUZA 1</span><span><i style="background:var(--green)"></i>PREVIEW 2</span><span><i style="background:#555"></i>CZEKA 1</span></div></div>
+</div>
+
+<div class="st"><span><b>Autosave</b> 10:17:20</span><span>10:15:01 Kanał 07 — pauza (00:31:47.240)</span><span>10:17:28 Kanał 14 — utrata strumienia SRT, ponowne łączenie</span><span style="margin-left:auto">Limit 16 kanałów osiągnięty — ADD SOURCE nieaktywny</span></div>
+</div></body></html>

@@ -1,0 +1,12 @@
+build/
+dist/
+out/
+nagrania/
+.vs/
+.vscode/
+*.user
+CMakeUserPresets.json
+*.pdb
+*.ilk
+*.obj
+Thumbs.db
