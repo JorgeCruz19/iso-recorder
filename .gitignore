@@ -10,3 +10,4 @@ CMakeUserPresets.json
 *.ilk
 *.obj
 Thumbs.db
+*.log
