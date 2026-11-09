@@ -108,7 +108,9 @@ Test akceptacyjny (od wersji 0.4): Rec 10 s → Pause 5 s → Resume → 10 s �
 | CPU / RAM | i5‑8400T (6 rdzeni), 32 GB |
 | GPU | Intel UHD 630 → **tylko QSV** (brak NVENC/AMF) |
 | MSVC, CMake, Ninja, Windows SDK | są (VS Build Tools 18) |
-| Qt, GStreamer | **brak — do zainstalowania** |
+| Qt | 6.10.3 `msvc2022_64` w `C:\Qt` (zainstalowane 2026‑11‑10 przez `aqtinstall`) |
+| GStreamer | 1.28.8 MSVC x64 w `%LOCALAPPDATA%\Programs\gstreamer\1.0\msvc_x86_64` (instalacja dla użytkownika, **bez** zmiennej `GSTREAMER_1_0_ROOT_MSVC_X86_64` — skrypty szukają tej ścieżki same) |
+| Wtyczki | `--check-env`: komplet poza `nvh264enc` i `amfh264enc` (brak takiego GPU); są m.in. `qsvh264enc`, `ndisrc`, `srtsrc`, `whepclientsrc`, `whipserversrc`, `fallbacksrc` |
 | NDI Runtime 6 | jest |
 | ffmpeg/ffprobe | jest (`D:\VideoTools\ffmpeg`) |
 | Karty HDMI / kamery | nie wykryto |
