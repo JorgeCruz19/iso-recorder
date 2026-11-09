@@ -4,6 +4,7 @@
 
 #include "ChannelTile.h"
 #include "core/ChannelManager.h"
+#include "core/Lang.h"
 
 ChannelGrid::ChannelGrid(ChannelManager* mgr, QWidget* parent) : QScrollArea(parent), m_mgr(mgr) {
     setFrameShape(QFrame::NoFrame);
@@ -12,7 +13,7 @@ ChannelGrid::ChannelGrid(ChannelManager* mgr, QWidget* parent) : QScrollArea(par
     m_inner = new QWidget;
     m_inner->setObjectName(QStringLiteral("gridInner"));
     setWidget(m_inner);
-    m_hint = new QLabel(QStringLiteral("Brak kanałów\n\nADD SOURCE dodaje kanał (maks. 16)"), m_inner);
+    m_hint = new QLabel(T("No channels") + QStringLiteral("\n\n") + T("ADD SOURCE adds a channel (max. 16)"), m_inner);
     m_hint->setAlignment(Qt::AlignCenter);
     m_hint->setStyleSheet(QStringLiteral("color:#6e6e6e; background:transparent; font-size:14px;"));
     connect(mgr, &ChannelManager::listChanged, this, &ChannelGrid::rebuild);

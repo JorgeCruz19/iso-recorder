@@ -5,12 +5,15 @@
 
 #include "Theme.h"
 #include "core/Channel.h"
+#include "core/Lang.h"
 
 // ---------- KeyButton ----------
 
 KeyButton::KeyButton(const QString& text, Glyph glyph, bool wide, QWidget* parent)
     : QAbstractButton(parent), m_glyph(glyph), m_wide(wide) {
     setText(text);
+    // szerokosc dopasowana do napisu - tlumaczenia bywaja dluzsze niz tekst angielski
+    m_width = qMax(wide ? 92 : 72, QFontMetrics(Theme::font(10, QFont::Bold, 0.7)).horizontalAdvance(text) + 24);
     setFixedSize(sizeHint());
     setFocusPolicy(Qt::NoFocus);
     setCursor(Qt::PointingHandCursor);
@@ -101,7 +104,7 @@ void PreviewPane::paintEvent(QPaintEvent*) {
     if (!m_ch) {
         p.setPen(Theme::t3);
         p.setFont(Theme::font(12));
-        p.drawText(rect(), Qt::AlignCenter, QStringLiteral("Brak aktywnego kanału"));
+        p.drawText(rect(), Qt::AlignCenter, T("No active channel"));
         return;
     }
     const QImage& img = m_ch->frame();

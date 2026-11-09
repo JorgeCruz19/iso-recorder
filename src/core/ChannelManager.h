@@ -23,7 +23,9 @@ public:
     void removeChannel(Channel* ch);
     void moveActive(int delta);
     void setActive(Channel* ch);
-    void selectAllToggle();
+    void selectAll();
+    void selectNone();
+    void invertSelection();
     void transport(Channel* ch, Transport t);       // kanal
     void transportSelected(Transport t);            // zaznaczone
 

@@ -1,5 +1,7 @@
 #include "Channel.h"
 
+#include "Lang.h"
+
 #include <gst/video/video.h>
 
 #include <algorithm>
@@ -37,7 +39,7 @@ QString Channel::formatText() const {
 }
 
 QString Channel::sourceText() const {
-    return QStringLiteral("Test · generator %1").arg(m_cfg.pattern);
+    return T("Test generator");
 }
 
 void Channel::setState(ChannelState s, const QString& error) {
@@ -70,7 +72,7 @@ void Channel::startPreview() {
     GError* err = nullptr;
     m_pipeline = gst_parse_launch(desc.toUtf8().constData(), &err);
     if (!m_pipeline || err) {
-        const QString text = err ? QString::fromUtf8(err->message) : QStringLiteral("nie można zbudować pipeline'u");
+        const QString text = err ? QString::fromUtf8(err->message) : T("cannot build the pipeline");
         g_clear_error(&err);
         if (m_pipeline) { gst_object_unref(m_pipeline); m_pipeline = nullptr; }
         setState(ChannelState::Error, text);
@@ -89,7 +91,7 @@ void Channel::startPreview() {
 
     if (gst_element_set_state(m_pipeline, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
         stopPreview();
-        setState(ChannelState::Error, QStringLiteral("nie można uruchomić podglądu"));
+        setState(ChannelState::Error, T("cannot start the preview"));
         return;
     }
     setState(ChannelState::Preview);
@@ -160,7 +162,7 @@ GstBusSyncReply Channel::onBus(GstBus*, GstMessage* msg, gpointer user) {
         GError* err = nullptr;
         gchar* dbg = nullptr;
         gst_message_parse_error(msg, &err, &dbg);
-        const QString text = err ? QString::fromUtf8(err->message) : QStringLiteral("błąd pipeline'u");
+        const QString text = err ? QString::fromUtf8(err->message) : T("pipeline error");
         g_clear_error(&err);
         g_free(dbg);
         QMetaObject::invokeMethod(self, [self, text] {

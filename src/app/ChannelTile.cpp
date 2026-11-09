@@ -6,6 +6,7 @@
 
 #include "Theme.h"
 #include "core/ChannelManager.h"
+#include "core/Lang.h"
 
 namespace {
 const char* const kBtn[4] = {"REC", "II", "STOP", "SPLIT"};
@@ -79,8 +80,8 @@ void ChannelTile::paintEvent(QPaintEvent*) {
         p.fillRect(r.vid, QColor(0, 0, 0, 158));
         p.setPen(Qt::white);
         p.setFont(Theme::font(13, QFont::Bold, 1));
-        const QString head = st == ChannelState::Error ? QStringLiteral("BŁĄD")
-                           : st == ChannelState::Idle ? QStringLiteral("NO SIGNAL") : QStringLiteral("RECONNECTING");
+        const QString head = st == ChannelState::Error ? T("ERROR")
+                           : st == ChannelState::Idle ? T("NO SIGNAL") : T("RECONNECTING");
         p.drawText(r.vid.adjusted(8, 0, -8, st == ChannelState::Error ? -16 : 0), Qt::AlignCenter, head);
         if (st == ChannelState::Error) {
             p.setFont(Theme::font(11));
@@ -197,7 +198,7 @@ void ChannelTile::mousePressEvent(QMouseEvent* e) {
 void ChannelTile::mouseDoubleClickEvent(QMouseEvent* e) {
     if (!rects().label.contains(e->position().toPoint())) return;
     bool ok = false;
-    const QString name = QInputDialog::getText(this, QStringLiteral("Nazwa kanału"), QStringLiteral("Nazwa:"),
+    const QString name = QInputDialog::getText(this, T("Channel name"), T("Name:"),
                                                QLineEdit::Normal, m_ch->config().name, &ok);
     if (ok) m_ch->setName(name);
 }

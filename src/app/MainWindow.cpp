@@ -22,9 +22,11 @@
 
 #include "ChannelGrid.h"
 #include "Inspector.h"
+#include "Theme.h"
 #include "Widgets.h"
 #include "core/ChannelManager.h"
 #include "core/EnvCheck.h"
+#include "core/Lang.h"
 
 namespace {
 QLabel* label(const QString& text, const char* objectName) {
@@ -33,7 +35,11 @@ QLabel* label(const QString& text, const char* objectName) {
     return l;
 }
 
-QLabel* cap(const QString& text) { return label(text.toUpper(), "cap"); }
+QLabel* cap(const QString& text) {
+    QLabel* l = label(text.toUpper(), "cap");
+    l->setMinimumWidth(QFontMetrics(Theme::font(10, QFont::Bold)).horizontalAdvance(l->text()) + 4);
+    return l;
+}
 
 QFrame* cell(const char* name, QLayout* inner, int hpad) {
     auto* f = new QFrame;
@@ -53,7 +59,7 @@ quint64 ft(const FILETIME& f) { return (quint64(f.dwHighDateTime) << 32) | f.dwL
 }
 
 MainWindow::MainWindow(ChannelManager* mgr, QWidget* parent) : QWidget(parent), m_mgr(mgr) {
-    setWindowTitle(QStringLiteral("ISO Recorder — Nowa sesja"));
+    setWindowTitle(QStringLiteral("ISO Recorder — ") + T("New session"));
     setMinimumSize(1280, 720);
     resize(1600, 900);
     const BOOL dark = TRUE;
@@ -106,17 +112,17 @@ QWidget* MainWindow::buildHeader() {
     auto* vs = new QVBoxLayout;
     vs->setSpacing(3);
     vs->addStretch();
-    vs->addWidget(cap(QStringLiteral("Sesja")));
-    vs->addWidget(m_session = label(QStringLiteral("Nowa sesja"), "proj"));
+    vs->addWidget(cap(T("Session")));
+    vs->addWidget(m_session = label(T("New session"), "proj"));
     vs->addStretch();
-    QFrame* c = cell("cell", vs, 22);
-    c->setMinimumWidth(200);
+    QFrame* c = cell("cell", vs, 18);
+    c->setMinimumWidth(170);
     h->addWidget(c);
 
     auto* vr = new QVBoxLayout;
     vr->setSpacing(0);
     vr->addStretch();
-    vr->addWidget(m_recCap = cap(QStringLiteral("Czas nagrania")));
+    vr->addWidget(m_recCap = cap(T("Recording time")));
     auto* hr = new QHBoxLayout;
     hr->setSpacing(16);
     hr->addWidget(m_recTime = label(QStringLiteral("00:00:00:00"), "tc"));
@@ -124,8 +130,8 @@ QWidget* MainWindow::buildHeader() {
     m_recBadge->hide();
     vr->addLayout(hr);
     vr->addStretch();
-    c = cell("cell", vr, 22);
-    c->setMinimumWidth(300);
+    c = cell("cell", vr, 18);
+    c->setMinimumWidth(280);
     h->addWidget(c);
 
     auto* vt = new QVBoxLayout;
@@ -135,12 +141,12 @@ QWidget* MainWindow::buildHeader() {
     vt->addWidget(m_rtc = label(QStringLiteral("00:00:00:00"), "tcSmall"));
     m_rtc->setMinimumWidth(150);
     vt->addStretch();
-    h->addWidget(cell("cell", vt, 22));
+    h->addWidget(cell("cell", vt, 18));
 
     auto* vd = new QVBoxLayout;
     vd->setSpacing(3);
     vd->addStretch();
-    vd->addWidget(m_diskCap = cap(QStringLiteral("Dysk")));
+    vd->addWidget(m_diskCap = cap(T("Disk")));
     auto* hd = new QHBoxLayout;
     hd->addWidget(m_diskTime = label(QStringLiteral("--:--:--"), "big"));
     hd->addStretch();
@@ -151,25 +157,26 @@ QWidget* MainWindow::buildHeader() {
     m_diskBar->setRange(0, 1000);
     vd->addWidget(m_diskBar);
     vd->addStretch();
-    c = cell("cell", vd, 22);
-    c->setMinimumWidth(300);
+    c = cell("cell", vd, 18);
+    c->setMinimumWidth(260);
     h->addWidget(c);
 
     auto* hs = new QHBoxLayout;
-    hs->setSpacing(22);
+    hs->setSpacing(16);
     QLabel* dummy = nullptr;
     const struct { const char* name; const char* value; QLabel** out; } stats[] = {
-        {"Zapis", "0 Mb/s", &dummy}, {"CPU", "—", &m_cpu}, {"GPU", "—", &dummy}, {"Enk. HW", "0", &dummy}, {"Drop", "0", &dummy}};
+        {"Write", "0 Mb/s", &dummy}, {"CPU", "—", &m_cpu}, {"GPU", "—", &dummy}, {"HW enc.", "0", &dummy}, {"Drop", "0", &dummy}};
     for (const auto& s : stats) {
         auto* vv = new QVBoxLayout;
         vv->setSpacing(2);
         vv->addStretch();
-        vv->addWidget(cap(QString::fromUtf8(s.name)));
+        vv->addWidget(cap(T(s.name)));
         vv->addWidget(*s.out = label(QString::fromUtf8(s.value), "stat"));
+        (*s.out)->setMinimumWidth(QFontMetrics(Theme::font(15, QFont::DemiBold)).horizontalAdvance(QLatin1String(s.out == &m_cpu ? "100%" : s.name[0] == 'W' ? "999 Mb/s" : "00")) + 4);
         vv->addStretch();
         hs->addLayout(vv);
     }
-    h->addWidget(cell("cell", hs, 22));
+    h->addWidget(cell("cell", hs, 18));
 
     h->addStretch(1);
 
@@ -179,19 +186,26 @@ QWidget* MainWindow::buildHeader() {
     menuBtn->setObjectName(QStringLiteral("vb"));
     menuBtn->setFocusPolicy(Qt::NoFocus);
     auto* menu = new QMenu(menuBtn);
-    for (const char* t : {"Nowa lista", "Wczytaj listę…", "Zapisz listę", "Zapisz jako…"})
-        menu->addAction(QString::fromUtf8(t) + QStringLiteral("  (od 0.5)"))->setEnabled(false);
+    for (const char* t : {"New list", "Load list…", "Save list", "Save as…"})
+        menu->addAction(T(t) + QStringLiteral("  ") + T("(from %1)").arg(QLatin1String(Roadmap::lists)))->setEnabled(false);
     menu->addSeparator();
-    menu->addAction(QStringLiteral("Diagnostyka…"), this, &MainWindow::showDiagnostics);
-    menu->addAction(QStringLiteral("O programie"), this, [this] {
+    QMenu* langMenu = menu->addMenu(T("Language") + (Lang::current() == QLatin1String("en") ? QString() : QStringLiteral(" / Language")));
+    for (const Lang::Info& li : Lang::available()) {
+        const QString code = QLatin1String(li.code);
+        QAction* a = langMenu->addAction(QString::fromUtf8(li.name), this, [this, code] { emit languageRequested(code); });
+        a->setCheckable(true);
+        a->setChecked(code == Lang::current());
+    }
+    menu->addAction(T("Diagnostics…"), this, &MainWindow::showDiagnostics);
+    menu->addAction(T("About"), this, [this] {
         QMessageBox::about(this, QStringLiteral("ISO Recorder"),
-                           QStringLiteral("ISO Recorder %1\nWielokanałowy rejestrator wideo.\n\nQt %2 · GStreamer")
-                               .arg(QLatin1String(APP_VERSION), QLatin1String(qVersion())));
+                           QStringLiteral("ISO Recorder %1\n%2\n\nQt %3 · GStreamer")
+                               .arg(QLatin1String(APP_VERSION), T("Multi-channel video recorder."), QLatin1String(qVersion())));
     });
     menuBtn->setMenu(menu);
     hv->addWidget(menuBtn);
-    hv->addSpacing(18);
-    hv->addWidget(cap(QStringLiteral("Widok")));
+    hv->addSpacing(12);
+    hv->addWidget(cap(T("View")));
     hv->addSpacing(10);
     auto* group = new QButtonGroup(this);
     for (int n : {2, 3, 4}) {
@@ -203,13 +217,13 @@ QWidget* MainWindow::buildHeader() {
         group->addButton(b, n);
         hv->addWidget(b);
     }
-    auto* list = new QPushButton(QStringLiteral("Lista"));
+    auto* list = new QPushButton(T("List"));
     list->setObjectName(QStringLiteral("vb"));
     list->setEnabled(false);
-    list->setToolTip(QStringLiteral("Widok listy — od wersji 0.9"));
+    list->setToolTip(T("List view — from version %1").arg(QLatin1String(Roadmap::scheduler)));
     hv->addWidget(list);
     connect(group, &QButtonGroup::idClicked, this, [this](int n) { m_grid->setColumns(n); });
-    h->addWidget(cell("viewsel", hv, 18));
+    h->addWidget(cell("viewsel", hv, 12));
     return header;
 }
 
@@ -242,33 +256,42 @@ QWidget* MainWindow::buildControlPanel() {
         connect(m_btnTransport[i], &KeyButton::clicked, this, [this, i] { m_mgr->transportSelected(Transport(i)); });
     }
     m_btnTransport[0]->setRed(true);
-    group(m_selCap = cap(QStringLiteral("Zaznaczone kanały (0)")),
+    group(m_selCap = cap(T("Selected channels (%1)").arg(0)),
           {m_btnTransport[0], m_btnTransport[1], m_btnTransport[2], m_btnTransport[3]});
 
-    m_btnSelectAll = new KeyButton(QStringLiteral("SELECT ALL"), KeyButton::None, true);
-    m_btnAdd = new KeyButton(QStringLiteral("ADD SOURCE"), KeyButton::None, true);
-    connect(m_btnSelectAll, &KeyButton::clicked, m_mgr, &ChannelManager::selectAllToggle);
-    connect(m_btnAdd, &KeyButton::clicked, m_mgr, [this] { m_mgr->addChannel(); });
-    group(cap(QStringLiteral("Wybór")), {m_btnSelectAll, m_btnAdd});
+    // Zaznaczenie: dotyczy pol wyboru na kaflach
+    m_btnSelect[0] = new KeyButton(T("SELECT ALL"), KeyButton::None, true);
+    m_btnSelect[1] = new KeyButton(T("SELECT NONE"), KeyButton::None, true);
+    m_btnSelect[2] = new KeyButton(T("INVERT"), KeyButton::None, true);
+    connect(m_btnSelect[0], &KeyButton::clicked, m_mgr, &ChannelManager::selectAll);
+    connect(m_btnSelect[1], &KeyButton::clicked, m_mgr, &ChannelManager::selectNone);
+    connect(m_btnSelect[2], &KeyButton::clicked, m_mgr, &ChannelManager::invertSelection);
+    group(cap(T("Selection")), {m_btnSelect[0], m_btnSelect[1], m_btnSelect[2]});
 
-    m_btnUp = new KeyButton(QStringLiteral("W GÓRĘ"), KeyButton::Up, false);
-    m_btnDown = new KeyButton(QStringLiteral("W DÓŁ"), KeyButton::Down, false);
-    auto* load = new KeyButton(QStringLiteral("WCZYTAJ"), KeyButton::None, true);
-    auto* save = new KeyButton(QStringLiteral("ZAPISZ"), KeyButton::None, true);
-    load->setEnabled(false);
-    save->setEnabled(false);
-    load->setToolTip(QStringLiteral("Od wersji 0.5"));
-    save->setToolTip(QStringLiteral("Od wersji 0.5"));
+    // Kanal aktywny (ten z biala ramka, pokazany w inspektorze)
+    m_btnUp = new KeyButton(T("MOVE UP"), KeyButton::Up, false);
+    m_btnDown = new KeyButton(T("MOVE DOWN"), KeyButton::Down, false);
     connect(m_btnUp, &KeyButton::clicked, this, [this] { m_mgr->moveActive(-1); });
     connect(m_btnDown, &KeyButton::clicked, this, [this] { m_mgr->moveActive(1); });
-    group(cap(QStringLiteral("Lista kanałów")), {m_btnUp, m_btnDown, load, save});
+    group(cap(T("Active channel")), {m_btnUp, m_btnDown});
+
+    // Lista kanalow jako calosc
+    m_btnAdd = new KeyButton(T("ADD SOURCE"), KeyButton::None, true);
+    auto* load = new KeyButton(T("LOAD"), KeyButton::None, true);
+    auto* save = new KeyButton(T("SAVE"), KeyButton::None, true);
+    load->setEnabled(false);
+    save->setEnabled(false);
+    load->setToolTip(T("From version %1").arg(QLatin1String(Roadmap::lists)));
+    save->setToolTip(T("From version %1").arg(QLatin1String(Roadmap::lists)));
+    connect(m_btnAdd, &KeyButton::clicked, m_mgr, [this] { m_mgr->addChannel(); });
+    group(cap(T("Channel list")), {m_btnAdd, load, save});
 
     h->addStretch(1);
 
     auto* vc = new QVBoxLayout;
     vc->setSpacing(2);
     vc->addStretch();
-    vc->addWidget(cap(QStringLiteral("Kanały")), 0, Qt::AlignRight);
+    vc->addWidget(cap(T("Channels")), 0, Qt::AlignRight);
     vc->addWidget(m_count = label(QString(), "countN"), 0, Qt::AlignRight);
     m_count->setTextFormat(Qt::RichText);
     vc->addWidget(m_legend = label(QString(), "legend"), 0, Qt::AlignRight);
@@ -286,7 +309,7 @@ QWidget* MainWindow::buildStatus() {
     auto* h = new QHBoxLayout(st);
     h->setContentsMargins(12, 0, 12, 0);
     h->setSpacing(22);
-    auto* autosave = new QLabel(QStringLiteral("<b style='color:#9d9d9d'>Autosave</b> — (od wersji 0.5)"));
+    auto* autosave = new QLabel(QStringLiteral("<b style='color:#9d9d9d'>Autosave</b> — ") + T("(from version %1)").arg(QLatin1String(Roadmap::lists)));
     autosave->setTextFormat(Qt::RichText);
     h->addWidget(autosave);
     h->addWidget(m_events = new QLabel, 1);
@@ -302,9 +325,11 @@ void MainWindow::notice(const QString& text) {
 
 void MainWindow::refreshCounts() {
     const int n = m_mgr->count(), sel = m_mgr->selectedCount();
-    m_selCap->setText(QStringLiteral("ZAZNACZONE KANAŁY (%1)").arg(sel));
+    m_selCap->setText(T("Selected channels (%1)").arg(sel).toUpper());
     for (KeyButton* b : m_btnTransport) b->setEnabled(sel > 0);
-    m_btnSelectAll->setEnabled(n > 0);
+    m_btnSelect[0]->setEnabled(n > 0 && sel < n);
+    m_btnSelect[1]->setEnabled(sel > 0);
+    m_btnSelect[2]->setEnabled(n > 0);
     m_btnAdd->setEnabled(m_mgr->canAdd());
     m_count->setText(QStringLiteral("%1<span style='color:#6e6e6e'> / %2</span>").arg(n).arg(ChannelManager::MaxChannels));
 
@@ -322,19 +347,18 @@ void MainWindow::refreshCounts() {
     auto item = [](const char* color, const QString& text) {
         return QStringLiteral("<span style='color:%1'>■</span> %2").arg(QLatin1String(color), text);
     };
-    QStringList lg{item("#e0242b", QStringLiteral("REC %1").arg(rec)), item("#f2a516", QStringLiteral("PAUZA %1").arg(pau)),
-                   item("#1fae52", QStringLiteral("PREVIEW %1").arg(prv)), item("#555555", QStringLiteral("CZEKA %1").arg(wait))};
-    if (err) lg << item("#e0242b", QStringLiteral("BŁĄD %1").arg(err));
+    QStringList lg{item("#e0242b", QStringLiteral("REC %1").arg(rec)), item("#f2a516", T("PAUSED %1").arg(pau)),
+                   item("#1fae52", QStringLiteral("PREVIEW %1").arg(prv)), item("#555555", T("WAITING %1").arg(wait))};
+    if (err) lg << item("#e0242b", T("ERROR %1").arg(err));
     m_legend->setText(lg.join(QStringLiteral("&nbsp;&nbsp;&nbsp;")));
     m_btnTransport[0]->setLit(rec > 0);
-    m_hint->setText(m_mgr->canAdd() ? QString() : QStringLiteral("Limit 16 kanałów osiągnięty — ADD SOURCE nieaktywny"));
+    m_hint->setText(m_mgr->canAdd() ? QString() : T("Limit of 16 channels reached — adding sources is disabled"));
 }
 
 void MainWindow::refreshActive() {
     Channel* ch = m_mgr->active();
     const int i = m_mgr->indexOf(ch);
-    m_recCap->setText(ch ? QStringLiteral("CZAS NAGRANIA — KANAŁ %1").arg(i + 1, 2, 10, QLatin1Char('0'))
-                         : QStringLiteral("CZAS NAGRANIA"));
+    m_recCap->setText((ch ? T("Recording time — channel %1").arg(i + 1, 2, 10, QLatin1Char('0')) : T("Recording time")).toUpper());
     m_btnUp->setEnabled(i > 0);
     m_btnDown->setEnabled(i >= 0 && i < m_mgr->count() - 1);
 }
@@ -343,8 +367,8 @@ void MainWindow::tickSecond() {
     // dysk domyslnego folderu nagran
     const QStorageInfo disk(QStandardPaths::writableLocation(QStandardPaths::MoviesLocation));
     if (disk.isValid() && disk.bytesTotal() > 0) {
-        m_diskCap->setText(QStringLiteral("DYSK %1").arg(disk.rootPath().left(2)));
-        m_diskFree->setText(QStringLiteral("%1 wolne z %2").arg(gb(disk.bytesAvailable()), gb(disk.bytesTotal())));
+        m_diskCap->setText(T("Disk").toUpper() + QLatin1Char(' ') + disk.rootPath().left(2));
+        m_diskFree->setText(T("%1 free of %2").arg(gb(disk.bytesAvailable()), gb(disk.bytesTotal())));
         m_diskBar->setValue(int(1000.0 * (disk.bytesTotal() - disk.bytesAvailable()) / disk.bytesTotal()));
     }
     // CPU calego systemu
@@ -360,7 +384,7 @@ void MainWindow::tickSecond() {
 
 void MainWindow::showDiagnostics() {
     QDialog dlg(this);
-    dlg.setWindowTitle(QStringLiteral("Diagnostyka środowiska"));
+    dlg.setWindowTitle(T("Environment diagnostics"));
     dlg.resize(520, 640);
     auto* v = new QVBoxLayout(&dlg);
     auto* text = new QPlainTextEdit(EnvCheck::run().report);
@@ -376,10 +400,12 @@ void MainWindow::resizeEvent(QResizeEvent* e) {
 
 void MainWindow::keyPressEvent(QKeyEvent* e) {
     const bool ctrl = e->modifiers() & Qt::ControlModifier;
+    const bool shift = e->modifiers() & Qt::ShiftModifier;
     Channel* ch = m_mgr->active();
     const int i = m_mgr->indexOf(ch), n = m_mgr->count();
     switch (e->key()) {
-    case Qt::Key_A: if (ctrl) m_mgr->selectAllToggle(); break;
+    case Qt::Key_A: if (ctrl && shift) m_mgr->selectNone(); else if (ctrl) m_mgr->selectAll(); break;
+    case Qt::Key_I: if (ctrl) m_mgr->invertSelection(); break;
     case Qt::Key_Delete: if (ch) m_mgr->removeChannel(ch); break;
     case Qt::Key_Up: if (ctrl) m_mgr->moveActive(-1); break;
     case Qt::Key_Down: if (ctrl) m_mgr->moveActive(1); break;

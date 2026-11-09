@@ -15,6 +15,9 @@ class MainWindow : public QWidget {
 public:
     explicit MainWindow(ChannelManager* mgr, QWidget* parent = nullptr);
 
+signals:
+    void languageRequested(const QString& code);
+
 protected:
     void resizeEvent(QResizeEvent*) override;
     void keyPressEvent(QKeyEvent*) override;
@@ -46,7 +49,7 @@ private:
 
     QLabel* m_selCap;
     KeyButton* m_btnTransport[4]{};
-    KeyButton* m_btnSelectAll;
+    KeyButton* m_btnSelect[3]{};
     KeyButton* m_btnAdd;
     KeyButton* m_btnUp;
     KeyButton* m_btnDown;

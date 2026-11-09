@@ -13,6 +13,7 @@
 
 #include "Widgets.h"
 #include "core/ChannelManager.h"
+#include "core/Lang.h"
 
 namespace {
 QLabel* section(const QString& text, bool collapsed = false) {
@@ -84,9 +85,10 @@ Inspector::Inspector(ChannelManager* mgr, QWidget* parent) : QWidget(parent), m_
     v->addLayout(tabs);
 
     m_stack->addWidget(buildInputPage());
-    m_stack->addWidget(placeholder(QStringLiteral(
-        "Folder, szablon nazwy, kontener, kodeki i auto-split pojawią się w wersji 0.2 razem z nagrywaniem.")));
-    m_stack->addWidget(placeholder(QStringLiteral("Harmonogram startu, stopu i splitu pojawi się w wersji 0.9.")));
+    m_stack->addWidget(placeholder(
+        T("Folder, name template, container, codecs and auto-split will arrive in version %1 together with recording.")
+            .arg(QLatin1String(Roadmap::recording))));
+    m_stack->addWidget(placeholder(T("Start, stop and split scheduling will arrive in version %1.").arg(QLatin1String(Roadmap::scheduler))));
     v->addWidget(m_stack, 1);
 
     connect(mgr, &ChannelManager::activeChanged, this, &Inspector::bind);
@@ -100,37 +102,44 @@ QWidget* Inspector::buildInputPage() {
     v->setContentsMargins(0, 0, 0, 0);
     v->setSpacing(0);
 
-    v->addWidget(section(QStringLiteral("Źródło")));
+    v->addWidget(section(T("Source")));
     QGridLayout* g = form(v);
     m_name = new QLineEdit;
-    row(g, QStringLiteral("Nazwa kanału"), m_name);
+    row(g, T("Channel name"), m_name);
     m_type = new QComboBox;
-    m_type->addItem(QStringLiteral("Generator testowy"));
-    for (const char* t : {"HDMI — Blackmagic DeckLink (od 0.8)", "HDMI — UVC / Magewell (od 0.6)", "Screen grab (od 0.6)",
-                          "SRT (od 0.7)", "RTSP (od 0.7)", "NDI (od 0.8)", "WebRTC WHEP (od 1.0)", "WebRTC WHIP (od 1.0)"})
-        m_type->addItem(QString::fromUtf8(t));
+    m_type->addItem(T("Test generator"));
+    const struct { QString name; const char* from; } types[] = {
+        {QStringLiteral("HDMI — Blackmagic DeckLink"), Roadmap::ndiDecklink},
+        {QStringLiteral("HDMI — UVC / Magewell"), Roadmap::localInputs},
+        {T("Screen grab"), Roadmap::localInputs},
+        {QStringLiteral("SRT"), Roadmap::network},
+        {QStringLiteral("RTSP"), Roadmap::network},
+        {QStringLiteral("NDI"), Roadmap::ndiDecklink},
+        {QStringLiteral("WebRTC WHEP"), Roadmap::webrtc},
+        {QStringLiteral("WebRTC WHIP"), Roadmap::webrtc}};
+    for (const auto& t : types) m_type->addItem(t.name + QStringLiteral("  ") + T("(from %1)").arg(QLatin1String(t.from)));
     if (auto* model = qobject_cast<QStandardItemModel*>(m_type->model()))
         for (int i = 1; i < model->rowCount(); ++i) model->item(i)->setEnabled(false);
-    row(g, QStringLiteral("Typ wejścia"), m_type);
+    row(g, T("Input type"), m_type);
     m_pattern = new QComboBox;
     const struct { const char* name; int id; } patterns[] = {
-        {"Pasy SMPTE", 0}, {"Pasy SMPTE 75%", 13}, {"Pasy SMPTE 100%", 19}, {"Piłka", 18}, {"Wiatraczek", 21},
-        {"Szprychy", 22}, {"Okręgi", 11}, {"Gradient", 23}, {"Śnieg", 1}, {"Czarny", 2}};
-    for (const auto& pt : patterns) m_pattern->addItem(QString::fromUtf8(pt.name), pt.id);
-    row(g, QStringLiteral("Wzór"), m_pattern);
+        {"SMPTE bars", 0}, {"SMPTE bars 75%", 13}, {"SMPTE bars 100%", 19}, {"Ball", 18}, {"Pinwheel", 21},
+        {"Spokes", 22}, {"Circles", 11}, {"Gradient", 23}, {"Snow", 1}, {"Black", 2}};
+    for (const auto& pt : patterns) m_pattern->addItem(T(pt.name), pt.id);
+    row(g, T("Pattern"), m_pattern);
     m_format = new QLabel;
-    row(g, QStringLiteral("Format wideo"), m_format);
+    row(g, T("Video format"), m_format);
 
     v->addWidget(section(QStringLiteral("Audio")));
     g = form(v);
     m_wave = new QComboBox;
-    m_wave->addItem(QStringLiteral("Sinus 440 Hz"), 0);
-    m_wave->addItem(QStringLiteral("Tiki co 1 s"), 8);
-    m_wave->addItem(QStringLiteral("Cisza"), 4);
-    row(g, QStringLiteral("Sygnał audio"), m_wave);
+    m_wave->addItem(T("Sine 440 Hz"), 0);
+    m_wave->addItem(T("Ticks every 1 s"), 8);
+    m_wave->addItem(T("Silence"), 4);
+    row(g, T("Audio signal"), m_wave);
 
-    v->addWidget(section(QStringLiteral("Output — od wersji 0.2"), true));
-    v->addWidget(section(QStringLiteral("Scheduler — od wersji 0.9"), true));
+    v->addWidget(section(T("Output — from version %1").arg(QLatin1String(Roadmap::recording)), true));
+    v->addWidget(section(T("Scheduler — from version %1").arg(QLatin1String(Roadmap::scheduler)), true));
     v->addStretch(1);
 
     connect(m_name, &QLineEdit::editingFinished, this, [this] {
@@ -159,15 +168,17 @@ void Inspector::bind() {
 void Inspector::refresh() {
     Channel* ch = m_mgr->active();
     if (!ch) {
-        m_title->setText(QStringLiteral("Inspektor"));
+        m_title->setText(T("Inspector"));
         m_name->clear();
         m_format->clear();
         return;
     }
-    m_title->setText(QStringLiteral("Inspektor&nbsp;&nbsp;<span style='color:#6e6e6e;font-weight:400'>Kanał %1 · %2</span>")
-                         .arg(m_mgr->indexOf(ch) + 1, 2, 10, QLatin1Char('0')).arg(ch->config().name.toHtmlEscaped()));
+    m_title->setText(QStringLiteral("%1&nbsp;&nbsp;<span style='color:#6e6e6e;font-weight:400'>%2</span>")
+                         .arg(T("Inspector"), T("Channel %1 · %2")
+                                                  .arg(m_mgr->indexOf(ch) + 1, 2, 10, QLatin1Char('0'))
+                                                  .arg(ch->config().name.toHtmlEscaped())));
     if (!m_name->hasFocus()) m_name->setText(ch->config().name);
     m_pattern->setCurrentIndex(qMax(0, m_pattern->findData(ch->config().pattern)));
     m_wave->setCurrentIndex(qMax(0, m_wave->findData(ch->config().audioWave)));
-    m_format->setText(QStringLiteral("%1 × %2, %3 kl./s").arg(ch->config().width).arg(ch->config().height).arg(ch->config().fps));
+    m_format->setText(T("%1 × %2, %3 fps").arg(ch->config().width).arg(ch->config().height).arg(ch->config().fps));
 }

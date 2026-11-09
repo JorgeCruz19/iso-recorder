@@ -1,5 +1,7 @@
 #include "ChannelManager.h"
 
+#include "Lang.h"
+
 #include <algorithm>
 
 ChannelManager::ChannelManager(QObject* parent) : QObject(parent) {}
@@ -32,7 +34,7 @@ void ChannelManager::removeChannel(Channel* ch) {
         m_active = m_channels.isEmpty() ? nullptr : m_channels.at(std::min(i, count() - 1));
         emit activeChanged();
     }
-    emit notice(QStringLiteral("Usunięto kanał %1").arg(ch->config().name));
+    emit notice(T("Removed channel %1").arg(ch->config().name));
     ch->stopPreview();
     ch->deleteLater();
     emit listChanged();
@@ -53,13 +55,20 @@ void ChannelManager::setActive(Channel* ch) {
     emit activeChanged();
 }
 
-void ChannelManager::selectAllToggle() {
-    const bool all = count() > 0 && selectedCount() == count();
-    for (Channel* c : m_channels) c->setSelected(!all);
+void ChannelManager::selectAll() {
+    for (Channel* c : m_channels) c->setSelected(true);
+}
+
+void ChannelManager::selectNone() {
+    for (Channel* c : m_channels) c->setSelected(false);
+}
+
+void ChannelManager::invertSelection() {
+    for (Channel* c : m_channels) c->setSelected(!c->isSelected());
 }
 
 void ChannelManager::transport(Channel*, Transport) {
-    emit notice(QStringLiteral("Nagrywanie (Rec / Pause / Stop / Split) będzie dostępne od wersji 0.2"));
+    emit notice(T("Recording (Rec / Pause / Stop / Split) will be available from version %1").arg(QLatin1String(Roadmap::recording)));
 }
 
 void ChannelManager::transportSelected(Transport t) {

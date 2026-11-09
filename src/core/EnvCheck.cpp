@@ -6,24 +6,24 @@
 namespace {
 struct Item { const char* group; const char* element; bool required; };
 const Item items[] = {
-    {"Rdzeń", "videotestsrc", true}, {"Rdzeń", "audiotestsrc", true}, {"Rdzeń", "tee", true},
-    {"Rdzeń", "queue", true}, {"Rdzeń", "videorate", true}, {"Rdzeń", "videoconvertscale", true},
-    {"Rdzeń", "appsink", true}, {"Rdzeń", "level", true}, {"Rdzeń", "splitmuxsink", true},
-    {"Kontenery", "matroskamux", true}, {"Kontenery", "mpegtsmux", true}, {"Kontenery", "qtmux", false},
-    {"Kontenery", "isofmp4mux", false},
+    {"Core", "videotestsrc", true}, {"Core", "audiotestsrc", true}, {"Core", "tee", true},
+    {"Core", "queue", true}, {"Core", "videorate", true}, {"Core", "videoconvertscale", true},
+    {"Core", "appsink", true}, {"Core", "level", true}, {"Core", "splitmuxsink", true},
+    {"Containers", "matroskamux", true}, {"Containers", "mpegtsmux", true}, {"Containers", "qtmux", false},
+    {"Containers", "isofmp4mux", false},
     {"GPU", "d3d11convert", false}, {"GPU", "d3d11upload", false}, {"GPU", "d3d11download", false},
-    {"Enkodery wideo", "nvh264enc", false}, {"Enkodery wideo", "qsvh264enc", false},
-    {"Enkodery wideo", "amfh264enc", false}, {"Enkodery wideo", "mfh264enc", false},
-    {"Enkodery wideo", "openh264enc", false}, {"Enkodery wideo", "qsvh265enc", false},
-    {"Enkodery wideo", "avenc_prores_ks", false},
-    {"Enkodery audio", "avenc_aac", false}, {"Enkodery audio", "mfaacenc", false}, {"Enkodery audio", "opusenc", false},
-    {"Wejście: ekran", "d3d11screencapturesrc", false},
-    {"Wejście: HDMI/UVC", "mfvideosrc", false}, {"Wejście: HDMI/UVC", "decklinkvideosrc", false},
-    {"Wejście: audio", "wasapi2src", false},
-    {"Wejście: NDI", "ndisrc", false}, {"Wejście: NDI", "ndisrcdemux", false},
-    {"Wejście: SRT", "srtsrc", false}, {"Wejście: RTSP", "rtspsrc", false},
-    {"Wejście: WebRTC", "whepclientsrc", false}, {"Wejście: WebRTC", "whipserversrc", false},
-    {"Odporność", "fallbacksrc", false}, {"Timecode", "timecodestamper", false},
+    {"Video encoders", "nvh264enc", false}, {"Video encoders", "qsvh264enc", false},
+    {"Video encoders", "amfh264enc", false}, {"Video encoders", "mfh264enc", false},
+    {"Video encoders", "openh264enc", false}, {"Video encoders", "qsvh265enc", false},
+    {"Video encoders", "avenc_prores_ks", false},
+    {"Audio encoders", "avenc_aac", false}, {"Audio encoders", "mfaacenc", false}, {"Audio encoders", "opusenc", false},
+    {"Input: screen", "d3d11screencapturesrc", false},
+    {"Input: HDMI/UVC", "mfvideosrc", false}, {"Input: HDMI/UVC", "decklinkvideosrc", false},
+    {"Input: audio", "wasapi2src", false},
+    {"Input: NDI", "ndisrc", false}, {"Input: NDI", "ndisrcdemux", false},
+    {"Input: SRT", "srtsrc", false}, {"Input: RTSP", "rtspsrc", false},
+    {"Input: WebRTC", "whepclientsrc", false}, {"Input: WebRTC", "whipserversrc", false},
+    {"Resilience", "fallbacksrc", false}, {"Timecode", "timecodestamper", false},
 };
 }
 
@@ -52,9 +52,9 @@ EnvCheck::Result EnvCheck::run() {
             ++missing;
             if (it.required) r.requiredOk = false;
         }
-        out << "  " << (ok ? "[ok]   " : (it.required ? "[BRAK!] " : "[brak] ")) << it.element << "\n";
+        out << "  " << (ok ? "[ok]       " : (it.required ? "[MISSING!] " : "[missing]  ")) << it.element << "\n";
     }
-    out << "\nBrakujące elementy: " << missing
-        << (r.requiredOk ? "  (obowiązkowe: komplet)" : "  (BRAKUJE OBOWIĄZKOWYCH)") << "\n";
+    out << "\nMissing elements: " << missing
+        << (r.requiredOk ? "  (required: complete)" : "  (REQUIRED ELEMENTS MISSING)") << "\n";
     return r;
 }

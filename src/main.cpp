@@ -1,9 +1,12 @@
 #include <QApplication>
+#include <QSettings>
 #include <QTimer>
 
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <functional>
+#include <memory>
 #include <gst/gst.h>
 #include <windows.h>
 
@@ -11,10 +14,12 @@
 #include "app/Theme.h"
 #include "core/ChannelManager.h"
 #include "core/EnvCheck.h"
+#include "core/Lang.h"
 
 // Argumenty:
 //   --check-env           raport o elementach GStreamera (kod wyjscia 1, gdy brakuje obowiazkowych)
 //   --demo N              start z N kanalami testowymi
+//   --lang xx             jezyk interfejsu na te sesje (en, pl, de, es, it, fr)
 //   --screenshot plik.png zrzut okna po 4 s i wyjscie (do porownania z mockupem)
 // Paczka samodzielna: gdy obok EXE lezy katalog gstreamer-1.0\, GStreamer bierze wtyczki tylko stamtad
 // (instalacja systemowa jest ignorowana), a rejestr wtyczek trafia do %LOCALAPPDATA%\IsoRecorder.
@@ -64,11 +69,33 @@ int main(int argc, char* argv[]) {
     }
 
     app.setStyleSheet(Theme::styleSheet());
+    QSettings settings(QStringLiteral("IsoRecorder"), QStringLiteral("IsoRecorder"));
+    const int langAt = int(args.indexOf(QStringLiteral("--lang")));
+    Lang::set(langAt >= 0 && langAt + 1 < args.size() ? args.at(langAt + 1)
+                                                       : settings.value(QStringLiteral("language"), QStringLiteral("en")).toString());
     int rc = 0;
     {
         ChannelManager manager;
-        MainWindow w(&manager);
-        w.show();
+        // Zmiana jezyka buduje okno od nowa; kanaly i ich pipeline'y zostaja nietkniete.
+        std::unique_ptr<MainWindow> w;
+        std::function<void()> makeWindow = [&] {
+            MainWindow* old = w.release();
+            w = std::make_unique<MainWindow>(&manager);
+            QObject::connect(w.get(), &MainWindow::languageRequested, &manager, [&](const QString& code) {
+                Lang::set(code);
+                settings.setValue(QStringLiteral("language"), Lang::current());
+                makeWindow();
+            }, Qt::QueuedConnection);
+            if (old) {
+                w->setGeometry(old->geometry());
+                if (old->isMaximized()) w->showMaximized(); else w->show();
+                old->hide();
+                old->deleteLater();
+            } else {
+                w->show();
+            }
+        };
+        makeWindow();
 
         const int demoAt = int(args.indexOf(QStringLiteral("--demo")));
         if (demoAt >= 0 && demoAt + 1 < args.size()) {
@@ -79,11 +106,17 @@ int main(int argc, char* argv[]) {
                 for (int i = 0; i < qMin(n, 4); ++i) manager.channels().at(i)->setSelected(true);
             }
         }
+        // --switch-lang xx: po 2 s przelacza jezyk ta sama droga co menu (test przebudowy okna)
+        const int switchAt = int(args.indexOf(QStringLiteral("--switch-lang")));
+        if (switchAt >= 0 && switchAt + 1 < args.size()) {
+            const QString code = args.at(switchAt + 1);
+            QTimer::singleShot(2000, &manager, [&w, code] { emit w->languageRequested(code); });
+        }
         const int shotAt = int(args.indexOf(QStringLiteral("--screenshot")));
         if (shotAt >= 0 && shotAt + 1 < args.size()) {
             const QString path = args.at(shotAt + 1);
-            QTimer::singleShot(4000, &w, [&w, path] {
-                w.grab().save(path);
+            QTimer::singleShot(4000, &manager, [&w, path] {
+                w->grab().save(path);
                 QApplication::quit();
             });
         }
