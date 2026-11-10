@@ -98,6 +98,13 @@ QScrollBar:vertical { background:#0b0b0b; width:10px; }
 QScrollBar::handle:vertical { background:#3b3b3b; min-height:30px; }
 QScrollBar::add-line, QScrollBar::sub-line { height:0; }
 QPlainTextEdit { background:#1a1a1a; border:1px solid #3a3a3a; font-family:Consolas; }
+QTableWidget { background:#1a1a1a; border:1px solid #3a3a3a; }
+QTableWidget::item { padding:4px 10px; border-bottom:1px solid #262626; }
+QHeaderView::section { background:#262626; color:#9d9d9d; border:0; border-bottom:1px solid #151515; padding:5px 10px;
+                       font-size:11px; font-weight:600; }
+QPushButton#dbtn { background:#3a3a3a; border:1px solid #151515; border-radius:2px; padding:3px 10px; font-size:11px; font-weight:600; }
+QPushButton#dbtn:disabled { color:#6e6e6e; }
+QDialog QPushButton { background:#3a3a3a; border:1px solid #151515; border-radius:2px; padding:4px 14px; }
 )");
 }
 }

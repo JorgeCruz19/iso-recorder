@@ -23,10 +23,12 @@
 
 #include "ChannelGrid.h"
 #include "ChannelTile.h"
+#include "DisksDialog.h"
 #include "Inspector.h"
 #include "Theme.h"
 #include "Widgets.h"
 #include "core/ChannelManager.h"
+#include "core/DiskMonitor.h"
 #include "core/EnvCheck.h"
 #include "core/Lang.h"
 
@@ -175,6 +177,9 @@ QWidget* MainWindow::buildHeader() {
     vd->addStretch();
     c = cell("cell", vd, 18);
     c->setMinimumWidth(260);
+    c->setCursor(Qt::PointingHandCursor);       // klik = lista wszystkich dyskow i test zapisu
+    c->installEventFilter(this);
+    m_diskCell = c;
     h->addWidget(c);
 
     auto* hs = new QHBoxLayout;
@@ -212,6 +217,7 @@ QWidget* MainWindow::buildHeader() {
         a->setCheckable(true);
         a->setChecked(code == Lang::current());
     }
+    menu->addAction(T("Disks…"), this, &MainWindow::showDisks);
     menu->addAction(T("Diagnostics…"), this, &MainWindow::showDiagnostics);
     menu->addAction(T("About"), this, [this] {
         QMessageBox::about(this, QStringLiteral("ISO Recorder"),
@@ -432,12 +438,23 @@ void MainWindow::refreshActive() {
 }
 
 void MainWindow::tickSecond() {
-    // dysk domyslnego folderu nagran
-    const QStorageInfo disk(QStandardPaths::writableLocation(QStandardPaths::MoviesLocation));
-    if (disk.isValid() && disk.bytesTotal() > 0) {
-        m_diskCap->setText(T("Disk").toUpper() + QLatin1Char(' ') + disk.rootPath().left(2));
-        m_diskFree->setText(T("%1 free of %2").arg(gb(disk.bytesAvailable()), gb(disk.bytesTotal())));
-        m_diskBar->setValue(int(1000.0 * (disk.bytesTotal() - disk.bytesAvailable()) / disk.bytesTotal()));
+    // Dysk: pokazujemy wolumen, ktory zapelni sie najszybciej; reszta jest w oknie Disks.
+    const QList<VolumeInfo> vols = DiskMonitor::volumes(m_mgr->channels());
+    if (!vols.isEmpty()) {
+        const VolumeInfo& v = vols.first();
+        QString capText = T("Disk").toUpper() + QLatin1Char(' ') + v.name();
+        if (vols.size() > 1) capText += QStringLiteral("  ·  ") + T("%1 disks").arg(vols.size()).toUpper();
+        m_diskCap->setText(capText);
+        m_diskTime->setText(DiskMonitor::formatLeft(v.secondsLeft));
+        const bool low = v.recording > 0 && ((v.secondsLeft >= 0 && v.secondsLeft < 1800) || (v.total > 0 && v.free * 10 < v.total));
+        m_diskTime->setStyleSheet(low ? QStringLiteral("color:#f2a516;") : QString());
+        m_diskFree->setText(T("%1 free of %2").arg(gb(v.free), gb(v.total)));
+        if (v.total > 0) m_diskBar->setValue(int(1000.0 * double(v.total - v.free) / double(v.total)));
+        QStringList tip;
+        for (const VolumeInfo& x : vols)
+            tip << QStringLiteral("%1  %2  ·  %3 Mb/s  ·  %4").arg(x.name(), T("%1 free of %2").arg(gb(x.free), gb(x.total)))
+                       .arg(QLocale().toString(x.requiredMbps(), 'f', 1)).arg(DiskMonitor::formatLeft(x.secondsLeft));
+        m_diskCell->setToolTip(tip.join(QLatin1Char('\n')));
     }
     // CPU calego systemu
     FILETIME idle, kernel, user;
@@ -448,6 +465,19 @@ void MainWindow::tickSecond() {
         m_cpuIdle = i;
         m_cpuTotal = t;
     }
+}
+
+void MainWindow::showDisks() {
+    DisksDialog dlg(m_mgr, this);
+    dlg.exec();
+}
+
+bool MainWindow::eventFilter(QObject* watched, QEvent* e) {
+    if (watched == m_diskCell && e->type() == QEvent::MouseButtonRelease) {
+        showDisks();
+        return true;
+    }
+    return QWidget::eventFilter(watched, e);
 }
 
 void MainWindow::showDiagnostics() {
@@ -484,6 +514,7 @@ void MainWindow::keyPressEvent(QKeyEvent* e) {
     case Qt::Key_D: if (ctrl) m_mgr->duplicateChannels(m_mgr->selected()); break;
     case Qt::Key_R: if (ch && !ctrl) m_mgr->transport(ch, Transport::Rec); break;
     case Qt::Key_S: if (ch && !ctrl) m_mgr->transport(ch, Transport::Stop); break;
+    case Qt::Key_X: if (ch && !ctrl) m_mgr->transport(ch, Transport::Split); break;
     case Qt::Key_Up: if (ctrl) m_mgr->moveActive(-1); break;
     case Qt::Key_Down: if (ctrl) m_mgr->moveActive(1); break;
     case Qt::Key_Left: if (i > 0) m_mgr->setActive(m_mgr->channels().at(i - 1)); break;

@@ -16,7 +16,9 @@
 
 #include "Widgets.h"
 #include "core/ChannelManager.h"
+#include "core/DiskMonitor.h"
 #include "core/Lang.h"
+#include <QStorageInfo>
 #include "media/EncoderFactory.h"
 #include "util/FileNameTemplate.h"
 
@@ -208,7 +210,16 @@ QWidget* Inspector::buildOutputPage() {
     m_outTemplate->setPlaceholderText(QLatin1String(FileNameTemplate::kDefault));
     m_outTemplate->setToolTip(QStringLiteral("{session} {channel} {source} {index:02} {date} {time} {part:03}"));
     row(g, T("Name template"), m_outTemplate);
-    row(g, T("Container"), new QLabel(QStringLiteral("MKV (Matroska)")));
+    m_outContainer = new QComboBox;
+    m_outContainer->addItem(QStringLiteral("MKV (Matroska)"), QStringLiteral("mkv"));
+    m_outContainer->addItem(QStringLiteral("MPEG-TS"), QStringLiteral("ts"));
+    row(g, T("Container"), m_outContainer);
+    // Auto-split: dane = sekundy (dodatnie) albo bajty zapisane jako liczba ujemna
+    m_outSplit = new QComboBox;
+    m_outSplit->addItem(T("Off"), qlonglong(0));
+    for (int min : {1, 5, 10, 15, 30, 60}) m_outSplit->addItem(T("every %1 min").arg(min), qlonglong(min * 60));
+    for (int gbs : {1, 2, 4}) m_outSplit->addItem(T("every %1 GB").arg(gbs), qlonglong(-(qlonglong(gbs) << 30)));
+    row(g, T("Auto-split"), m_outSplit);
 
     fv->addWidget(section(T("Video")));
     g = form(fv);
@@ -237,7 +248,7 @@ QWidget* Inspector::buildOutputPage() {
 
     connect(m_outDir, &QLineEdit::editingFinished, this, &Inspector::commitOutput);
     connect(m_outTemplate, &QLineEdit::editingFinished, this, &Inspector::commitOutput);
-    for (QComboBox* c : {m_outEncoder, m_outVideoRate, m_outAudioRate})
+    for (QComboBox* c : {m_outEncoder, m_outVideoRate, m_outAudioRate, m_outContainer, m_outSplit})
         connect(c, &QComboBox::activated, this, &Inspector::commitOutput);
     connect(browse, &QPushButton::clicked, this, [this] {
         Channel* ch = m_mgr->active();
@@ -274,7 +285,15 @@ void Inspector::commitOutput() {
     out.encoder = m_outEncoder->currentData().toString();
     out.videoKbps = m_outVideoRate->currentData().toInt();
     out.audioKbps = m_outAudioRate->currentData().toInt();
+    out.container = m_outContainer->currentData().toString();
+    const qlonglong split = m_outSplit->currentData().toLongLong();
+    out.splitSeconds = split > 0 ? int(split) : 0;
+    out.splitBytes = split < 0 ? -split : 0;
+    const bool dirChanged = out.dir != ch->config().out.dir;
     ch->setOutput(out);
+    if (dirChanged && QString::fromLatin1(QStorageInfo(DiskMonitor::rootFor(ch->outputDir())).fileSystemType())
+                          .compare(QLatin1String("FAT32"), Qt::CaseInsensitive) == 0)
+        emit m_mgr->notice(T("This folder is on a FAT32 disk: files are limited to 4 GB — enable auto-split"));
 }
 
 void Inspector::bind() {
@@ -312,6 +331,8 @@ void Inspector::refresh() {
     m_outEncoder->setCurrentIndex(qMax(0, m_outEncoder->findData(out.encoder)));
     m_outVideoRate->setCurrentIndex(qMax(0, m_outVideoRate->findData(out.videoKbps)));
     m_outAudioRate->setCurrentIndex(qMax(0, m_outAudioRate->findData(out.audioKbps)));
+    m_outContainer->setCurrentIndex(qMax(0, m_outContainer->findData(out.container)));
+    m_outSplit->setCurrentIndex(qMax(0, m_outSplit->findData(out.splitSeconds > 0 ? qlonglong(out.splitSeconds) : -qlonglong(out.splitBytes))));
     m_pattern->setCurrentIndex(qMax(0, m_pattern->findData(ch->config().pattern)));
     m_wave->setCurrentIndex(qMax(0, m_wave->findData(ch->config().audioWave)));
     m_format->setCurrentIndex(qMax(0, m_format->findData(QSize(ch->config().width, ch->config().height))));

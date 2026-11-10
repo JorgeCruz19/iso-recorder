@@ -38,6 +38,9 @@ private:
     void tickSecond();
     void notice(const QString& text);
     void showDiagnostics();
+    void showDisks();
+    bool eventFilter(QObject* watched, QEvent* e) override;
+    QWidget* m_diskCell = nullptr;
 
     ChannelManager* m_mgr;
     ChannelGrid* m_grid;

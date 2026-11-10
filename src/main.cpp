@@ -10,10 +10,12 @@
 #include <gst/gst.h>
 #include <windows.h>
 
+#include "app/DisksDialog.h"
 #include "app/Inspector.h"
 #include "app/MainWindow.h"
 #include "app/Theme.h"
 #include "core/ChannelManager.h"
+#include "core/DiskTest.h"
 #include "core/EnvCheck.h"
 #include "core/Lang.h"
 
@@ -25,6 +27,10 @@
 //   --rec-test S          test nagrywania: wszystkie kanaly nagrywaja S sekund, potem Stop i wyjscie po finalizacji
 //   --cycles N            ile razy powtorzyc cykl Rec/Stop w --rec-test (domyslnie 1)
 //   --out folder          folder nagran dla kanalow --demo
+//   --container ts|mkv    kontener dla kanalow --demo
+//   --auto-split S        auto-split co S sekund dla kanalow --demo
+//   --split-every S       w --rec-test: reczny split wszystkich kanalow co S sekund
+//   --disk-test folder [S] test predkosci zapisu (domyslnie 10 s), wynik na stdout
 // Paczka samodzielna: gdy obok EXE lezy katalog gstreamer-1.0\, GStreamer bierze wtyczki tylko stamtad
 // (instalacja systemowa jest ignorowana), a rejestr wtyczek trafia do %LOCALAPPDATA%\IsoRecorder.
 static void useBundledGStreamer() {
@@ -72,6 +78,24 @@ int main(int argc, char* argv[]) {
         return r.requiredOk ? 0 : 1;
     }
 
+    const int diskAt = int(args.indexOf(QStringLiteral("--disk-test")));
+    if (diskAt >= 0 && diskAt + 1 < args.size()) {
+        const int seconds = diskAt + 2 < args.size() && args.at(diskAt + 2).toInt() > 0 ? args.at(diskAt + 2).toInt() : 10;
+        DiskTest test(args.at(diskAt + 1), seconds, 4);
+        DiskTestResult result;
+        QObject::connect(&test, &DiskTest::done, &app, [&](const DiskTestResult& r) { result = r; app.quit(); });
+        test.start();
+        app.exec();
+        test.wait();
+        const QByteArray line = (result.ok ? QStringLiteral("ok avg=%1 MB/s worst=%2 MB/s longest_write=%3 ms seconds=%4 streams=%5\n")
+                                                 .arg(result.avgMBs, 0, 'f', 1).arg(result.worstMBs, 0, 'f', 1)
+                                                 .arg(result.longestWriteMs).arg(result.seconds).arg(result.streams)
+                                           : QStringLiteral("error: %1\n").arg(result.error)).toUtf8();
+        fwrite(line.constData(), 1, size_t(line.size()), stdout);
+        fflush(stdout);
+        return result.ok ? 0 : 1;
+    }
+
     app.setStyleSheet(Theme::styleSheet());
     QSettings settings(QStringLiteral("IsoRecorder"), QStringLiteral("IsoRecorder"));
     const int langAt = int(args.indexOf(QStringLiteral("--lang")));
@@ -114,13 +138,24 @@ int main(int argc, char* argv[]) {
                     if (o.index < n) manager.channels().at(o.index)->setFormat(o.w, o.h);
             }
         }
-        const int outAt = int(args.indexOf(QStringLiteral("--out")));
-        if (outAt >= 0 && outAt + 1 < args.size())
-            for (Channel* c : manager.channels()) {
-                OutputConfig o = c->config().out;
-                o.dir = args.at(outAt + 1);
-                c->setOutput(o);
-            }
+        auto argAfter = [&args](const char* name) {
+            const int at = int(args.indexOf(QLatin1String(name)));
+            return at >= 0 && at + 1 < args.size() ? args.at(at + 1) : QString();
+        };
+        for (Channel* c : manager.channels()) {
+            OutputConfig o = c->config().out;
+            if (!argAfter("--out").isEmpty()) o.dir = argAfter("--out");
+            if (!argAfter("--container").isEmpty()) o.container = argAfter("--container");
+            if (argAfter("--auto-split").toInt() > 0) o.splitSeconds = argAfter("--auto-split").toInt();
+            c->setOutput(o);
+        }
+        if (const int every = argAfter("--split-every").toInt(); every > 0) {
+            auto* t = new QTimer(&manager);
+            QObject::connect(t, &QTimer::timeout, &manager, [&manager] {
+                for (Channel* c : manager.channels()) c->split();
+            });
+            QTimer::singleShot(3000, t, [t, every] { t->start(every * 1000); });   // liczone od startu nagrania
+        }
         const int recAt = int(args.indexOf(QStringLiteral("--rec-test")));
         if (recAt >= 0 && recAt + 1 < args.size()) {
             const int seconds = qMax(1, args.at(recAt + 1).toInt());
@@ -148,6 +183,13 @@ int main(int argc, char* argv[]) {
         if (switchAt >= 0 && switchAt + 1 < args.size()) {
             const QString code = args.at(switchAt + 1);
             QTimer::singleShot(2000, &manager, [&w, code] { emit w->languageRequested(code); });
+        }
+        // --shot-disks plik.png: zrzut okna Disks po 2,5 s i wyjscie
+        if (!argAfter("--shot-disks").isEmpty()) {
+            auto* dlg = new DisksDialog(&manager, w.get());
+            dlg->show();
+            const QString path = argAfter("--shot-disks");
+            QTimer::singleShot(2500, dlg, [dlg, path] { dlg->grab().save(path); QApplication::quit(); });
         }
         const int tabAt = int(args.indexOf(QStringLiteral("--tab")));       // 0 Input, 1 Output, 2 Scheduler
         if (tabAt >= 0 && tabAt + 1 < args.size()) w->inspector()->setTab(args.at(tabAt + 1).toInt());

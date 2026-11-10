@@ -74,6 +74,15 @@ Test akceptacyjny (od wersji z pauzą): Rec 10 s → Pause 5 s → Resume → 10
 - **Znane ograniczenie**: Rec dla wielu kanałów startuje je po kolei (ok. 60 ms na kanał, przy 16 kanałach ok. 1 s różnicy między pierwszym a ostatnim). Wspólny moment startu `T` jest w planie razem z operacjami grupowymi.
 - Wyniki na maszynie deweloperskiej (Quick Sync, 720p25, 8 Mb/s): 16 kanałów równocześnie bez zgubionych klatek; 50 cykli Rec/Stop na 2 kanałach — 100 plików poprawnych, liczba uchwytów i pamięć bez wzrostu. Test powtarzalny: `tests\rec_test.ps1`.
 
+### 3.1b Split, części i plik opisu — stan po wersji 0.6
+
+- **Split ręczny** (SPLIT na kaflu, dla zaznaczonych, skrót `X`): `force-key-unit` do enkodera + sygnał `split-now`; cięcie na najbliższej klatce kluczowej, bez utraty klatek (test: suma klatek części = czas nagrania × klatkaż).
+- **Auto-split** (zakładka Output): co 1–60 min (`max-size-time` + `send-keyframe-requests`) albo co 1/2/4 GB (`max-size-bytes`).
+- **Części**: `{part}` rośnie od 001; numer bieżącej części widać na kaflu obok czasu. Każda część MKV zaczyna się od zera (`matroskamux offset-to-zero`), w MPEG‑TS znaczniki są ciągłe między częściami.
+- **Kontenery**: MKV (domyślny) i MPEG‑TS (`mpegtsmux`). MOV/MP4 w etapie z kodekami.
+- **Plik opisu** `<nazwa bez numeru części>.json` (schemat `isorec.recording`), zapisywany po zakończeniu nagrania: sesja, kanał, źródło, format, enkoder, bitrate, czas startu i końca w UTC, running‑time pipeline'u w chwili startu, lista części z `startMs`/`endMs` na osi nagrania i rozmiarem, znacznik `clean` i powód zatrzymania. Służy do synchronizacji w montażu i jest podstawą testu `testsec_test.ps1`.
+- **Dysk nie nadąża**: gdy kolejka zapisu kanału jest zapełniona ponad połowę przez 5 s, program wypisuje ostrzeżenie (raz na nagranie).
+
 ### 3.2 Stop, split i `splitmuxsink`
 
 - **`async-finalize=false`** (oryginał w 5.4 podaje `true`). Przy `true` plik zamyka się w tle i komunikat EOS nie oznacza, że plik jest gotowy; dla MKV/TS finalizacja i tak trwa milisekundy. `true` rozważyć dopiero dla MP4 z dużym `moov`.
@@ -245,7 +254,10 @@ Zakładki Input / Output / Scheduler dotyczą **kanału aktywnego** (nie zaznacz
 
 - **Folder docelowy jest ustawieniem kanału** (zakładka Output), z jednym folderem domyślnym sesji. Kanały można więc rozłożyć na dowolną liczbę dysków — przy 16 kanałach to zwykle konieczność.
 - Program grupuje kanały według wolumenu i liczy dla każdego osobno: wolne miejsce, sumę bitrate'ów kanałów, czas do zapełnienia.
-- **Nagłówek**: komórka „Disk” pokazuje wolumen z **najkrótszym** czasem do zapełnienia i liczbę używanych wolumenów („D: · 1 of 3”); klik rozwija listę wszystkich wolumenów z paskami. Mockup zakładał jeden dysk.
+- **Nagłówek**: komórka „Disk” pokazuje wolumen z **najkrótszym** czasem do zapełnienia i liczbę używanych wolumenów („DISK D: · 3 DISKS”); podpowiedź wymienia wszystkie, klik otwiera okno **Disks** (też ☰ → Disks…). Mockup zakładał jeden dysk.
+- **Okno Disks**: dla każdego wolumenu wolne miejsce, liczba kanałów (i ile nagrywa), potrzebny strumień, czas do zapełnienia, wynik ostatniego testu zapisu i przyciski testu.
+- Czas do zapełnienia liczy się z ustawionych bitrate'ów kanałów nagrywających; gdy nikt nie nagrywa — z bitrate'ów wszystkich kanałów wolumenu („gdyby nagrywały wszystkie”).
+- Progi: ostrzeżenie poniżej 30 min lub 10% wolnego miejsca (czas w nagłówku robi się bursztynowy), kontrolowany Stop z finalizacją plików poniżej 1 GB.
 - Ostrzeżenia i kontrolowany Stop przy braku miejsca działają **per wolumen** — zatrzymywane są tylko kanały z dysku, który się kończy.
 - Folder zapasowy (opcja kanału): gdy wolumen podstawowy osiągnie próg krytyczny albo zniknie, następna część (split) trafia do folderu zapasowego zamiast kończyć nagranie.
 - Ostrzeżenie przy wyborze folderu: FAT32 (limit 4 GB), dysk sieciowy lub USB, ten sam dysk co system.
@@ -254,8 +266,9 @@ Zakładki Input / Output / Scheduler dotyczą **kanału aktywnego** (nie zaznacz
 
 Potrzebny — przy wielu kanałach to dysk, nie procesor, najczęściej gubi klatki, a widać to dopiero po kilkunastu minutach.
 
-- **Gdzie**: zakładka Output (przycisk „Test disk” obok folderu) oraz ☰ → Diagnostics dla wszystkich używanych wolumenów naraz.
+- **Gdzie**: okno Disks (klik w komórkę Disk w nagłówku albo ☰ → Disks…), przyciski „Test 10 s” i „Test 60 s” przy każdym wolumenie; z wiersza poleceń `IsoRecorder.exe --disk-test <folder> [sekundy]`.
 - **Jak**: zapis pliku tymczasowego w folderze docelowym przez 10 s (tryb szybki) lub 60 s (tryb pełny), bez bufora systemowego (`FILE_FLAG_NO_BUFFERING | FILE_FLAG_WRITE_THROUGH`), blokami 1 MB, z tyloma równoległymi strumieniami, ile kanałów jest przypisanych do wolumenu. Plik jest usuwany po teście. Test wymaga wolnego miejsca (maks. 8 GB) i nie startuje podczas nagrywania na tym wolumenie.
+- Stan po 0.6: zaimplementowane jak niżej; wynik jest pamiętany do zamknięcia programu (zapis wyników między uruchomieniami dojdzie z listami).
 - **Wynik**: średnia MB/s, **najgorsza sekunda** (ważniejsza niż średnia — dyski SSD z pamięcią podręczną zwalniają po jej zapełnieniu, co wykrywa dopiero tryb pełny), najdłuższy pojedynczy zapis w ms.
 - **Werdykt**: porównanie najgorszej sekundy z sumą bitrate'ów kanałów na wolumenie: zielony ≥ 3×, żółty 1,5–3×, czerwony < 1,5×. Wynik zapisany przy wolumenie z datą i pokazywany na liście dysków.
 - **W trakcie nagrywania** miarą jest zapełnienie kolejek przed muxerem (rozdz. 12.30 `instrukcja.md`): > 50% przez 5 s = ostrzeżenie „disk too slow” na kaflu i w nagłówku.
@@ -282,7 +295,7 @@ Każda wersja: działający program, commit, tag, push. Kryterium = to, co da si
 | **0.3** | Kadr zawsze 16:9 (inne proporcje wpisane z pasami), wyraźne oznaczenie kanału aktywnego i zaznaczonych, wybór formatu generatora testowego | **wydana** |
 | **0.4** | Panel sterowania przeniesiony pod inspektor; blok wideo o proporcjach wyliczonych pod siatkę 4×4 kafli 16:9 z równymi marginesami | **wydana** |
 | **0.5** | Nagrywanie: Rec/Stop → MKV (H.264 + AAC), enkoder z próbą, szablon nazw, folder per kanał, zakładka Output, finalizacja z limitem czasu, zamknięcie czeka na pliki; DUPLICATE i REMOVE dla zaznaczonych, menu kontekstowe, legenda w pasku stanu | **wydana** — `tests\rec_test.ps1` |
-| **0.6** | Split ręczny i automatyczny (czas/rozmiar), numeracja części, sidecar JSON, MPEG‑TS; monitor wolumenów i test prędkości zapisu (5.6, 5.7) | suma długości części = czas nagrania ±1 klatka, brak luk PTS; test dysku daje powtarzalny wynik |
+| **0.6** | Split ręczny i automatyczny (czas/rozmiar), numeracja części, plik opisu JSON, MPEG‑TS; monitor wolumenów, okno Disks i test prędkości zapisu (5.6, 5.7) | **wydana** — `testsec_test.ps1 -SplitEvery/-AutoSplit/-Container` |
 | **0.7** | Pauza wg 3.1 | test z 3.1 |
 | **0.8** | Sesja i listy (5.5): zapis/wczytanie, autosave, ostatnie pliki; operacje grupowe ze wspólnym `T`; przenoszenie przeciąganiem | 16 × testsrc startuje w ±1 klatce; lista wraca identyczna po wczytaniu |
 | **0.9** | Inspektor Input/Output w pełni edytowalny; wejścia lokalne: Screen grab (DXGI/WGC), UVC/MF, WASAPI (urządzenie, loopback) | nagranie ekranu z dźwiękiem systemowym |

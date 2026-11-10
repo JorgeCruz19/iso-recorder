@@ -1,6 +1,7 @@
 #pragma once
 #include <QList>
 #include <QObject>
+#include <QStringList>
 #include <QTimer>
 
 #include "Channel.h"
@@ -51,5 +52,7 @@ private:
     Channel* m_active = nullptr;
     int m_nameCounter = 0;
     QString m_session;
+    QStringList m_warnedVolumes;    // wolumeny, o ktorych juz ostrzegalismy
+    void checkDisks();
     QTimer m_poll;
 };

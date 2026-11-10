@@ -1,8 +1,12 @@
 # Test nagrywania na generatorach testowych: N kanalow nagrywa S sekund (C cykli), potem ffprobe sprawdza kazdy plik.
-# Uzycie:  tests\rec_test.ps1 [-Channels 4] [-Seconds 10] [-Cycles 1] [-Exe build\IsoRecorder.exe]
-# Kod wyjscia 0 = wszystkie pliki poprawne.
-param([int]$Channels = 4, [int]$Seconds = 10, [int]$Cycles = 1, [string]$Exe)
+# Uzycie:  tests\rec_test.ps1 [-Channels 4] [-Seconds 10] [-Cycles 1] [-SplitEvery 0] [-AutoSplit 0] [-Container mkv|ts]
+#                             [-Exe build\IsoRecorder.exe]
+# -SplitEvery S : reczny split wszystkich kanalow co S sekund;  -AutoSplit S : auto-split co S sekund.
+# Kod wyjscia 0 = wszystko poprawne.
+param([int]$Channels = 4, [int]$Seconds = 10, [int]$Cycles = 1, [int]$SplitEvery = 0, [int]$AutoSplit = 0,
+      [string]$Container = 'mkv', [string]$Exe)
 $ErrorActionPreference = 'Stop'
+$inv = [cultureinfo]::InvariantCulture
 $root = Split-Path $PSScriptRoot
 if (-not $Exe) { $Exe = "$root\build\IsoRecorder.exe" }
 if ($Exe -like "*\build\*") {     # build deweloperski potrzebuje Qt i GStreamera w PATH; paczka dist - nie
@@ -15,28 +19,46 @@ if ($Exe -like "*\build\*") {     # build deweloperski potrzebuje Qt i GStreamer
 $out = Join-Path $env:TEMP "isorec_test_$(Get-Date -Format 'HHmmss')"
 New-Item -ItemType Directory $out | Out-Null
 
-$p = Start-Process $Exe -ArgumentList '--demo', $Channels, '--lang', 'en', '--out', $out, '--rec-test', $Seconds, '--cycles', $Cycles -PassThru
+$a = @('--demo', $Channels, '--lang', 'en', '--out', $out, '--rec-test', $Seconds, '--cycles', $Cycles, '--container', $Container)
+if ($SplitEvery -gt 0) { $a += @('--split-every', $SplitEvery) }
+if ($AutoSplit -gt 0) { $a += @('--auto-split', $AutoSplit) }
+$p = Start-Process $Exe -ArgumentList $a -PassThru
 if (-not $p.WaitForExit(($Seconds + 6) * $Cycles * 1000 + 60000)) { $p.Kill(); throw 'Program nie zakonczyl sie w oczekiwanym czasie.' }
 
-$files = Get-ChildItem $out -Filter *.mkv
-$expected = $Channels * $Cycles
 $fail = 0
-if ($files.Count -ne $expected) { "BLAD: plikow $($files.Count), oczekiwano $expected"; $fail++ }
-foreach ($f in $files) {
-    $inv = [cultureinfo]::InvariantCulture
-    $dur = [double]::Parse((ffprobe -v error -show_entries format=duration -of csv=p=0 $f.FullName), $inv)
-    $start = [double]::Parse((ffprobe -v error -show_entries format=start_time -of csv=p=0 $f.FullName), $inv)
-    $codecs = (ffprobe -v error -show_entries stream=codec_name -of csv=p=0 $f.FullName) -join '+'
-    $first = ffprobe -v error -select_streams v:0 -show_entries frame=key_frame -read_intervals '%+#1' -of csv=p=0 $f.FullName
-    # ciaglosc PTS obrazu: najwieksza przerwa miedzy kolejnymi klatkami
-    $pts = ffprobe -v error -select_streams v:0 -show_entries packet=pts_time -of csv=p=0 $f.FullName |
-        ForEach-Object { [double]::Parse($_.Trim(','), $inv) } | Sort-Object
-    $gap = 0.0; for ($i = 1; $i -lt $pts.Count; $i++) { $d = $pts[$i] - $pts[$i - 1]; if ($d -gt $gap) { $gap = $d } }
-    $ok = ($dur -ge $Seconds - 0.5) -and ($dur -le $Seconds + 2.5) -and ($start -lt 0.2) -and ($codecs -eq 'h264+aac') -and
-          ($first -match '^1') -and ($gap -lt 0.061)
-    if (-not $ok) { $fail++ }
-    '{0}  {1}  dur={2:N2}s start={3:N3}s {4} keyframe={5} maxgap={6:N3}s' -f $(if ($ok) { 'ok  ' } else { 'BLAD' }), $f.Name, $dur, $start, $codecs, $first.Trim(','), $gap
+$split = ($SplitEvery -gt 0) -or ($AutoSplit -gt 0)
+$sidecars = Get-ChildItem $out -Filter *.json
+$expected = $Channels * $Cycles
+if ($sidecars.Count -ne $expected) { "BLAD: nagran (plikow .json) $($sidecars.Count), oczekiwano $expected"; $fail++ }
+foreach ($sc in $sidecars) {
+    $info = Get-Content $sc.FullName -Raw -Encoding utf8 | ConvertFrom-Json
+    $frames = 0; $total = 0.0; $bad = @()
+    if (-not $info.clean) { $bad += 'nagranie nie zakonczone poprawnie' }
+    if ($split -and $info.parts.Count -lt 2) { $bad += 'brak podzialu na czesci' }
+    if (-not $split -and $info.parts.Count -ne 1) { $bad += "czesci: $($info.parts.Count)" }
+    foreach ($part in $info.parts) {
+        $f = Join-Path $out $part.file
+        if (-not (Test-Path $f)) { $bad += "brak pliku $($part.file)"; continue }
+        $dur = [double]::Parse((ffprobe -v error -show_entries format=duration -of csv=p=0 $f), $inv)
+        # dla MPEG-TS ffprobe wypisuje strumienie dwa razy (program + strumienie) - stad Select -Unique
+        $codecs = (ffprobe -v error -show_entries stream=codec_name -of csv=p=0 $f | ForEach-Object { $_.Trim(',') } |
+            Where-Object { $_ } | Select-Object -Unique) -join '+'
+        $first = (ffprobe -v error -select_streams v:0 -show_entries frame=key_frame -read_intervals '%+#1' -of csv=p=0 $f | Select-Object -First 1).Trim(',')
+        # ciaglosc PTS obrazu wewnatrz czesci: najwieksza przerwa miedzy kolejnymi klatkami
+        $pts = ffprobe -v error -select_streams v:0 -show_entries packet=pts_time -of csv=p=0 $f |
+            ForEach-Object { [double]::Parse($_.Trim(','), $inv) } | Sort-Object
+        $gap = 0.0; for ($i = 1; $i -lt $pts.Count; $i++) { $d = $pts[$i] - $pts[$i - 1]; if ($d -gt $gap) { $gap = $d } }
+        $frames += $pts.Count; $total += $dur
+        if ($codecs -ne 'h264+aac') { $bad += "$($part.file): kodeki $codecs" }
+        if ($first -ne '1') { $bad += "$($part.file): pierwsza klatka nie jest kluczowa" }
+        if ($gap -ge 0.061) { $bad += "$($part.file): przerwa PTS $gap s" }
+    }
+    # suma klatek wszystkich czesci = czas nagrania (kanaly startuja po kolei, stad tolerancja w gore)
+    $minFrames = ($Seconds - 0.5) * 25; $maxFrames = ($Seconds + 2.5) * 25
+    if ($frames -lt $minFrames -or $frames -gt $maxFrames) { $bad += "klatek $frames, oczekiwano $minFrames..$maxFrames" }
+    if ($bad.Count) { $fail++ }
+    '{0}  {1}  czesci={2} klatek={3} czas={4:N2}s  {5}' -f $(if ($bad.Count) { 'BLAD' } else { 'ok  ' }), $info.channel, $info.parts.Count, $frames, $total, ($bad -join '; ')
 }
 Remove-Item $out -Recurse -Force
-"Wynik: $($files.Count - $fail) / $expected poprawnych"
+"Wynik: $($sidecars.Count - $fail) / $expected poprawnych"
 exit $fail

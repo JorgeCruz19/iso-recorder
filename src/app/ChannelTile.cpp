@@ -62,7 +62,7 @@ ChannelTile::Rects ChannelTile::rects() const {
 bool ChannelTile::buttonEnabled(int i) const {
     switch (m_ch->state()) {
     case ChannelState::Preview: case ChannelState::Waiting: return i == 0;
-    case ChannelState::Recording: case ChannelState::Reconnecting: return i == 2;   // pauza i split w kolejnych wersjach
+    case ChannelState::Recording: case ChannelState::Reconnecting: return i >= 2;   // STOP i SPLIT; pauza w kolejnej wersji
     case ChannelState::Paused: return i != 3;
     default: return false;
     }
@@ -145,9 +145,11 @@ void ChannelTile::paintEvent(QPaintEvent*) {
     // czas nagrania z kropka stanu (prawy gorny rog)
     if (m_ch->isRecording()) {
         const qint64 sec = m_ch->recordMs() / 1000;
-        const QString t = st == ChannelState::Finalizing ? T("SAVING")
+        QString t = st == ChannelState::Finalizing ? T("SAVING")
             : QStringLiteral("%1:%2:%3").arg(sec / 3600, 2, 10, QLatin1Char('0')).arg(sec / 60 % 60, 2, 10, QLatin1Char('0'))
                                          .arg(sec % 60, 2, 10, QLatin1Char('0'));
+        if (st != ChannelState::Finalizing && m_ch->recordPart() > 1)      // numer czesci po splicie
+            t += QStringLiteral("  ·  %1").arg(m_ch->recordPart());
         p.setFont(Theme::font(11, QFont::Bold));
         const int tw = p.fontMetrics().horizontalAdvance(t);
         const QRect rr(r.vid.right() - 8 - (tw + 24), r.vid.top() + 8, tw + 24, 17);

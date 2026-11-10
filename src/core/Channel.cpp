@@ -5,9 +5,15 @@
 #include "util/FileNameTemplate.h"
 
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QRegularExpression>
 #include <QStandardPaths>
 #include <gst/video/video.h>
+#include <gst/video/video-event.h>
 
 #include <algorithm>
 
@@ -162,11 +168,13 @@ bool Channel::startRecording(const QString& session, int index) {
         emit notice(T("%1: cannot write to folder %2").arg(m_cfg.name, QDir::toNativeSeparators(dir)));
         return false;
     }
+    const bool ts = m_cfg.out.container == QLatin1String("ts");
+    const QString ext = ts ? QStringLiteral(".ts") : QStringLiteral(".mkv");
     FileNameTemplate::Vars vars{session, m_cfg.name, sourceText(), index, QDateTime::currentDateTime()};
     QString pattern = FileNameTemplate::expand(m_cfg.out.nameTemplate, vars);
-    for (int n = 2; QFileInfo::exists(QDir(dir).filePath(FileNameTemplate::withPart(pattern, 1) + QStringLiteral(".mkv"))); ++n)
+    for (int n = 2; QFileInfo::exists(QDir(dir).filePath(FileNameTemplate::withPart(pattern, 1) + ext)); ++n)
         pattern = FileNameTemplate::expand(m_cfg.out.nameTemplate, vars) + QStringLiteral("_%1").arg(n);   // kolizja nazw
-    const QString location = QDir(dir).filePath(pattern + QStringLiteral(".mkv"));
+    const QString location = QDir(dir).filePath(pattern + ext);
 
     // Kolejki galezi nagrywania nigdy nie gubia danych (leaky tylko w podgladzie).
     const QString desc = QStringLiteral(
@@ -184,7 +192,7 @@ bool Channel::startRecording(const QString& session, int index) {
     }
     // splitmuxsink: muxer trzeba podac PRZED zadaniem padow; async-finalize=false -> EOS oznacza gotowy plik.
     GstElement* mux = gst_element_factory_make("splitmuxsink", "mux");
-    GstElement* mkv = gst_element_factory_make("matroskamux", nullptr);
+    GstElement* mkv = gst_element_factory_make(ts ? "mpegtsmux" : "matroskamux", nullptr);
     if (!mux || !mkv) {
         emit notice(T("%1: cannot build the pipeline").arg(m_cfg.name));
         if (mux) gst_object_unref(mux);
@@ -192,8 +200,16 @@ bool Channel::startRecording(const QString& session, int index) {
         gst_object_unref(bin);
         return false;
     }
+    // Kazda czesc MKV zaczyna sie od zera (wygodniej w montazu); polozenie czesci na osi nagrania jest w pliku .json.
+    if (!ts && g_object_class_find_property(G_OBJECT_GET_CLASS(mkv), "offset-to-zero"))
+        g_object_set(mkv, "offset-to-zero", TRUE, nullptr);
     g_object_set(mux, "muxer", mkv, "async-finalize", FALSE, "start-index", 1,
                  "location", location.toUtf8().constData(), nullptr);
+    // Auto-split: po czasie albo po rozmiarze. Ciecie zawsze na klatce kluczowej (GOP = 1 s).
+    if (m_cfg.out.splitSeconds > 0)
+        g_object_set(mux, "max-size-time", guint64(m_cfg.out.splitSeconds) * GST_SECOND, "send-keyframe-requests", TRUE, nullptr);
+    else if (m_cfg.out.splitBytes > 0)
+        g_object_set(mux, "max-size-bytes", guint64(m_cfg.out.splitBytes), nullptr);
     gst_bin_add(GST_BIN(bin), mux);
     GstElement* vp = gst_bin_get_by_name(GST_BIN(bin), "vp");
     GstElement* ap = gst_bin_get_by_name(GST_BIN(bin), "ap");
@@ -244,7 +260,17 @@ bool Channel::startRecording(const QString& session, int index) {
         return false;
     }
 
-    m_recFile = QDir(dir).filePath(FileNameTemplate::withPart(pattern, 1) + QStringLiteral(".mkv"));
+    m_recFile = QDir(dir).filePath(FileNameTemplate::withPart(pattern, 1) + ext);
+    QString sidecarBase = pattern;       // nazwa bez numeru czesci
+    sidecarBase.remove(QRegularExpression(QStringLiteral("_?%0\\dd")));
+    m_recSidecar = QDir(dir).filePath(sidecarBase + QStringLiteral(".json"));
+    m_recSession = session;
+    m_recIndex = index;
+    m_recStartUtc = QDateTime::currentDateTimeUtc();
+    m_parts.clear();
+    m_closedBytes = 0;
+    m_slowTicks = 0;
+    m_slowWarned = false;
     m_encoderName = enc.name;
     m_encoderHw = enc.hardware;
     m_recBytes = m_recBytesPrev = 0;
@@ -262,6 +288,60 @@ void Channel::stopRecording() {
     gst_pad_add_probe(m_teeVideo, GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM, &Channel::onStopBlock, this, nullptr);
     gst_pad_add_probe(m_teeAudio, GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM, &Channel::onStopBlock, this, nullptr);
     m_finalizeTimeout.start();
+}
+
+// Split: wymus klatke kluczowa w enkoderze i kaz splitmuxsink zamknac plik na najblizszej klatce kluczowej.
+void Channel::split() {
+    if (m_state != ChannelState::Recording || !m_recBin) return;
+    GstElement* vp = gst_bin_get_by_name(GST_BIN(m_recBin), "vp");
+    GstElement* mux = gst_bin_get_by_name(GST_BIN(m_recBin), "mux");
+    if (vp && mux) {
+        GstPad* sink = gst_element_get_static_pad(vp, "sink");
+        if (GstPad* encSrc = gst_pad_get_peer(sink)) {       // zdarzenie "w gore" trafia do enkodera
+            gst_pad_send_event(encSrc, gst_video_event_new_upstream_force_key_unit(GST_CLOCK_TIME_NONE, TRUE, ++m_fkuCount));
+            gst_object_unref(encSrc);
+        }
+        gst_object_unref(sink);
+        g_signal_emit_by_name(mux, "split-now");
+    }
+    if (vp) gst_object_unref(vp);
+    if (mux) gst_object_unref(mux);
+}
+
+// Plik opisu nagrania obok plikow wideo: do synchronizacji w montazu i do diagnostyki.
+void Channel::writeSidecar(bool clean, const QString& reason) const {
+    if (m_recSidecar.isEmpty()) return;
+    QJsonArray parts;
+    int n = 0;
+    for (const RecordPart& p : m_parts) {
+        QJsonObject o{{QStringLiteral("part"), ++n},
+                      {QStringLiteral("file"), QFileInfo(p.file).fileName()},
+                      {QStringLiteral("startMs"), double(p.startNs) / 1e6},
+                      {QStringLiteral("bytes"), double(QFileInfo(p.file).size())}};
+        if (p.endNs >= 0) o.insert(QStringLiteral("endMs"), double(p.endNs) / 1e6);
+        parts.append(o);
+    }
+    const QJsonObject root{
+        {QStringLiteral("schema"), QStringLiteral("isorec.recording")},
+        {QStringLiteral("version"), 1},
+        {QStringLiteral("createdWith"), QStringLiteral("IsoRecorder " APP_VERSION)},
+        {QStringLiteral("session"), m_recSession},
+        {QStringLiteral("channel"), m_cfg.name},
+        {QStringLiteral("index"), m_recIndex},
+        {QStringLiteral("source"), sourceText()},
+        {QStringLiteral("video"), QJsonObject{{QStringLiteral("width"), m_cfg.width}, {QStringLiteral("height"), m_cfg.height},
+                                              {QStringLiteral("fps"), m_cfg.fps}, {QStringLiteral("codec"), QStringLiteral("h264")},
+                                              {QStringLiteral("encoder"), m_encoderName}, {QStringLiteral("bitrateKbps"), m_cfg.out.videoKbps}}},
+        {QStringLiteral("audio"), QJsonObject{{QStringLiteral("codec"), QStringLiteral("aac")}, {QStringLiteral("bitrateKbps"), m_cfg.out.audioKbps}}},
+        {QStringLiteral("container"), m_cfg.out.container},
+        {QStringLiteral("startedUtc"), m_recStartUtc.toString(Qt::ISODateWithMs)},
+        {QStringLiteral("stoppedUtc"), QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
+        {QStringLiteral("pipelineRunningTimeAtStartNs"), double(m_recBase.load())},
+        {QStringLiteral("clean"), clean},
+        {QStringLiteral("stopReason"), reason},
+        {QStringLiteral("parts"), parts}};
+    QFile f(m_recSidecar);
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) f.write(QJsonDocument(root).toJson());
 }
 
 void Channel::finishRecording(bool clean, const QString& reason) {
@@ -290,10 +370,12 @@ void Channel::finishRecording(bool clean, const QString& reason) {
     gst_object_unref(bin);
 
     pollRecording();
+    if (!m_parts.isEmpty() && m_parts.last().endNs < 0) m_parts.last().endNs = m_recClock.elapsed() * 1000000LL;
+    writeSidecar(clean, reason);
     const QString file = m_recFile;
     if (m_state == ChannelState::Recording || m_state == ChannelState::Finalizing) m_state = ChannelState::Preview;
     emit changed();
-    const QString name = QFileInfo(file).fileName();
+    const QString name = m_parts.size() > 1 ? T("%1 parts").arg(m_parts.size()) : QFileInfo(file).fileName();
     emit notice(clean ? T("%1: recording saved — %2").arg(m_cfg.name, name)
                       : T("%1: recording interrupted (%2) — %3").arg(m_cfg.name, reason, name));
     emit recordingFinished(file, clean);
@@ -301,10 +383,23 @@ void Channel::finishRecording(bool clean, const QString& reason) {
 
 void Channel::pollRecording() {
     if (m_recFile.isEmpty()) return;
-    const qint64 size = QFileInfo(m_recFile).size();
+    const qint64 size = m_closedBytes + QFileInfo(m_recFile).size();
     m_recMbps = isRecording() ? std::max<qint64>(0, size - m_recBytesPrev) * 8 / 1e6 : 0.0;
     m_recBytesPrev = size;
     m_recBytes = size;
+    // Dysk nie nadaza: kolejka przed enkoderem/muxerem zapelniona ponad polowe (1,5 s z 3 s) przez 5 s.
+    if (m_state == ChannelState::Recording && m_recBin) {
+        if (GstElement* vq = gst_bin_get_by_name(GST_BIN(m_recBin), "vq")) {
+            guint64 level = 0;
+            g_object_get(vq, "current-level-time", &level, nullptr);
+            gst_object_unref(vq);
+            m_slowTicks = level > 1500 * GST_MSECOND ? m_slowTicks + 1 : 0;
+            if (m_slowTicks >= 5 && !m_slowWarned) {
+                m_slowWarned = true;
+                emit notice(T("%1: disk or encoder cannot keep up with recording").arg(m_cfg.name));
+            }
+        }
+    }
     if (isRecording()) emit changed();
 }
 
@@ -392,9 +487,30 @@ GstBusSyncReply Channel::onBus(GstBus*, GstMessage* msg, gpointer user) {
                 gst_message_unref(fwd);
             }
         } else if (st && gst_structure_has_name(st, "splitmuxsink-fragment-opened")) {
+            GstClockTime rt = 0;
+            gst_structure_get_clock_time(st, "running-time", &rt);
             if (const gchar* loc = gst_structure_get_string(st, "location")) {
                 const QString file = QDir::fromNativeSeparators(QString::fromUtf8(loc));
-                QMetaObject::invokeMethod(self, [self, file] { self->m_recFile = file; }, Qt::QueuedConnection);
+                QMetaObject::invokeMethod(self, [self, file, rt] {
+                    if (!self->m_recBin) return;
+                    self->m_recFile = file;
+                    self->m_parts.append(RecordPart{file, GST_CLOCK_TIME_IS_VALID(rt) ? qint64(rt) : 0, -1});
+                    if (self->m_parts.size() > 1)
+                        emit self->notice(T("%1: part %2 started").arg(self->m_cfg.name).arg(self->m_parts.size()));
+                    emit self->changed();
+                }, Qt::QueuedConnection);
+            }
+        } else if (st && gst_structure_has_name(st, "splitmuxsink-fragment-closed")) {
+            GstClockTime rt = 0;
+            gst_structure_get_clock_time(st, "running-time", &rt);
+            if (const gchar* loc = gst_structure_get_string(st, "location")) {
+                const QString file = QDir::fromNativeSeparators(QString::fromUtf8(loc));
+                QMetaObject::invokeMethod(self, [self, file, rt] {
+                    for (RecordPart& p : self->m_parts)
+                        if (p.file == file && p.endNs < 0) p.endNs = GST_CLOCK_TIME_IS_VALID(rt) ? qint64(rt) : 0;
+                    // czesc zamknieta w trakcie nagrania (split) - jej rozmiar juz sie nie zmieni
+                    if (self->m_recBin && file != self->m_recFile) self->m_closedBytes += QFileInfo(file).size();
+                }, Qt::QueuedConnection);
             }
         }
         break;

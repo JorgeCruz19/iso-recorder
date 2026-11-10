@@ -1,5 +1,6 @@
 #include "ChannelManager.h"
 
+#include "DiskMonitor.h"
 #include "Lang.h"
 
 #include <algorithm>
@@ -8,6 +9,7 @@ ChannelManager::ChannelManager(QObject* parent) : QObject(parent) {
     m_poll.setInterval(1000);
     connect(&m_poll, &QTimer::timeout, this, [this] {
         for (Channel* c : m_channels) c->pollRecording();
+        checkDisks();
         emit statsChanged();
     });
     m_poll.start();
@@ -121,18 +123,42 @@ void ChannelManager::transport(Channel* ch, Transport t) {
     case Transport::Rec: ch->startRecording(sessionForFiles(), indexOf(ch) + 1); break;
     case Transport::Stop: ch->stopRecording(); break;
     case Transport::Pause: emit notice(T("Pause will be available from version %1").arg(QLatin1String(Roadmap::pause))); break;
-    case Transport::Split: emit notice(T("Split will be available from version %1").arg(QLatin1String(Roadmap::split))); break;
+    case Transport::Split: ch->split(); break;
     }
 }
 
 void ChannelManager::transportSelected(Transport t) {
     const QList<Channel*> sel = selected();
     if (sel.isEmpty()) return;
-    if (t == Transport::Pause || t == Transport::Split) {
+    if (t == Transport::Pause) {
         transport(sel.first(), t);      // jeden komunikat zamiast n
         return;
     }
     for (Channel* c : sel) transport(c, t);
+}
+
+// Pilnowanie miejsca, osobno dla kazdego wolumenu: ostrzezenie ponizej 30 min lub 10% wolnego,
+// kontrolowany Stop (z finalizacja plikow) ponizej 1 GB - tylko dla kanalow z tego wolumenu.
+void ChannelManager::checkDisks() {
+    for (const VolumeInfo& v : DiskMonitor::volumes(m_channels)) {
+        if (v.recording == 0) {
+            m_warnedVolumes.removeAll(v.root);
+            continue;
+        }
+        if (v.free < (1LL << 30)) {
+            bool any = false;
+            for (Channel* c : m_channels)
+                if (c->state() == ChannelState::Recording && DiskMonitor::rootFor(c->outputDir()) == v.root) {
+                    c->stopRecording();
+                    any = true;
+                }
+            if (any) emit notice(T("Disk %1 is almost full — recordings on it were stopped").arg(v.name()));
+        } else if (!m_warnedVolumes.contains(v.root) &&
+                   ((v.secondsLeft >= 0 && v.secondsLeft < 1800) || (v.total > 0 && v.free * 10 < v.total))) {
+            m_warnedVolumes << v.root;
+            emit notice(T("Disk %1 is filling up: about %2 of recording left").arg(v.name(), DiskMonitor::formatLeft(v.secondsLeft)));
+        }
+    }
 }
 
 void ChannelManager::stopAllRecording() {

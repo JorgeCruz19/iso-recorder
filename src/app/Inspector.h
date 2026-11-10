@@ -45,5 +45,7 @@ private:
     QComboBox* m_outEncoder;
     QComboBox* m_outVideoRate;
     QComboBox* m_outAudioRate;
+    QComboBox* m_outContainer;
+    QComboBox* m_outSplit;
     QPushButton* m_applySelected;
 };

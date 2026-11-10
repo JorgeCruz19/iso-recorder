@@ -1,6 +1,8 @@
 #pragma once
+#include <QDateTime>
 #include <QElapsedTimer>
 #include <QImage>
+#include <QList>
 #include <QObject>
 #include <QString>
 #include <QTimer>
@@ -19,6 +21,16 @@ struct OutputConfig {
     QString encoder = QStringLiteral("auto");
     int videoKbps = 8000;
     int audioKbps = 192;
+    QString container = QStringLiteral("mkv");   // "mkv" albo "ts"
+    int splitSeconds = 0;           // auto-split co N sekund (0 = wylaczony)
+    qint64 splitBytes = 0;          // auto-split co N bajtow (0 = wylaczony)
+};
+
+// Jedna czesc nagrania (plik). Czasy liczone od poczatku nagrania.
+struct RecordPart {
+    QString file;
+    qint64 startNs = 0;
+    qint64 endNs = -1;
 };
 
 // Jedynym typem wejscia jest na razie generator testowy.
@@ -68,13 +80,15 @@ public:
     // Nagrywanie
     bool startRecording(const QString& session, int index);
     void stopRecording();
+    void split();                    // zamknij biezacy plik i zacznij nastepny (na klatce kluczowej)
+    int recordPart() const { return int(m_parts.size()); }
     qint64 recordMs() const { return isRecording() ? m_recClock.elapsed() : 0; }
     QString recordFile() const { return m_recFile; }
     qint64 recordBytes() const { return m_recBytes; }
     double recordMbps() const { return m_recMbps; }
     QString encoderName() const { return m_encoderName; }
     bool encoderIsHardware() const { return m_encoderHw; }
-    void pollRecording();    // co 1 s: rozmiar pliku i biezacy bitrate
+    void pollRecording();    // co 1 s: rozmiar plikow, biezacy bitrate, zapelnienie kolejki zapisu
 
 signals:
     void frameChanged();
@@ -91,6 +105,7 @@ private:
     void setState(ChannelState s, const QString& error = {});
     void restart();
     void finishRecording(bool clean, const QString& reason = {});
+    void writeSidecar(bool clean, const QString& reason) const;
 
     ChannelConfig m_cfg;
     ChannelState m_state = ChannelState::Idle;
@@ -106,6 +121,15 @@ private:
     GstPad* m_teeVideo = nullptr;
     GstPad* m_teeAudio = nullptr;
     QString m_recFile;
+    QString m_recSidecar;
+    QString m_recSession;
+    int m_recIndex = 0;
+    QDateTime m_recStartUtc;
+    QList<RecordPart> m_parts;
+    qint64 m_closedBytes = 0;       // suma rozmiarow zamknietych czesci
+    int m_slowTicks = 0;            // ile sekund z rzedu kolejka zapisu jest zapelniona ponad polowe
+    bool m_slowWarned = false;
+    int m_fkuCount = 0;
     QElapsedTimer m_recClock;
     qint64 m_recBytes = 0;
     qint64 m_recBytesPrev = 0;

@@ -2,6 +2,27 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 0.6
+
+Split:
+- SPLIT na kaflu i dla zaznaczonych: zamyka bieżący plik i od razu zaczyna następny, bez utraty klatek.
+- Auto-split w zakładce Output: co 1–60 minut albo co 1 / 2 / 4 GB.
+- Części numerowane od 001; numer bieżącej części widać na kaflu obok czasu. Każda część MKV zaczyna się od zera.
+- Nowy kontener do wyboru: MPEG-TS (obok MKV).
+- Plik opisu nagrania (.json) obok plików wideo: kanał, enkoder, czasy startu i końca w UTC, lista części
+  z położeniem na osi nagrania.
+
+Dyski:
+- Nagłówek pokazuje dysk, który zapełni się najszybciej, czas do zapełnienia i liczbę używanych dysków.
+- Okno Disks (klik w komórkę Disk albo ☰ → Disks…): wolne miejsce, kanały, potrzebny strumień, czas do zapełnienia.
+- Test prędkości zapisu 10 s / 60 s dla każdego dysku: średnia, najgorsza sekunda i werdykt względem potrzeb kanałów.
+- Ostrzeżenie, gdy zostaje mniej niż 30 minut lub 10% miejsca; poniżej 1 GB nagrania na tym dysku są zatrzymywane
+  z poprawnym zamknięciem plików. Ostrzeżenie przy folderze na dysku FAT32 i gdy zapis nie nadąża.
+
+Test: `testsec_test.ps1` z opcjami `-SplitEvery`, `-AutoSplit`, `-Container`.
+
+Jeszcze nie ma: pauzy, wspólnego momentu startu wielu kanałów, zapisu i wczytywania list.
+
 ## 0.5
 
 Nagrywanie:
