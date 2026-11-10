@@ -138,25 +138,42 @@ Wszystkie funkcje z rozdz. 1.1 `instrukcja.md` pozostają w zakresie. Zmienia si
 ### 5.1 Układ okna
 
 ```
-┌ natywny pasek tytułu Windows: „ISO Recorder — <sesja>” ┐
-├ NAGŁÓWEK 72 px: Sesja │ Czas nagrania aktywnego kanału + REC │ Timecode RTC │
-│                  Dysk (czas do zapełnienia, pasek) │ Zapis · CPU · GPU · ENK. HW · Drop │ ☰ │ Widok 2×2 3×3 4×4 Lista
-├ SIATKA KAFLI (tło #0b0b0b, odstęp 6 px)              │ INSPEKTOR 500 px
-│                                                      │  nagłówek „Inspektor — Kanał NN · nazwa”
-│                                                      │  podgląd 16:9, mierniki L/R ze skalą dBFS
-│                                                      │  zakładki Input / Output / Scheduler
-│                                                      │  sekcje zwijane (Źródło, Audio, Utrata sygnału…)
-├ PANEL STEROWANIA 86 px: Selected channels (n): [REC][PAUSE][STOP][SPLIT] │
-│     Selection: [SELECT ALL][SELECT NONE][INVERT] │ Active channel: [MOVE UP][MOVE DOWN] │
-│     Channel list: [ADD SOURCE][LOAD][SAVE] │ licznik n/16 + legenda stanów
-└ PASEK STANU 22 px: Autosave hh:mm:ss · ostatnie zdarzenia · komunikat po prawej
+┌ natywny pasek tytułu Windows: „ISO Recorder — <sesja>” ───────────────────────────────┐
+├ NAGŁÓWEK 72 px: Session │ Recording time + REC │ Timecode RTC │ Disk │ statystyki │ ☰ │ View
+├───────────────────────────────────────────────┬───────────────────────────────────────┤
+│ BLOK WIDEO                                    │ INSPEKTOR                             │
+│  siatka 4×4 kafli 16:9                        │  podgląd 16:9, mierniki L/R           │
+│  równe marginesy ze wszystkich stron          │  zakładki Input / Output / Scheduler  │
+│  i między kaflami                             │  (treść zakładek przewijana)          │
+│                                               ├───────────────────────────────────────┤
+│                                               │ PANEL STEROWANIA (4 grupy w pionie)   │
+│                                               │  Selected channels: REC PAUSE STOP SPLIT
+│                                               │  Selection: SELECT ALL · NONE · INVERT│
+│                                               │  Active channel: MOVE UP · MOVE DOWN  │
+│                                               │  Channel list (n / 16): ADD · LOAD · SAVE
+│                                               │  legenda stanów                       │
+├───────────────────────────────────────────────┴───────────────────────────────────────┤
+└ PASEK STANU 22 px: Autosave · ostatnie zdarzenia · komunikat po prawej
 ```
+
+**Proporcje bloku wideo.** Blok wideo zajmuje całą wysokość między nagłówkiem a paskiem stanu. Jego szerokość jest **wyliczana z wysokości** tak, żeby 4 × 4 kafle (kadr 16:9 + pasek 26 px + margines 4 px) wypełniły go dokładnie, z równymi marginesami ze wszystkich stron i między kaflami:
+
+```
+wysokość kafla  th = (H − 2·4) / 4
+szerokość kadru     = (th − 26 − 2·4) · 16/9
+szerokość kafla tw = szerokość kadru + 2·4
+szerokość bloku     = 4·tw + 2·4
+prawa kolumna       = szerokość okna − szerokość bloku     (ograniczona do 384…560 px)
+```
+
+Przy 1600×900 i 1920×1080 prawa kolumna ma ok. 384–388 px. Gdy okno jest węższe lub szersze, niż pozwala ograniczenie, siatka jest środkowana w bloku. Widoki 2×2 i 3×3 korzystają z tego samego bloku (siatka środkowana).
 
 Odstępstwa od mockupu (świadome):
 
 | Mockup | Program | Powód |
 |---|---|---|
-| Stały rozmiar 1920×1080 | Układ elastyczny, minimum 1280×720; inspektor 500 px przy ≥ 1600 px szerokości, 400 px poniżej; zwijany klawiszem `Tab` | Program musi działać na innych monitorach i przy skalowaniu DPI |
+| Stały rozmiar 1920×1080 | Układ elastyczny, minimum 1280×720 | Program musi działać na innych monitorach i przy skalowaniu DPI |
+| Panel sterowania jako pasek 86 px na całą szerokość pod siatką i inspektorem; inspektor 500 px | Panel sterowania **w prawej kolumnie pod inspektorem**; szerokość prawej kolumny wynika z proporcji bloku wideo (patrz wyżej) | Decyzja właściciela: blok wideo ma mieć kształt dokładnie pod 16 kafli 16:9 z równymi marginesami |
 | Własny pasek tytułu | Natywny pasek Windows (ciemny przez `DWMWA_USE_IMMERSIVE_DARK_MODE`) | Okno bez ramki traci przyciąganie, cień i obsługę wielu monitorów |
 | Brak menu | Przycisk **☰** w nagłówku: Nowa lista, Wczytaj, Zapisz, Zapisz jako, Ostatnie, Ustawienia, Diagnostyka, O programie | Mockup nie ma miejsca na funkcje z F8 i ustawienia |
 | „NVENC 12/∞” | „ENK. HW n” | Patrz 3.3 |
@@ -189,7 +206,9 @@ Zakładki Input / Output / Scheduler dotyczą **kanału aktywnego** (nie zaznacz
 - Przyciski grupowe działają na **zaznaczonych**; gdy nic nie jest zaznaczone — nieaktywne. `REC` świeci, gdy nagrywa co najmniej jeden zaznaczony.
 - `SELECT ALL` / `SELECT NONE` / `INVERT` zmieniają zaznaczenie (skróty: `Ctrl+A`, `Ctrl+Shift+A`, `Ctrl+I`).
 - `MOVE UP` / `MOVE DOWN` przesuwają kanał aktywny i dlatego stoją w osobnej grupie „Active channel”.
-- Licznik `n / 16` i legenda: REC, PAUZA, PREVIEW, CZEKA (zaplanowany start), BŁĄD (tylko gdy > 0).
+- Licznik `n / 16` stoi w wierszu tytułu grupy Channel list; legenda (REC, PAUSED, PREVIEW, WAITING, ERROR tylko gdy > 0) w ostatnim wierszu panelu.
+- Przyciski w wierszu dzielą szerokość kolumny po równo (nie węziej niż napis).
+- Koszt układu: przy wysokości 900 px na treść zakładek inspektora zostaje ok. 150 px, dlatego jest przewijana; przy 1080 px — ok. 330 px.
 - Pasek stanu: czas ostatniego autozapisu, dwa ostatnie zdarzenia z dziennika, komunikat kontekstowy po prawej.
 
 ### 5.5 Sesja i listy kanałów
@@ -243,15 +262,16 @@ Każda wersja: działający program, commit, tag, push. Kryterium = to, co da si
 | **0.1** | Repo, CMake, `--check-env`, okno wg mockupu (nagłówek, siatka, inspektor, panel, pasek stanu), kafel malowany, kanały `testsrc` z podglądem i VU, dodawanie/usuwanie/zaznaczanie/kanał aktywny, widoki 2×2/3×3/4×4 | **wydana** |
 | **0.2** | Języki (EN domyślnie + PL, DE, ES, IT, FR), nowy podział panelu sterowania, SELECT NONE i INVERT, paczka samodzielna `dist\` | **wydana** |
 | **0.3** | Kadr zawsze 16:9 (inne proporcje wpisane z pasami), wyraźne oznaczenie kanału aktywnego i zaznaczonych, wybór formatu generatora testowego | **wydana** |
-| **0.4** | `RecordBin`: Rec/Stop → MKV, enkoder z próbą mini‑pipeline'u, AAC, szablon nazw, folder docelowy per kanał, finalizacja z timeoutem, zamknięcie aplikacji czeka na finalizację | `ffprobe`: plik poprawny, pierwsza klatka kluczowa; 50 × Rec/Stop bez wzrostu uchwytów |
-| **0.5** | Split ręczny i automatyczny (czas/rozmiar), numeracja części, sidecar JSON, MPEG‑TS; monitor wolumenów i test prędkości zapisu (5.6, 5.7) | suma długości części = czas nagrania ±1 klatka, brak luk PTS; test dysku daje powtarzalny wynik |
-| **0.6** | Pauza wg 3.1 | test z 3.1 |
-| **0.7** | Sesja i listy (5.5): zapis/wczytanie, autosave, ostatnie pliki; operacje grupowe ze wspólnym `T`; przenoszenie przeciąganiem | 16 × testsrc startuje w ±1 klatce; lista wraca identyczna po wczytaniu |
-| **0.8** | Inspektor Input/Output w pełni edytowalny; wejścia lokalne: Screen grab (DXGI/WGC), UVC/MF, WASAPI (urządzenie, loopback) | nagranie ekranu z dźwiękiem systemowym |
-| **0.9** | SRT, RTSP, passthrough, `fallbacksrc` + polityka zaniku sygnału, stan RECONNECTING | SRT/RTSP z lokalnego `ffmpeg`/MediaMTX; zerwanie i powrót strumienia bez utraty pliku |
-| **1.0** | NDI (discovery), DeckLink; kodeki H.265/AV1/ProRes/DNxHR wg dostępności; MOV/MP4 robust | NDI z NDI Tools; DeckLink — niesprawdzone na sprzęcie |
-| **1.1** | Scheduler (reguły, catch‑up, DST), blokada uśpienia, logi rotowane, widok Lista, folder zapasowy | testy jednostkowe schedulera; kontrolowany Stop przy braku miejsca |
-| **1.2** | WHEP, WHIP, magazyn poświadczeń, odzyskiwanie po awarii, instalator Inno Setup | instalacja na czystym Windows; test 24 h |
+| **0.4** | Panel sterowania przeniesiony pod inspektor; blok wideo o proporcjach wyliczonych pod siatkę 4×4 kafli 16:9 z równymi marginesami | **wydana** |
+| **0.5** | `RecordBin`: Rec/Stop → MKV, enkoder z próbą mini‑pipeline'u, AAC, szablon nazw, folder docelowy per kanał, finalizacja z timeoutem, zamknięcie aplikacji czeka na finalizację | `ffprobe`: plik poprawny, pierwsza klatka kluczowa; 50 × Rec/Stop bez wzrostu uchwytów |
+| **0.6** | Split ręczny i automatyczny (czas/rozmiar), numeracja części, sidecar JSON, MPEG‑TS; monitor wolumenów i test prędkości zapisu (5.6, 5.7) | suma długości części = czas nagrania ±1 klatka, brak luk PTS; test dysku daje powtarzalny wynik |
+| **0.7** | Pauza wg 3.1 | test z 3.1 |
+| **0.8** | Sesja i listy (5.5): zapis/wczytanie, autosave, ostatnie pliki; operacje grupowe ze wspólnym `T`; przenoszenie przeciąganiem | 16 × testsrc startuje w ±1 klatce; lista wraca identyczna po wczytaniu |
+| **0.9** | Inspektor Input/Output w pełni edytowalny; wejścia lokalne: Screen grab (DXGI/WGC), UVC/MF, WASAPI (urządzenie, loopback) | nagranie ekranu z dźwiękiem systemowym |
+| **1.0** | SRT, RTSP, passthrough, `fallbacksrc` + polityka zaniku sygnału, stan RECONNECTING | SRT/RTSP z lokalnego `ffmpeg`/MediaMTX; zerwanie i powrót strumienia bez utraty pliku |
+| **1.1** | NDI (discovery), DeckLink; kodeki H.265/AV1/ProRes/DNxHR wg dostępności; MOV/MP4 robust | NDI z NDI Tools; DeckLink — niesprawdzone na sprzęcie |
+| **1.2** | Scheduler (reguły, catch‑up, DST), blokada uśpienia, logi rotowane, widok Lista, folder zapasowy | testy jednostkowe schedulera; kontrolowany Stop przy braku miejsca |
+| **1.3** | WHEP, WHIP, magazyn poświadczeń, odzyskiwanie po awarii, instalator Inno Setup | instalacja na czystym Windows; test 24 h |
 
 Każda runda poprawek po uwagach właściciela dostaje własny numer, więc pozycje poniżej bieżącej wersji przesuwają się o jedną. Numery wersji, od których zapowiadane funkcje będą dostępne, są w kodzie w jednym miejscu: `Roadmap` w `src/core/Lang.h`.
 

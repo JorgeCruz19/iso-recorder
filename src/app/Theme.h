@@ -40,10 +40,10 @@ QWidget { background:#1f1f1f; color:#d6d6d6; font-family:"Open Sans","Segoe UI";
 QToolTip { background:#141414; color:#d6d6d6; border:1px solid #3b3b3b; }
 #header, #controlPanel { background:#262626; }
 #header { border-bottom:1px solid #151515; }
-#controlPanel { border-top:1px solid #151515; }
-#cell, #grp { background:#262626; border-right:1px solid #151515; }
-#cell QLabel, #grp QLabel, #count QLabel, #viewsel QLabel { background:transparent; }
-#count { background:#262626; border-left:1px solid #151515; }
+#controlPanel { border-top:1px solid #151515; border-left:1px solid #151515; }
+#cell { background:#262626; border-right:1px solid #151515; }
+#grp { background:#262626; border-bottom:1px solid #151515; }
+#cell QLabel, #grp QLabel, #viewsel QLabel { background:transparent; }
 #viewsel { background:#262626; }
 QLabel#cap { font-size:10px; font-weight:700; color:#6e6e6e; }
 QLabel#proj { font-size:15px; font-weight:600; }
@@ -53,8 +53,8 @@ QLabel#big { font-size:17px; color:#f0f0f0; }
 QLabel#stat { font-size:15px; font-weight:600; }
 QLabel#dim { color:#9d9d9d; }
 QLabel#recBadge { background:#e0242b; color:#fff; font-weight:700; font-size:11px; padding:3px 8px; border-radius:2px; }
-QLabel#countN { font-size:26px; color:#f0f0f0; }
-QLabel#legend { font-size:11px; color:#9d9d9d; }
+QLabel#countN { font-size:13px; font-weight:700; color:#f0f0f0; }
+QLabel#legend { font-size:11px; color:#9d9d9d; background:#262626; }
 QProgressBar { background:#111; border:1px solid #0c0c0c; max-height:5px; min-height:5px; }
 QProgressBar::chunk { background:#8a8a8a; }
 QPushButton#vb { background:#333; border:1px solid #151515; color:#9d9d9d; font-size:11px; font-weight:600;

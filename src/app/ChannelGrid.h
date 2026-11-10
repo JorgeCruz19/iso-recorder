@@ -12,6 +12,9 @@ class ChannelGrid : public QScrollArea {
 public:
     explicit ChannelGrid(ChannelManager* mgr, QWidget* parent = nullptr);
     void setColumns(int n);
+    // Szerokosc bloku siatki, przy ktorej cols x cols kafli 16:9 wypelnia wysokosc h z rownymi marginesami.
+    static int widthForHeight(int h, int cols);
+    static constexpr int Pad = 4;   // margines zewnetrzny = polowa odstepu miedzy kadrami (kafel ma wlasne 4 px)
 
 protected:
     void resizeEvent(QResizeEvent*) override;

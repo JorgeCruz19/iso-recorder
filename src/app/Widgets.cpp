@@ -13,8 +13,9 @@ KeyButton::KeyButton(const QString& text, Glyph glyph, bool wide, QWidget* paren
     : QAbstractButton(parent), m_glyph(glyph), m_wide(wide) {
     setText(text);
     // szerokosc dopasowana do napisu - tlumaczenia bywaja dluzsze niz tekst angielski
-    m_width = qMax(wide ? 92 : 72, QFontMetrics(Theme::font(10, QFont::Bold, 0.7)).horizontalAdvance(text) + 24);
-    setFixedSize(sizeHint());
+    m_width = qMax(wide ? 84 : 66, QFontMetrics(Theme::font(10, QFont::Bold, 0.7)).horizontalAdvance(text) + 20);
+    setFixedHeight(38);
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);   // przyciski w wierszu dziela szerokosc kolumny
     setFocusPolicy(Qt::NoFocus);
     setCursor(Qt::PointingHandCursor);
 }
@@ -46,7 +47,7 @@ void KeyButton::paintEvent(QPaintEvent*) {
     p.setBrush(fg);
     const double cx = width() / 2.0;
     const bool hasGlyph = m_glyph != None;
-    const double gy = 8;   // gorna krawedz symbolu
+    const double gy = 6;   // gorna krawedz symbolu
     switch (m_glyph) {
     case Dot: p.drawEllipse(QRectF(cx - 5.5, gy, 11, 11)); break;
     case Square: p.drawRect(QRectF(cx - 5.5, gy, 11, 11)); break;
@@ -79,7 +80,7 @@ void KeyButton::paintEvent(QPaintEvent*) {
     }
     p.setPen(fg);
     p.setFont(Theme::font(10, QFont::Bold, 0.7));
-    const QRect tr = hasGlyph ? QRect(0, 23, width(), 15) : rect();
+    const QRect tr = hasGlyph ? QRect(0, 20, width(), 15) : rect();
     p.drawText(tr, Qt::AlignCenter, text());
 }
 

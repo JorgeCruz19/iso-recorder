@@ -6,6 +6,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QSignalBlocker>
 #include <QStackedWidget>
 #include <QStandardItemModel>
@@ -27,7 +28,7 @@ QGridLayout* form(QVBoxLayout* into) {
     g->setContentsMargins(12, 8, 12, 8);
     g->setHorizontalSpacing(12);
     g->setVerticalSpacing(8);
-    g->setColumnMinimumWidth(0, 150);
+    g->setColumnMinimumWidth(0, 96);
     g->setColumnStretch(1, 1);
     into->addLayout(g);
     return g;
@@ -89,7 +90,13 @@ Inspector::Inspector(ChannelManager* mgr, QWidget* parent) : QWidget(parent), m_
         T("Folder, name template, container, codecs and auto-split will arrive in version %1 together with recording.")
             .arg(QLatin1String(Roadmap::recording))));
     m_stack->addWidget(placeholder(T("Start, stop and split scheduling will arrive in version %1.").arg(QLatin1String(Roadmap::scheduler))));
-    v->addWidget(m_stack, 1);
+    // Prawa kolumna jest waska i dzieli wysokosc z panelem sterowania - tresc zakladek przewija sie.
+    auto* scroll = new QScrollArea;
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setWidgetResizable(true);
+    scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    scroll->setWidget(m_stack);
+    v->addWidget(scroll, 1);
 
     connect(mgr, &ChannelManager::activeChanged, this, &Inspector::bind);
     connect(mgr, &ChannelManager::listChanged, this, &Inspector::bind);

@@ -35,6 +35,8 @@ private:
     ChannelManager* m_mgr;
     ChannelGrid* m_grid;
     Inspector* m_inspector;
+    QWidget* m_right;
+    static constexpr int HeaderH = 72, StatusH = 22, RightMin = 384, RightMax = 560;
 
     QLabel* m_session;
     QLabel* m_recCap;

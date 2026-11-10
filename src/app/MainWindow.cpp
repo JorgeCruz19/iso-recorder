@@ -73,10 +73,16 @@ MainWindow::MainWindow(ChannelManager* mgr, QWidget* parent) : QWidget(parent), 
     mid->setSpacing(0);
     m_grid = new ChannelGrid(mgr);
     m_inspector = new Inspector(mgr);
+    // Prawa kolumna: inspektor, pod nim panel sterowania. Siatka wideo zajmuje cala wysokosc po lewej.
+    m_right = new QWidget;
+    auto* rv = new QVBoxLayout(m_right);
+    rv->setContentsMargins(0, 0, 0, 0);
+    rv->setSpacing(0);
+    rv->addWidget(m_inspector, 1);
+    rv->addWidget(buildControlPanel());
     mid->addWidget(m_grid, 1);
-    mid->addWidget(m_inspector);
+    mid->addWidget(m_right);
     v->addLayout(mid, 1);
-    v->addWidget(buildControlPanel());
     v->addWidget(buildStatus());
 
     connect(mgr, &ChannelManager::listChanged, this, &MainWindow::refreshCounts);
@@ -104,7 +110,7 @@ QWidget* MainWindow::buildHeader() {
     auto* header = new QWidget;
     header->setObjectName(QStringLiteral("header"));
     header->setAttribute(Qt::WA_StyledBackground);
-    header->setFixedHeight(72);
+    header->setFixedHeight(HeaderH);
     auto* h = new QHBoxLayout(header);
     h->setContentsMargins(0, 0, 0, 1);
     h->setSpacing(0);
@@ -227,26 +233,31 @@ QWidget* MainWindow::buildHeader() {
     return header;
 }
 
+// Panel sterowania stoi w prawej kolumnie pod inspektorem: cztery grupy jedna pod druga.
 QWidget* MainWindow::buildControlPanel() {
     auto* panel = new QWidget;
     panel->setObjectName(QStringLiteral("controlPanel"));
     panel->setAttribute(Qt::WA_StyledBackground);
-    panel->setFixedHeight(86);
-    auto* h = new QHBoxLayout(panel);
-    h->setContentsMargins(0, 1, 0, 0);
-    h->setSpacing(0);
+    auto* v = new QVBoxLayout(panel);
+    v->setContentsMargins(1, 1, 0, 0);
+    v->setSpacing(0);
 
-    auto group = [&](QLabel* caption, std::initializer_list<KeyButton*> buttons) {
-        auto* v = new QVBoxLayout;
-        v->setSpacing(6);
-        v->addStretch();
-        v->addWidget(caption);
+    auto group = [&](QLabel* caption, std::initializer_list<KeyButton*> buttons, QWidget* right = nullptr) {
+        auto* f = new QFrame;
+        f->setObjectName(QStringLiteral("grp"));
+        auto* gv = new QVBoxLayout(f);
+        gv->setContentsMargins(12, 7, 12, 9);
+        gv->setSpacing(5);
+        auto* top = new QHBoxLayout;
+        top->addWidget(caption);
+        top->addStretch(1);
+        if (right) top->addWidget(right);
+        gv->addLayout(top);
         auto* hb = new QHBoxLayout;
         hb->setSpacing(6);
-        for (KeyButton* b : buttons) hb->addWidget(b);
-        v->addLayout(hb);
-        v->addStretch();
-        h->addWidget(cell("grp", v, 16));
+        for (KeyButton* b : buttons) hb->addWidget(b, 1);
+        gv->addLayout(hb);
+        v->addWidget(f);
     };
 
     const struct { const char* text; KeyButton::Glyph g; } tr[4] = {
@@ -268,14 +279,14 @@ QWidget* MainWindow::buildControlPanel() {
     connect(m_btnSelect[2], &KeyButton::clicked, m_mgr, &ChannelManager::invertSelection);
     group(cap(T("Selection")), {m_btnSelect[0], m_btnSelect[1], m_btnSelect[2]});
 
-    // Kanal aktywny (ten z biala ramka, pokazany w inspektorze)
+    // Kanal aktywny (pomaranczowa ramka, pokazany w inspektorze)
     m_btnUp = new KeyButton(T("MOVE UP"), KeyButton::Up, false);
     m_btnDown = new KeyButton(T("MOVE DOWN"), KeyButton::Down, false);
     connect(m_btnUp, &KeyButton::clicked, this, [this] { m_mgr->moveActive(-1); });
     connect(m_btnDown, &KeyButton::clicked, this, [this] { m_mgr->moveActive(1); });
     group(cap(T("Active channel")), {m_btnUp, m_btnDown});
 
-    // Lista kanalow jako calosc
+    // Lista kanalow jako calosc; licznik n / 16 w wierszu tytulu
     m_btnAdd = new KeyButton(T("ADD SOURCE"), KeyButton::None, true);
     auto* load = new KeyButton(T("LOAD"), KeyButton::None, true);
     auto* save = new KeyButton(T("SAVE"), KeyButton::None, true);
@@ -284,20 +295,15 @@ QWidget* MainWindow::buildControlPanel() {
     load->setToolTip(T("From version %1").arg(QLatin1String(Roadmap::lists)));
     save->setToolTip(T("From version %1").arg(QLatin1String(Roadmap::lists)));
     connect(m_btnAdd, &KeyButton::clicked, m_mgr, [this] { m_mgr->addChannel(); });
-    group(cap(T("Channel list")), {m_btnAdd, load, save});
-
-    h->addStretch(1);
-
-    auto* vc = new QVBoxLayout;
-    vc->setSpacing(2);
-    vc->addStretch();
-    vc->addWidget(cap(T("Channels")), 0, Qt::AlignRight);
-    vc->addWidget(m_count = label(QString(), "countN"), 0, Qt::AlignRight);
+    m_count = label(QString(), "countN");
     m_count->setTextFormat(Qt::RichText);
-    vc->addWidget(m_legend = label(QString(), "legend"), 0, Qt::AlignRight);
+    group(cap(T("Channel list")), {m_btnAdd, load, save}, m_count);
+
+    m_legend = label(QString(), "legend");
     m_legend->setTextFormat(Qt::RichText);
-    vc->addStretch();
-    h->addWidget(cell("count", vc, 20));
+    m_legend->setAlignment(Qt::AlignCenter);
+    m_legend->setFixedHeight(24);
+    v->addWidget(m_legend);
     return panel;
 }
 
@@ -305,7 +311,7 @@ QWidget* MainWindow::buildStatus() {
     auto* st = new QWidget;
     st->setObjectName(QStringLiteral("status"));
     st->setAttribute(Qt::WA_StyledBackground);
-    st->setFixedHeight(22);
+    st->setFixedHeight(StatusH);
     auto* h = new QHBoxLayout(st);
     h->setContentsMargins(12, 0, 12, 0);
     h->setSpacing(22);
@@ -395,7 +401,10 @@ void MainWindow::showDiagnostics() {
 
 void MainWindow::resizeEvent(QResizeEvent* e) {
     QWidget::resizeEvent(e);
-    m_inspector->setFixedWidth(width() >= 1600 ? 500 : 400);
+    // Szerokosc prawej kolumny wynika z proporcji siatki: blok wideo ma dokladnie taki ksztalt,
+    // zeby 4 x 4 kafle 16:9 wypelnily go z rownymi marginesami. Reszta szerokosci to prawa kolumna.
+    const int gridH = height() - HeaderH - StatusH;
+    m_right->setFixedWidth(qBound(RightMin, width() - ChannelGrid::widthForHeight(gridH, 4), RightMax));
 }
 
 void MainWindow::keyPressEvent(QKeyEvent* e) {

@@ -13,7 +13,8 @@ public:
     KeyButton(const QString& text, Glyph glyph, bool wide, QWidget* parent = nullptr);
     void setRed(bool on) { m_red = on; update(); }
     void setLit(bool on) { if (m_lit != on) { m_lit = on; update(); } }
-    QSize sizeHint() const override { return {m_width, 42}; }
+    QSize sizeHint() const override { return {m_width, 38}; }
+    QSize minimumSizeHint() const override { return sizeHint(); }
 
 protected:
     void paintEvent(QPaintEvent*) override;

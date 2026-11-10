@@ -2,6 +2,15 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 0.4
+
+- Panel sterowania przeniesiony spod siatki do prawej kolumny, pod inspektor (cztery grupy jedna pod drugą).
+- Blok wideo zajmuje całą wysokość okna, a jego szerokość jest wyliczana tak, żeby 16 kafli 16:9 (4×4)
+  wypełniło go dokładnie, z równymi marginesami; prawa kolumna dostaje resztę szerokości (384–560 px).
+- Większe kafle: przy 1600×900 kadr ma ok. 289×163 px zamiast 247×139.
+- Treść zakładek inspektora jest przewijana; licznik kanałów stoi w tytule grupy Channel list.
+- Plan wersji przesunięty o jedną: nagrywanie od 0.5.
+
 ## 0.3
 
 - Kadr wideo zawsze 16:9 — na kaflach i w inspektorze. Źródła o innych proporcjach są wpisane w kadr w całości,
@@ -10,7 +19,7 @@ Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 - Kanały zaznaczone: większe, białe pole wyboru i jaśniejszy pasek pod kadrem.
 - Inspektor: wybór formatu generatora testowego (16:9, 4:3, 9:16, 2.40:1, 1:1) do sprawdzania proporcji.
 - Instrukcja końcowa: opis sesji i list kanałów (5.5), zapisu na kilku dyskach (5.6) i testu prędkości zapisu (5.7).
-- Plan wersji przesunięty o jedną: nagrywanie od 0.4.
+- Plan wersji przesunięty o jedną.
 
 ## 0.2
 
