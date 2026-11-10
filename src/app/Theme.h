@@ -34,7 +34,9 @@ inline void paintMeter(QPainter& p, const QRectF& r, double frac, bool vertical,
     }
 }
 
-inline QString styleSheet() {
+// arrow / arrowOff: sciezki do obrazkow strzalki listy rozwijanej (QSS nie umie jej narysowac sam - trik z ramkami
+// dawal kwadracik), tworzonych przy starcie programu.
+inline QString styleSheet(const QString& arrow = {}, const QString& arrowOff = {}) {
     return QStringLiteral(R"(
 QWidget { background:#1f1f1f; color:#d6d6d6; font-family:"Open Sans","Segoe UI"; font-size:12px; }
 QToolTip { background:#141414; color:#d6d6d6; border:1px solid #3b3b3b; }
@@ -83,8 +85,8 @@ QPushButton#vb::menu-indicator { image:none; }
 #inspector QComboBox, #inspector QLineEdit { background:#1a1a1a; border:1px solid #3a3a3a; border-radius:2px;
                                              padding:0 8px; min-height:21px; font-size:11px; }
 #inspector QComboBox::drop-down { border:0; width:18px; }
-#inspector QComboBox::down-arrow { image:none; border-left:4px solid transparent; border-right:4px solid transparent;
-                                   border-top:5px solid #9a9a9a; margin-right:8px; }
+#inspector QComboBox::down-arrow { image:url(%ARROW%); width:9px; height:6px; margin-right:8px; }
+#inspector QComboBox::down-arrow:disabled { image:url(%ARROW_OFF%); }
 #inspector QComboBox QAbstractItemView { background:#1a1a1a; border:1px solid #3a3a3a;
                                          selection-background-color:#4a4a4a; }
 #status { background:#161616; border-top:1px solid #000; }
@@ -105,6 +107,7 @@ QHeaderView::section { background:#262626; color:#9d9d9d; border:0; border-botto
 QPushButton#dbtn { background:#3a3a3a; border:1px solid #151515; border-radius:2px; padding:3px 10px; font-size:11px; font-weight:600; }
 QPushButton#dbtn:disabled { color:#6e6e6e; }
 QDialog QPushButton { background:#3a3a3a; border:1px solid #151515; border-radius:2px; padding:4px 14px; }
-)");
+)")
+        .replace(QLatin1String("%ARROW_OFF%"), arrowOff).replace(QLatin1String("%ARROW%"), arrow);
 }
 }

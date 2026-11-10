@@ -2,6 +2,24 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 1.8
+
+Widok listy:
+- Przycisk List w nagłówku przełącza kafle na listę: jeden wiersz na kanał z miniaturą, nazwą, źródłem, formatem,
+  stanem, czasem nagrania, strumieniem zapisu, wyjściem na żywo, miernikami L/R i przyciskami REC / II / STOP / SPLIT.
+- Zachowanie jak na kaflach: klik = kanał aktywny (pomarańczowy pasek z lewej), pole albo Ctrl+klik = zaznaczenie,
+  dwuklik w miniaturę = duży podgląd, dwuklik w nazwę = zmiana nazwy, prawy przycisk = Duplicate / Remove.
+- Wybrany widok (2×2, 3×3, 4×4, List) jest pamiętany między uruchomieniami.
+
+Inspektor:
+- Listy rozwijane mają szerokość kolumny zamiast najdłuższej pozycji. Długie nazwy urządzeń rozpychały wcześniej
+  formularz poza krawędź okna i obcinały etykiety. Długi tekst jest skracany wielokropkiem w środku, pełna nazwa
+  jest w podpowiedzi, a rozwinięta lista ma szerokość pola i najwyżej 12 pozycji (dalej przewijanie).
+- Etykiety pól mają stałą szerokość i łamią się na dwie linie zamiast być obcinane.
+- Strzałka listy rozwijanej jest strzałką (wcześniej rysował się kwadracik).
+
+Jeszcze nie ma w widoku listy: zmiany kolejności przeciąganiem (działają MOVE UP / MOVE DOWN) i sortowania kolumn.
+
 ## 1.7
 
 Poprawki błędów:

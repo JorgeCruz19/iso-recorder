@@ -18,6 +18,7 @@
 #include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QStackedWidget>
 #include <QStandardPaths>
 #include <QStorageInfo>
 #include <QTimer>
@@ -27,6 +28,7 @@
 #include <dwmapi.h>
 
 #include "ChannelGrid.h"
+#include "ChannelList.h"
 #include "ChannelTile.h"
 #include "DisksDialog.h"
 #include "Inspector.h"
@@ -89,7 +91,11 @@ MainWindow::MainWindow(ChannelManager* mgr, QWidget* parent) : QWidget(parent), 
     rv->setSpacing(0);
     rv->addWidget(m_inspector, 1);
     rv->addWidget(buildControlPanel());
-    mid->addWidget(m_grid, 1);
+    m_list = new ChannelList(mgr);
+    m_views = new QStackedWidget;
+    m_views->addWidget(m_grid);
+    m_views->addWidget(m_list);
+    mid->addWidget(m_views, 1);
     mid->addWidget(m_right);
     v->addLayout(mid, 1);
     v->addWidget(buildStatus());
@@ -119,6 +125,7 @@ MainWindow::MainWindow(ChannelManager* mgr, QWidget* parent) : QWidget(parent), 
     });
     frame->start(40);
 
+    setView(QSettings(ChannelManager::settingsOrg(), QStringLiteral("IsoRecorder")).value(QStringLiteral("view"), 4).toInt());
     refreshCounts();
     refreshActive();
     refreshSession();
@@ -254,27 +261,41 @@ QWidget* MainWindow::buildHeader() {
     hv->addSpacing(12);
     hv->addWidget(cap(T("View")));
     hv->addSpacing(10);
-    auto* group = new QButtonGroup(this);
+    auto* group = m_viewGroup = new QButtonGroup(this);
     for (int n : {2, 3, 4}) {
         auto* b = new QPushButton(QStringLiteral("%1×%1").arg(n));
         b->setObjectName(QStringLiteral("vb"));
         b->setCheckable(true);
-        b->setChecked(n == 4);
         b->setFocusPolicy(Qt::NoFocus);
         group->addButton(b, n);
         hv->addWidget(b);
     }
     auto* list = new QPushButton(T("List"));
     list->setObjectName(QStringLiteral("vb"));
-    list->setEnabled(false);
-    list->setToolTip(T("List view — from version %1").arg(QLatin1String(Roadmap::scheduler)));
+    list->setCheckable(true);
+    list->setFocusPolicy(Qt::NoFocus);
+    group->addButton(list, 0);
     hv->addWidget(list);
-    connect(group, &QButtonGroup::idClicked, this, [this](int n) { m_grid->setColumns(n); });
+    connect(group, &QButtonGroup::idClicked, this, [this](int view) {
+        setView(view);
+        if (m_mgr->persistence()) QSettings(ChannelManager::settingsOrg(), QStringLiteral("IsoRecorder")).setValue(QStringLiteral("view"), view);
+    });
     h->addWidget(cell("viewsel", hv, 12));
     return header;
 }
 
 // Panel sterowania stoi w prawej kolumnie pod inspektorem: cztery grupy jedna pod druga.
+void MainWindow::setView(int view) {
+    if (view != 0 && view != 2 && view != 3) view = 4;
+    if (view == 0) {
+        m_views->setCurrentWidget(m_list);
+    } else {
+        m_grid->setColumns(view);
+        m_views->setCurrentWidget(m_grid);
+    }
+    if (QAbstractButton* b = m_viewGroup->button(view)) b->setChecked(true);
+}
+
 QWidget* MainWindow::buildControlPanel() {
     auto* panel = new QWidget;
     panel->setObjectName(QStringLiteral("controlPanel"));

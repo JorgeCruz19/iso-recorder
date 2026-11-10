@@ -350,11 +350,12 @@ Każda wersja: działający program, commit, tag, push. Kryterium = to, co da si
 | **1.5** | Wejścia lokalne: Screen grab (`d3d11screencapturesrc`), kamera (`mfvideosrc`), dźwięk WASAPI (urządzenie, loopback); wybór w zakładce Input; Stop czekający na opóźnione źródła | **wydana** — `tests\rec_test.ps1 -Source screen -Audio loopback`; kamera niesprawdzona na sprzęcie |
 | **1.6** | Wejścia SRT i RTSP przez `fallbacksrc`: zanik sygnału nie przerywa nagrania (ostatnia klatka → czarny obraz), automatyczne ponowne łączenie, RECONNECTING na kaflu | **wydana** — `tests\net_test.ps1 -Type srt/rtsp` |
 | **1.7** | Poprawki: limit czasu startu i stopu kanału (źródło, które nie odpowiada, nie zawiesza programu), start awaryjny z Shiftem, usunięcie regresji zużycia procesora z 1.6 | **wydana** |
-| **1.8** | Poprawki po uwagach: reakcja na zanik sygnału do wyboru (trwa / pauza / nowa część), przechwytywanie okna, tryby kamery, głośność wejścia | |
-| **1.9** | Passthrough: zapis strumienia SRT/RTSP bez ponownego kodowania; pauza = nowa część | plik zgodny bit w bit ze strumieniem, split na klatce kluczowej źródła |
-| **2.0** | NDI (discovery), DeckLink; kodeki H.265/AV1/ProRes/DNxHR wg dostępności; MOV/MP4 robust | NDI z NDI Tools; DeckLink — niesprawdzone na sprzęcie |
-| **2.1** | Scheduler (reguły, catch‑up, DST), blokada uśpienia, logi rotowane, widok Lista, folder zapasowy | testy jednostkowe schedulera; kontrolowany Stop przy braku miejsca |
-| **2.2** | WHEP, WHIP, magazyn poświadczeń, odzyskiwanie po awarii, instalator Inno Setup | instalacja na czystym Windows; test 24 h |
+| **1.8** | Widok listy kanałów; listy rozwijane inspektora o szerokości kolumny, etykiety bez obcinania, poprawna strzałka | **wydana** |
+| **1.9** | Poprawki po uwagach: reakcja na zanik sygnału do wyboru (trwa / pauza / nowa część), przechwytywanie okna, tryby kamery, głośność wejścia | |
+| **2.0** | Passthrough: zapis strumienia SRT/RTSP bez ponownego kodowania; pauza = nowa część | plik zgodny bit w bit ze strumieniem, split na klatce kluczowej źródła |
+| **2.1** | NDI (discovery), DeckLink; kodeki H.265/AV1/ProRes/DNxHR wg dostępności; MOV/MP4 robust | NDI z NDI Tools; DeckLink — niesprawdzone na sprzęcie |
+| **2.2** | Scheduler (reguły, catch‑up, DST), blokada uśpienia, logi rotowane, folder zapasowy | testy jednostkowe schedulera; kontrolowany Stop przy braku miejsca |
+| **2.3** | WHEP, WHIP, magazyn poświadczeń, odzyskiwanie po awarii, instalator Inno Setup | instalacja na czystym Windows; test 24 h |
 
 Każda runda poprawek po uwagach właściciela dostaje własny numer, więc pozycje poniżej bieżącej wersji przesuwają się o jedną. Numery wersji, od których zapowiadane funkcje będą dostępne, są w kodzie w jednym miejscu: `Roadmap` w `src/core/Lang.h`.
 
@@ -383,5 +384,5 @@ iso-recorder/
 
 ## 8. Otwarte pytania do właściciela projektu
 
-1. Docelowy sprzęt nagrywający (GPU, karty HDMI) — od tego zależy, czy 2.0 (DeckLink) i profil 16 kanałów da się w ogóle potwierdzić.
-2. Czy WHIP jako serwer w aplikacji jest wymagany, czy wystarczy WHEP + SRT/RTSP (wtedy 2.2 jest wyraźnie prostsze).
+1. Docelowy sprzęt nagrywający (GPU, karty HDMI) — od tego zależy, czy 2.1 (DeckLink) i profil 16 kanałów da się w ogóle potwierdzić.
+2. Czy WHIP jako serwer w aplikacji jest wymagany, czy wystarczy WHEP + SRT/RTSP (wtedy 2.3 jest wyraźnie prostsze).

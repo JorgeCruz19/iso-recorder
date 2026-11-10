@@ -1,6 +1,7 @@
 #include "Inspector.h"
 
 #include <QButtonGroup>
+#include <QAbstractItemView>
 #include <QComboBox>
 #include <QDir>
 #include <QFileDialog>
@@ -35,7 +36,7 @@ QGridLayout* form(QVBoxLayout* into) {
     g->setContentsMargins(12, 8, 12, 8);
     g->setHorizontalSpacing(12);
     g->setVerticalSpacing(8);
-    g->setColumnMinimumWidth(0, 96);
+    g->setColumnMinimumWidth(0, 104);
     g->setColumnStretch(1, 1);
     into->addLayout(g);
     return g;
@@ -46,6 +47,8 @@ void row(QGridLayout* g, const QString& label, QWidget* field) {
     auto* l = new QLabel(label);
     l->setObjectName(QStringLiteral("fl"));
     l->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    l->setWordWrap(true);                   // dluga etykieta (tlumaczenia) lamie sie na dwie linie zamiast byc obcieta
+    l->setFixedWidth(104);
     g->addWidget(l, r, 0);
     g->addWidget(field, r, 1);
 }
@@ -103,6 +106,21 @@ Inspector::Inspector(ChannelManager* mgr, QWidget* parent) : QWidget(parent), m_
     scroll->setWidget(m_stack);
     v->addWidget(scroll, 1);
 
+    // Listy rozwijane maja szerokosc kolumny, a nie najdluzszej pozycji: dlugie nazwy urzadzen rozpychaly formularz
+    // poza krawedz okna i obcinaly etykiety. Tekst jest skracany wielokropkiem, pelna nazwa jest w podpowiedzi,
+    // a rozwinieta lista ma najwyzej 12 pozycji i szerokosc pola.
+    for (QComboBox* c : findChildren<QComboBox*>()) {
+        c->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        c->setMinimumContentsLength(6);
+        c->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+        c->setMaxVisibleItems(12);
+        c->view()->setTextElideMode(Qt::ElideMiddle);
+        c->view()->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        for (int i = 0; i < c->count(); ++i) c->setItemData(i, c->itemText(i), Qt::ToolTipRole);
+        connect(c, &QComboBox::currentTextChanged, c, [c](const QString& text) { c->setToolTip(text); });
+        c->setToolTip(c->currentText());
+    }
+    for (QLineEdit* e : findChildren<QLineEdit*>()) e->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     connect(mgr, &ChannelManager::activeChanged, this, &Inspector::bind);
     connect(mgr, &ChannelManager::listChanged, this, &Inspector::bind);
     bind();
@@ -350,6 +368,7 @@ void Inspector::fillDevices(const QString& type) {
     } else if (type == QLatin1String("camera")) {
         for (const Devices::Info& d : Devices::list(true).cameras) m_device->addItem(d.name, QStringList{d.id, d.name});
     }
+    for (int i = 0; i < m_device->count(); ++i) m_device->setItemData(i, m_device->itemText(i), Qt::ToolTipRole);
     m_device->setProperty("forType", type);
 }
 

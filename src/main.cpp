@@ -1,7 +1,13 @@
 #include <QApplication>
 #include <QFile>
 #include <QMessageBox>
+#include <QDir>
+#include <QAbstractItemView>
+#include <QComboBox>
 #include <QMouseEvent>
+#include <QPainter>
+#include <QPixmap>
+#include <QStandardPaths>
 #include <QScreen>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -33,6 +39,8 @@
 //   --check-env           raport o elementach GStreamera (kod wyjscia 1, gdy brakuje obowiazkowych)
 //   --demo N              start z N kanalami testowymi
 //   --lang xx             jezyk interfejsu na te sesje (en, pl, de, es, it, fr)
+//   --view list|2|3|4     widok kanalow na te sesje
+//   --shot-combo N plik   rozwin N-ta liste rozwijana inspektora (od 0), zapisz jej zrzut, wypisz polozenie wzgledem ekranu
 //   --screenshot plik.png zrzut okna po 4 s i wyjscie (do porownania z mockupem)
 //   --rec-test S          test nagrywania: wszystkie kanaly nagrywaja S sekund, potem Stop i wyjscie po finalizacji
 //   --cycles N            ile razy powtorzyc cykl Rec/Stop w --rec-test (domyslnie 1)
@@ -89,7 +97,7 @@ int main(int argc, char* argv[]) {
     QApplication::setApplicationVersion(QStringLiteral(APP_VERSION));
     const QStringList args = app.arguments();
     // Uruchomienie sterowane argumentami (zrzuty, testy) konczy sie samo - bez pytan o zapis listy.
-    for (const char* a : {"--screenshot", "--save-list", "--save-list-real", "--rec-test", "--shot-big", "--shot-disks", "--drag-test"})
+    for (const char* a : {"--screenshot", "--save-list", "--save-list-real", "--rec-test", "--shot-big", "--shot-disks", "--drag-test", "--shot-combo"})
         if (args.contains(QLatin1String(a))) app.setProperty("automation", true);
 
     if (args.contains(QStringLiteral("--check-env"))) {
@@ -126,7 +134,24 @@ int main(int argc, char* argv[]) {
         return result.ok ? 0 : 1;
     }
 
-    app.setStyleSheet(Theme::styleSheet());
+    // Strzalki list rozwijanych: dwa male obrazki rysowane raz i zapisywane w katalogu danych programu.
+    auto arrowFile = [](const QString& name, const QColor& color) {
+        const QString dir = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + QStringLiteral("/IsoRecorder");
+        QDir().mkpath(dir);
+        const QString path = dir + QLatin1Char('/') + name;
+        QPixmap pm(18, 12);                     // 2x, zeby byla ostra takze przy skalowaniu ekranu
+        pm.fill(Qt::transparent);
+        QPainter p(&pm);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(Qt::NoPen);
+        p.setBrush(color);
+        p.drawPolygon(QPolygonF() << QPointF(1, 1) << QPointF(17, 1) << QPointF(9, 11));
+        p.end();
+        pm.save(path, "PNG");
+        return path;
+    };
+    app.setStyleSheet(Theme::styleSheet(arrowFile(QStringLiteral("combo_arrow.png"), QColor(0x9a, 0x9a, 0x9a)),
+                                        arrowFile(QStringLiteral("combo_arrow_off.png"), QColor(0x55, 0x55, 0x55))));
     QSettings settings(ChannelManager::settingsOrg(), QStringLiteral("IsoRecorder"));
     const int langAt = int(args.indexOf(QStringLiteral("--lang")));
     Lang::set(langAt >= 0 && langAt + 1 < args.size() ? args.at(langAt + 1)
@@ -411,6 +436,30 @@ int main(int argc, char* argv[]) {
                 QTimer::singleShot(300, &manager, [] { QApplication::quit(); });
             });
         }
+        if (const int comboAt = int(args.indexOf(QStringLiteral("--shot-combo"))); comboAt >= 0 && comboAt + 2 < args.size()) {
+            const int n = args.at(comboAt + 1).toInt();
+            const QString path = args.at(comboAt + 2);
+            QTimer::singleShot(3000, &manager, [&w, n, path] {
+                const QList<QComboBox*> combos = w->inspector()->findChildren<QComboBox*>();
+                if (n < 0 || n >= combos.size()) { QApplication::quit(); return; }
+                QComboBox* c = combos.at(n);
+                c->showPopup();
+                QTimer::singleShot(500, c, [c, path] {
+                    QWidget* pop = c->view()->window();
+                    pop->grab().save(path);
+                    const QRect g = pop->frameGeometry(), s = pop->screen()->availableGeometry();
+                    const QRect f = QRect(c->mapToGlobal(QPoint(0, 0)), c->size());
+                    const QByteArray line = QStringLiteral("items=%1 popup=%2x%3 at %4,%5 field=%6 wide at %7 screen=%8x%9 inside=%10\n")
+                        .arg(c->count()).arg(g.width()).arg(g.height()).arg(g.x()).arg(g.y()).arg(f.width()).arg(f.x())
+                        .arg(s.width()).arg(s.height()).arg(s.contains(g) ? 1 : 0).toUtf8();
+                    fwrite(line.constData(), 1, size_t(line.size()), stdout);
+                    fflush(stdout);
+                    c->hidePopup();
+                    QTimer::singleShot(200, [] { QApplication::quit(); });
+                });
+            });
+        }
+        if (const QString view = argAfter("--view"); !view.isEmpty()) w->setView(view == QLatin1String("list") ? 0 : view.toInt());
         const int tabAt = int(args.indexOf(QStringLiteral("--tab")));       // 0 Input, 1 Output, 2 Scheduler
         if (tabAt >= 0 && tabAt + 1 < args.size()) w->inspector()->setTab(args.at(tabAt + 1).toInt());
         if (args.contains(QStringLiteral("--tab-end")))     // przewin zakladke inspektora na koniec (do zrzutow)

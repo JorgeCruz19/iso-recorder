@@ -3,6 +3,9 @@
 #include <QWidget>
 
 class ChannelGrid;
+class ChannelList;
+class QButtonGroup;
+class QStackedWidget;
 class ChannelManager;
 enum class Transport;
 class Inspector;
@@ -17,6 +20,7 @@ public:
     explicit MainWindow(ChannelManager* mgr, QWidget* parent = nullptr);
 
     Inspector* inspector() const { return m_inspector; }
+    void setView(int view);                 // 2, 3, 4 = siatka n x n; 0 = lista
 
 signals:
     void languageRequested(const QString& code);
@@ -54,6 +58,9 @@ private:
 
     ChannelManager* m_mgr;
     ChannelGrid* m_grid;
+    ChannelList* m_list = nullptr;
+    QStackedWidget* m_views = nullptr;
+    QButtonGroup* m_viewGroup = nullptr;
     Inspector* m_inspector;
     QWidget* m_right;
     static constexpr int HeaderH = 72, StatusH = 22, RightMin = 384, RightMax = 560;
