@@ -147,33 +147,49 @@ void ChannelManager::invertSelection() {
 }
 
 void ChannelManager::transport(Channel* ch, Transport t) {
-    switch (t) {
-    case Transport::Rec:        // w pauzie REC wznawia nagranie
-        if (ch->state() == ChannelState::Paused) ch->resumeRecording();
-        else ch->startRecording(sessionForFiles(), indexOf(ch) + 1);
-        break;
-    case Transport::Stop: ch->stopRecording(); break;
-    case Transport::Pause:      // przelacznik: pauza / wznowienie
-        if (ch->state() == ChannelState::Paused) ch->resumeRecording();
-        else ch->pauseRecording();
-        break;
-    case Transport::Split: ch->split(); break;
-    }
+    transportGroup({ch}, t);
 }
 
 void ChannelManager::transportSelected(Transport t) {
-    const QList<Channel*> sel = selected();
-    if (sel.isEmpty()) return;
-    if (t == Transport::Pause) {
+    transportGroup(selected(), t);
+}
+
+void ChannelManager::transportGroup(const QList<Channel*>& list, Transport t) {
+    if (list.isEmpty()) return;
+    switch (t) {
+    case Transport::Rec: {
+        // Krok 1: dopiecie galezi zapisu we wszystkich kanalach (to trwa - proba enkodera, budowa galezi).
+        // Krok 2: jedna chwila T, od ktorej wszystkie kanaly zaczynaja zapisywac. W pauzie REC wznawia nagranie.
+        QList<Channel*> started, paused;
+        for (Channel* c : list) {
+            if (c->state() == ChannelState::Paused) paused << c;
+            else if (c->startRecording(sessionForFiles(), indexOf(c) + 1)) started << c;
+        }
+        const quint64 now = Channel::clockNow();
+        const quint64 startAt = now + (started.size() > 1 ? 80000000ULL : 0);    // 80 ms zapasu dla grupy
+        for (Channel* c : started) c->beginRecordingAt(startAt);
+        for (Channel* c : paused) c->resumeRecording(now);
+        break;
+    }
+    case Transport::Pause: {
         // Grupa zachowuje sie jak jeden przycisk: jesli cokolwiek nagrywa - pauza tych kanalow, w przeciwnym razie wznowienie.
         bool anyRec = false;
-        for (Channel* c : sel) anyRec = anyRec || c->state() == ChannelState::Recording;
-        for (Channel* c : sel) {
-            if (anyRec) c->pauseRecording(); else c->resumeRecording();
+        for (Channel* c : list) anyRec = anyRec || c->state() == ChannelState::Recording;
+        const quint64 now = Channel::clockNow();
+        for (Channel* c : list) {
+            if (anyRec) c->pauseRecording(now); else c->resumeRecording(now);
         }
-        return;
+        break;
     }
-    for (Channel* c : sel) transport(c, t);
+    case Transport::Stop: {
+        const quint64 now = Channel::clockNow();
+        for (Channel* c : list) c->stopRecording(now);
+        break;
+    }
+    case Transport::Split:
+        for (Channel* c : list) c->split();
+        break;
+    }
 }
 
 // Pilnowanie miejsca, osobno dla kazdego wolumenu: ostrzezenie ponizej 30 min lub 10% wolnego,
@@ -202,7 +218,7 @@ void ChannelManager::checkDisks() {
 }
 
 void ChannelManager::stopAllRecording() {
-    for (Channel* c : m_channels) c->stopRecording();
+    transportGroup(m_channels, Transport::Stop);
 }
 
 // ---------------------------------------------------------------- sesja i lista kanalow

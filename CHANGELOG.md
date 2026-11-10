@@ -2,6 +2,23 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 1.4
+
+Wspólny moment dla grupy kanałów:
+- REC, PAUSE i STOP dla zaznaczonych kanałów działają we wszystkich kanałach w tej samej chwili — różnica między
+  kanałami nie przekracza jednej klatki (wcześniej kanały startowały po kolei, ok. 60 ms na kanał).
+- Start grupy przebiega w dwóch krokach: najpierw program przygotowuje zapis we wszystkich kanałach, potem wyznacza
+  jedną chwilę startu (ok. 80 ms później), od której wszystkie zaczynają zapisywać. Pliki grupy mają więc wspólny
+  punkt zero i tę samą liczbę klatek (±1).
+- Wszystkie kanały chodzą na jednym zegarze, a plik opisu (.json) podaje na nim chwilę startu oraz czas pierwszej
+  i ostatniej zapisanej klatki — do sprawdzenia synchronizacji i do układania materiału w montażu.
+- Zamknięcie programu i automatyczne zatrzymanie przy braku miejsca też kończą nagrania we wspólnej chwili.
+
+Test: `tests\sync_test.ps1 [-Channels 16] [-PauseAt S -PauseFor P]`.
+
+Ograniczenie: kanały mają różną fazę klatek (każde źródło tyka po swojemu), więc „ta sama chwila” oznacza dokładność
+do jednej klatki, nie co do próbki. Split grupy nadal tnie każdy kanał na jego najbliższej klatce kluczowej.
+
 ## 1.3
 
 Wyjście na żywo w trakcie nagrywania:

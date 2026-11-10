@@ -102,10 +102,16 @@ public:
     void setLargePreview(bool on);
 
     // Nagrywanie
+    // Wspolny moment T dla wielu kanalow: wszystkie pipeline'y chodza na zegarze systemowym GStreamera, wiec jedna
+    // wartosc clockNs (Channel::clockNow) oznacza te sama chwile w kazdym kanale. clockNs = 0 oznacza "teraz".
+    static quint64 clockNow();
+    // Start w dwoch krokach: startRecording dopina galaz zapisu (nic jeszcze nie trafia do pliku),
+    // beginRecordingAt wyznacza chwile, od ktorej klatki sa zapisywane - te sama dla calej grupy.
     bool startRecording(const QString& session, int index);
-    void stopRecording();
-    void pauseRecording();           // plik zostaje otwarty, klatki z czasu pauzy nie trafiaja do pliku
-    void resumeRecording();          // dalszy ciag w tym samym pliku, bez przerwy w znacznikach czasu
+    void beginRecordingAt(quint64 clockNs);
+    void stopRecording(quint64 clockNs = 0);
+    void pauseRecording(quint64 clockNs = 0);    // plik zostaje otwarty, klatki z czasu pauzy nie trafiaja do pliku
+    void resumeRecording(quint64 clockNs = 0);   // dalszy ciag w tym samym pliku, bez przerwy w znacznikach czasu
     void split();                    // zamknij biezacy plik i zacznij nastepny (na klatce kluczowej)
     int recordPart() const { return int(m_parts.size()); }
     qint64 recordMs() const;         // czas nagranego materialu (bez pauz)
@@ -131,6 +137,7 @@ private:
     static GstPadProbeReturn onRecAudio(GstPad* pad, GstPadProbeInfo* info, gpointer user);
     GstPadProbeReturn recBuffer(GstPadProbeInfo* info, bool video);
     gint64 runningTimeNow() const;
+    gint64 toRunning(quint64 clockNs) const;     // czas zegara -> running-time tego pipeline'u
     static GstPadProbeReturn onStopBlock(GstPad* pad, GstPadProbeInfo* info, gpointer user);
     void setState(ChannelState s, const QString& error = {});
     void restart();
@@ -162,6 +169,10 @@ private:
     GstElement* m_recBin = nullptr;                    // watek GUI
     std::atomic<GstElement*> m_recBinShared{nullptr};  // do porownan w watkach streamingu
     std::atomic<gint64> m_recBase{0};                  // running-time poczatku nagrania
+    std::atomic<gint64> m_stopRt{G_MAXINT64};          // running-time konca nagrania (bufory od tej chwili odpadaja)
+    std::atomic<gint64> m_firstVideoRt{-1};            // pierwsza i ostatnia klatka, ktora trafila do pliku
+    std::atomic<gint64> m_lastVideoRt{-1};
+    quint64 m_recStartClock = 0;                       // wspolna chwila startu (czas zegara)
     // Pauza (instrukcja_koncowa.md, 3.1). Wszystkie czasy w running-time pipeline'u, jeden muteks dla obrazu i dzwieku.
     // Granice pauzy wyznacza klatka wideo: pierwsza odrzucona (startRt) i pierwsza przepuszczona po wznowieniu (resumeRt).
     struct PauseState {

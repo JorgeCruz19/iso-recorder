@@ -80,7 +80,7 @@ Stan po wersji 1.0 (tryb z enkoderem) — zaimplementowane w sondach na wejściu
 - Błąd wewnątrz gałęzi zapisu kończy tylko nagranie; podgląd kanału działa dalej.
 - Zamknięcie okna w trakcie nagrywania najpierw finalizuje wszystkie pliki.
 - Enkoder: próba mini‑pipeline'u na rozdzielczość i klatkaż, wynik w pamięci podręcznej; kolejność NVENC → Quick Sync → AMF → Media Foundation → OpenH264. GOP = 1 s.
-- **Znane ograniczenie**: Rec dla wielu kanałów startuje je po kolei (ok. 60 ms na kanał, przy 16 kanałach ok. 1 s różnicy między pierwszym a ostatnim). Wspólny moment startu `T` jest w planie razem z operacjami grupowymi.
+- Do wersji 1.3 Rec dla wielu kanałów startował je po kolei (ok. 60 ms na kanał). **Od 1.4** grupa ma wspólną chwilę `T`: wszystkie pipeline'y używają zegara systemowego GStreamera (`gst_pipeline_use_clock`), więc jedna wartość zegara oznacza tę samą chwilę w każdym kanale (running‑time = zegar − `base_time` kanału). Start: `startRecording` dopina gałęzie (baza = nieskończoność, nic nie przechodzi), potem `beginRecordingAt(T)` z `T` = teraz + 80 ms ustawia bazę we wszystkich kanałach. Pauza, wznowienie i Stop dostają jedno `T` = teraz; Stop odrzuca w sondach bufory od `T` i dopiero potem zamyka gałąź. Plik opisu ma `startClockNs`, `firstFrameClockNs`, `lastFrameClockNs`. Wynik na 16 kanałach 720p25: pierwsze klatki 1–39 ms po `T`, ostatnie klatki w rozrzucie 33–35 ms, liczba klatek 247–248, położenie pauzy w rozrzucie 33 ms.
 - Wyniki na maszynie deweloperskiej (Quick Sync, 720p25, 8 Mb/s): 16 kanałów równocześnie bez zgubionych klatek; 50 cykli Rec/Stop na 2 kanałach — 100 plików poprawnych, liczba uchwytów i pamięć bez wzrostu. Test powtarzalny: `tests\rec_test.ps1`.
 
 ### 3.1b Split, części i plik opisu — stan po wersji 0.6
@@ -325,7 +325,7 @@ Każda wersja: działający program, commit, tag, push. Kryterium = to, co da si
 | **1.1** | Wyjście na żywo kanału równolegle do nagrywania: NDI i SRT (5.9) | **wydana** — `tests\live_test.ps1 -Type srt/ndi` |
 | **1.2** | Sesja i listy (5.5): zapis/wczytanie, edytowalna nazwa sesji, autozapis i przywracanie po awarii, ostatnie pliki, otwieranie ostatniej listy | **wydana** — `tests\list_test.ps1` |
 | **1.3** | Wyjście na żywo przełączane w trakcie nagrywania (gałąź dopinana w locie) | **wydana** — `tests\rec_test.ps1 -LiveCycle`, `tests\live_test.ps1 -EnableAfter` |
-| **1.4** | Operacje grupowe ze wspólnym `T` (wspólny moment startu, pauzy i stopu wielu kanałów) | 16 × testsrc startuje w ±1 klatce |
+| **1.4** | Operacje grupowe ze wspólnym `T` (wspólny moment startu, pauzy i stopu wielu kanałów) | **wydana** — `tests\sync_test.ps1`: 16 × testsrc startuje, pauzuje i kończy w ±1 klatce |
 | **1.5** | Inspektor Input/Output w pełni edytowalny; wejścia lokalne: Screen grab (DXGI/WGC), UVC/MF, WASAPI (urządzenie, loopback) | nagranie ekranu z dźwiękiem systemowym |
 | **1.6** | SRT, RTSP, passthrough, `fallbacksrc` + polityka zaniku sygnału, stan RECONNECTING | SRT/RTSP z lokalnego `ffmpeg`/MediaMTX; zerwanie i powrót strumienia bez utraty pliku |
 | **1.7** | NDI (discovery), DeckLink; kodeki H.265/AV1/ProRes/DNxHR wg dostępności; MOV/MP4 robust | NDI z NDI Tools; DeckLink — niesprawdzone na sprzęcie |

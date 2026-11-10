@@ -74,7 +74,7 @@ foreach ($sc in $sidecars) {
         if ($first -ne '1') { $bad += "$($part.file): pierwsza klatka nie jest kluczowa" }
         if ($gap -ge 0.061) { $bad += "$($part.file): przerwa PTS $gap s" }
     }
-    # suma klatek wszystkich czesci = czas nagrania (kanaly startuja po kolei, stad tolerancja w gore)
+    # suma klatek wszystkich czesci = czas nagrania (tolerancja obejmuje czas przygotowania grupy do startu)
     $minFrames = ($content - 0.5) * 25; $maxFrames = ($content + 2.5) * 25
     if (@($info.pauses).Count -ne $pauses) { $bad += "pauz w opisie: $(@($info.pauses).Count), oczekiwano $pauses" }
     if ($frames -lt $minFrames -or $frames -gt $maxFrames) { $bad += "klatek $frames, oczekiwano $minFrames..$maxFrames" }

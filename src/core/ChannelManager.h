@@ -40,6 +40,8 @@ public:
     void invertSelection();
     void transport(Channel* ch, Transport t);               // jeden kanal
     void transportSelected(Transport t);                    // zaznaczone
+    // Grupa kanalow ze wspolna chwila T: start, pauza, wznowienie i stop wypadaja we wszystkich kanalach w tym samym momencie.
+    void transportGroup(const QList<Channel*>& list, Transport t);
     void stopAllRecording();
 
     // --- Sesja i lista kanalow (plik <sesja>.isorec.json) ---

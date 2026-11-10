@@ -240,7 +240,7 @@ int main(int argc, char* argv[]) {
             auto* cyclesLeft = new int(cycAt >= 0 && cycAt + 1 < args.size() ? qMax(1, args.at(cycAt + 1).toInt()) : 1);
             auto* startAll = new std::function<void()>;
             *startAll = [&manager, seconds, cyclesLeft, startAll] {
-                for (Channel* c : manager.channels()) manager.transport(c, Transport::Rec);
+                manager.transportGroup(manager.channels(), Transport::Rec);
                 const QStringList av = QApplication::arguments();
                 auto num = [&av](const char* name, int def) {
                     const int at = int(av.indexOf(QLatin1String(name)));
@@ -249,8 +249,8 @@ int main(int argc, char* argv[]) {
                 const int pauseAt = num("--pause-at", 0), pauseFor = num("--pause-for", 0), pauseCount = num("--pause-count", 1);
                 for (int k = 0; pauseAt > 0 && pauseFor > 0 && k < pauseCount; ++k) {
                     const int t0 = (k * (pauseAt + pauseFor) + pauseAt) * 1000;
-                    QTimer::singleShot(t0, &manager, [&manager] { for (Channel* c : manager.channels()) c->pauseRecording(); });
-                    QTimer::singleShot(t0 + pauseFor * 1000, &manager, [&manager] { for (Channel* c : manager.channels()) c->resumeRecording(); });
+                    QTimer::singleShot(t0, &manager, [&manager] { manager.transportGroup(manager.channels(), Transport::Pause); });
+                    QTimer::singleShot(t0 + pauseFor * 1000, &manager, [&manager] { manager.transportGroup(manager.channels(), Transport::Pause); });
                 }
                 QTimer::singleShot(seconds * 1000, &manager, [&manager, cyclesLeft, startAll] {
                     manager.stopAllRecording();
