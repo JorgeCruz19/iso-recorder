@@ -1,7 +1,9 @@
 #pragma once
+#include <QJsonObject>
 #include <QList>
 #include <QObject>
 #include <QStringList>
+#include <QTime>
 #include <QTimer>
 
 #include "Channel.h"
@@ -40,12 +42,36 @@ public:
     void transportSelected(Transport t);                    // zaznaczone
     void stopAllRecording();
 
+    // --- Sesja i lista kanalow (plik <sesja>.isorec.json) ---
+    void setSession(const QString& name);
+    QString listPath() const { return m_listPath; }
+    bool isDirty() const { return m_dirty; }
+    QJsonObject toJson() const;
+    bool saveList(const QString& path, QString* error = nullptr);
+    bool exportList(const QString& path, QString* error = nullptr) const;   // zapis bez zmiany stanu sesji
+    bool loadList(const QString& path, QString* error = nullptr);
+    void newList();
+    // Wczytanie / nowa lista przy trwajacych nagraniach: najpierw finalizacja plikow, potem zmiana listy.
+    void replaceListWhenIdle(const QString& path);      // puste = nowa lista
+    // Autozapis i pamiec ostatnich list; wylaczone w trybach testowych (--demo, --list).
+    void setPersistence(bool on) { m_persist = on; }
+    bool persistence() const { return m_persist; }
+    static QString autosavePath();
+    // Nazwa magazynu ustawien. Zmienna srodowiskowa ISOREC_PROFILE daje osobny, izolowany profil (testy).
+    static QString settingsOrg();
+    bool restoreAutosave(QString* error = nullptr);
+    void discardAutosave();
+    QTime autosavedAt() const { return m_autosavedAt; }
+    QStringList recentLists() const;
+    static constexpr const char* ListSuffix = ".isorec.json";
+
 signals:
     void listChanged();        // dodanie / usuniecie / kolejnosc
     void activeChanged();
     void selectionChanged();   // takze zmiana stanu ktoregokolwiek kanalu
     void statsChanged();       // co 1 s podczas nagrywania
     void notice(const QString& text);
+    void sessionChanged();     // nazwa sesji, plik listy, niezapisane zmiany, autozapis
 
 private:
     QList<Channel*> m_channels;
@@ -55,5 +81,18 @@ private:
     QString m_session;
     QStringList m_warnedVolumes;    // wolumeny, o ktorych juz ostrzegalismy
     void checkDisks();
+    bool fromJson(const QJsonObject& root, QString* error);
+    void clearChannels();
+    void markDirty();
+    void writeAutosave();
+    void remember(const QString& path);
+    QString m_listPath;
+    bool m_dirty = false;
+    bool m_loading = false;
+    bool m_persist = false;
+    bool m_replacePending = false;
+    QString m_replacePath;
+    QTimer m_autosave;
+    QTime m_autosavedAt;
     QTimer m_poll;
 };

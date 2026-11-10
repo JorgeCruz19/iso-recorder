@@ -1,4 +1,6 @@
 #include <QApplication>
+#include <QFile>
+#include <QMessageBox>
 #include <QMouseEvent>
 #include <QScrollArea>
 #include <QScrollBar>
@@ -33,6 +35,12 @@
 //   --rec-test S          test nagrywania: wszystkie kanaly nagrywaja S sekund, potem Stop i wyjscie po finalizacji
 //   --cycles N            ile razy powtorzyc cykl Rec/Stop w --rec-test (domyslnie 1)
 //   --out folder          folder nagran dla kanalow --demo
+//   --list plik           wczytaj liste kanalow (tryb testowy: bez autozapisu i pamieci ostatnich list)
+//   --save-list plik      po 2,5 s zapisz kopie biezacej listy do pliku i wyjdz
+//   --persist             z --demo / --list: mimo trybu testowego wlacz autozapis i pamiec ostatnich list
+//   --restore             przywroc liste z autozapisu bez pytania
+//   --save-list-real plik po 2,5 s zapisz liste tak jak przycisk SAVE (staje sie biezaca i ostatnia) i wyjdz
+//   Zmienna ISOREC_PROFILE=nazwa: osobny profil ustawien i autozapisu (testy nie dotykaja prawdziwych ustawien).
 //   --container ts|mkv    kontener dla kanalow --demo
 //   --live ndi|srt [port] wyjscie na zywo dla kanalow --demo: NDI o nazwie "ISO <kanal>" albo SRT na portach port+1, port+2...
 //   --auto-split S        auto-split co S sekund dla kanalow --demo
@@ -73,6 +81,9 @@ int main(int argc, char* argv[]) {
     QApplication::setApplicationName(QStringLiteral("IsoRecorder"));
     QApplication::setApplicationVersion(QStringLiteral(APP_VERSION));
     const QStringList args = app.arguments();
+    // Uruchomienie sterowane argumentami (zrzuty, testy) konczy sie samo - bez pytan o zapis listy.
+    for (const char* a : {"--screenshot", "--save-list", "--save-list-real", "--rec-test", "--shot-big", "--shot-disks", "--drag-test"})
+        if (args.contains(QLatin1String(a))) app.setProperty("automation", true);
 
     if (args.contains(QStringLiteral("--check-env"))) {
         const EnvCheck::Result r = EnvCheck::run();
@@ -109,7 +120,7 @@ int main(int argc, char* argv[]) {
     }
 
     app.setStyleSheet(Theme::styleSheet());
-    QSettings settings(QStringLiteral("IsoRecorder"), QStringLiteral("IsoRecorder"));
+    QSettings settings(ChannelManager::settingsOrg(), QStringLiteral("IsoRecorder"));
     const int langAt = int(args.indexOf(QStringLiteral("--lang")));
     Lang::set(langAt >= 0 && langAt + 1 < args.size() ? args.at(langAt + 1)
                                                        : settings.value(QStringLiteral("language"), QStringLiteral("en")).toString());
@@ -137,6 +148,30 @@ int main(int argc, char* argv[]) {
         };
         makeWindow();
 
+        // Zwykle uruchomienie: autozapis, propozycja przywrocenia listy po awarii, otwarcie ostatniej listy.
+        const bool testMode = (args.contains(QStringLiteral("--demo")) || args.contains(QStringLiteral("--list"))) &&
+                              !args.contains(QStringLiteral("--persist"));
+        if (!testMode) {
+            manager.setPersistence(true);
+            const QString last = settings.value(QStringLiteral("lastList")).toString();
+            if (QFile::exists(ChannelManager::autosavePath())) {
+                if (args.contains(QStringLiteral("--restore")) || QMessageBox::question(w.get(), QStringLiteral("ISO Recorder"),
+                        T("The program did not close properly last time. Restore the unsaved channel list?")) == QMessageBox::Yes)
+                    manager.restoreAutosave();
+                else
+                    manager.discardAutosave();
+            } else if (settings.value(QStringLiteral("openLastList"), true).toBool() && !last.isEmpty() && QFile::exists(last)) {
+                manager.loadList(last);
+            }
+        }
+        if (const int listAt = int(args.indexOf(QStringLiteral("--list"))); listAt >= 0 && listAt + 1 < args.size()) {
+            QString err;
+            if (!manager.loadList(args.at(listAt + 1), &err)) {
+                const QByteArray line = (QStringLiteral("error: ") + err + QLatin1Char('\n')).toUtf8();
+                fwrite(line.constData(), 1, size_t(line.size()), stdout);
+                fflush(stdout);
+            }
+        }
         const int demoAt = int(args.indexOf(QStringLiteral("--demo")));
         if (demoAt >= 0 && demoAt + 1 < args.size()) {
             const int n = qBound(0, args.at(demoAt + 1).toInt(), ChannelManager::MaxChannels);
@@ -226,6 +261,18 @@ int main(int argc, char* argv[]) {
             const QString path = argAfter("--shot-disks");
             QTimer::singleShot(2500, dlg, [dlg, path] { dlg->grab().save(path); QApplication::quit(); });
         }
+        if (const QString out = argAfter("--save-list-real"); !out.isEmpty())
+            QTimer::singleShot(2500, &manager, [&manager, out] {
+                manager.saveList(out);
+                manager.setPersistence(false);      // wyjscie bez pytania o zapis
+                QTimer::singleShot(200, &manager, [] { QApplication::quit(); });
+            });
+        if (const QString out = argAfter("--save-list"); !out.isEmpty())
+            QTimer::singleShot(2500, &manager, [&manager, out] {
+                manager.exportList(out);
+                manager.setPersistence(false);      // wyjscie bez pytania o zapis
+                QTimer::singleShot(200, &manager, [] { QApplication::quit(); });
+            });
         const int bigAt = int(args.indexOf(QStringLiteral("--shot-big")));
         if (bigAt >= 0 && bigAt + 2 < args.size()) {
             const int n = args.at(bigAt + 1).toInt() - 1;
@@ -319,6 +366,7 @@ int main(int argc, char* argv[]) {
             });
         }
         rc = app.exec();
+        if (!testMode) manager.discardAutosave();    // poprawne wyjscie - autozapis niepotrzebny
     }   // kanaly i pipeline'y sa zamykane tutaj, przed gst_deinit
     gst_deinit();
     return rc;

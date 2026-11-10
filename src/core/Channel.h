@@ -27,6 +27,7 @@ struct OutputConfig {
     QString container = QStringLiteral("mkv");   // "mkv" albo "ts"
     int splitSeconds = 0;           // auto-split co N sekund (0 = wylaczony)
     qint64 splitBytes = 0;          // auto-split co N bajtow (0 = wylaczony)
+    bool operator==(const OutputConfig&) const = default;
 };
 
 // Wyjscie na zywo: obraz i dzwiek kanalu ida rownolegle do nagrywania na NDI albo SRT (dziala takze bez nagrywania).
@@ -119,6 +120,7 @@ signals:
     void frameChanged();
     void levelsChanged();
     void changed();          // nazwa, stan, zaznaczenie, konfiguracja, statystyki nagrania
+    void configChanged();    // tylko ustawienia zapisywane w liscie kanalow
     void notice(const QString& text);
     void recordingFinished(const QString& file, bool clean);
 

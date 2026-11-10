@@ -39,6 +39,16 @@ private:
     void notice(const QString& text);
     void showDiagnostics();
     void showDisks();
+    // lista kanalow
+    void refreshSession();
+    void renameSession();
+    bool maybeSave();                       // false = uzytkownik anulowal
+    bool saveList(bool askPath);
+    void loadList(const QString& path = {});
+    void newList();
+    bool confirmReplace();
+    QWidget* m_sessionCell = nullptr;
+    QLabel* m_autosave = nullptr;
     bool eventFilter(QObject* watched, QEvent* e) override;
     QWidget* m_diskCell = nullptr;
 

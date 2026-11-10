@@ -2,6 +2,29 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 1.2
+
+Sesja i listy kanałów:
+- Listę kanałów można zapisać do pliku `<sesja>.isorec.json` i wczytać z powrotem: kanały w kolejności, nazwy,
+  ustawienia wejścia, zapisu (folder, szablon nazw, kontener, enkoder, bitrate, auto-split), wyjścia na żywo, zaznaczenie.
+- LOAD i SAVE w grupie Channel list; w menu ☰: New list, Load list…, Save list, Save as…, Recent lists (8 ostatnich).
+  Skróty: Ctrl+N, Ctrl+O, Ctrl+S, Ctrl+Shift+S.
+- Nazwa sesji w nagłówku jest edytowalna (klik). Gwiazdka przy nazwie oznacza niezapisane zmiany. Sesja bez nazwy
+  dostaje ją z nazwy pliku przy pierwszym zapisie.
+- Autozapis 2 s po każdej zmianie (czas ostatniego autozapisu w pasku stanu); po awarii program proponuje
+  przywrócenie niezapisanej listy.
+- Przy starcie program otwiera ostatnio używaną listę (☰ → Open last list at startup).
+- Zamknięcie programu, nowa lista i wczytanie innej pytają o niezapisane zmiany. Podmiana listy przy trwających
+  nagraniach wymaga potwierdzenia i najpierw kończy pliki.
+- Zapis jest atomowy (plik tymczasowy + podmiana). Wczytywanie jest odporne: nieznane pola są pomijane, brakujące
+  dostają wartości domyślne.
+
+Test: `tests\list_test.ps1` — lista po wczytaniu i ponownym zapisie jest identyczna; autozapis po zabiciu procesu,
+przywrócenie, otwarcie ostatniej listy (w osobnym profilu ustawień `ISOREC_PROFILE`).
+
+Jeszcze nie ma: wspólnego momentu startu wielu kanałów (osobna pozycja planu, 1.3), zapamiętywania układu okna
+i wyników testu dysków w liście.
+
 ## 1.1
 
 Wyjście na żywo (zakładka Output → Live output):

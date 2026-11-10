@@ -29,18 +29,21 @@ void Channel::setName(const QString& name) {
     if (name == m_cfg.name || name.trimmed().isEmpty()) return;
     m_cfg.name = name.trimmed();
     emit changed();
+    emit configChanged();
 }
 
 void Channel::setPattern(int pattern) {
     if (pattern == m_cfg.pattern || !canEdit()) return;
     m_cfg.pattern = pattern;
     restart();
+    emit configChanged();
 }
 
 void Channel::setAudioWave(int wave) {
     if (wave == m_cfg.audioWave || !canEdit()) return;
     m_cfg.audioWave = wave;
     restart();
+    emit configChanged();
 }
 
 void Channel::setFormat(int width, int height) {
@@ -48,12 +51,14 @@ void Channel::setFormat(int width, int height) {
     m_cfg.width = width;
     m_cfg.height = height;
     restart();
+    emit configChanged();
 }
 
 void Channel::setOutput(const OutputConfig& out) {
-    if (!canEdit()) return;
+    if (!canEdit() || out == m_cfg.out) return;
     m_cfg.out = out;
     emit changed();
+    emit configChanged();
 }
 
 void Channel::setLive(const LiveConfig& live) {
@@ -61,6 +66,7 @@ void Channel::setLive(const LiveConfig& live) {
     m_cfg.live = live;
     m_liveFailed = false;
     restart();
+    emit configChanged();
 }
 
 // Adres z pola ustawien -> URI dla srtsink. Sam port = tryb listener (odbiorca laczy sie z tym komputerem).

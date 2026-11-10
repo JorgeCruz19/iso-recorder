@@ -258,6 +258,7 @@ Zakładki Input / Output / Scheduler dotyczą **kanału aktywnego** (nie zaznacz
   - autozapis do `%LOCALAPPDATA%\IsoRecorder\autosave.json` i propozycja przywrócenia po awarii;
   - przy starcie program otwiera ostatnio używaną listę (opcja w ustawieniach).
 - Wczytanie listy przy trwających nagraniach wymaga potwierdzenia i najpierw je finalizuje.
+- Stan po 1.2: zaimplementowane jak wyżej. Schemat pliku: `isorec.list`, wersja 1 — `session`, `channels[]` z `name`, `selected`, `input` (generator testowy: wzór, format, dźwięk), `output` (`dir`, `nameTemplate`, `container`, `video`, `audio`, `autoSplit`), `live` (`type`, `ndiName`, `srtAddress`, `bitrateKbps`). Autozapis usuwa się przy poprawnym wyjściu, więc jego obecność przy starcie oznacza awarię. Opcja „otwieraj ostatnią listę” jest w menu ☰ (osobnego okna ustawień jeszcze nie ma). Harmonogram dojdzie do pliku razem ze Schedulerem.
 
 ### 5.6 Zapis na kilku dyskach
 
@@ -321,12 +322,13 @@ Każda wersja: działający program, commit, tag, push. Kryterium = to, co da si
 | **0.9** | Przyciski REC / PAUSE / STOP / SPLIT w oknie dużego podglądu | **wydana** — `--shot-big K plik.png --big-rec` |
 | **1.0** | Pauza wg 3.1: PAUSE/wznowienie w tym samym pliku, wspólne przesunięcie czasu obrazu i dźwięku, lista pauz w pliku opisu, skrót `P` | **wydana** — `tests\rec_test.ps1 -PauseAt/-PauseFor/-PauseCount` |
 | **1.1** | Wyjście na żywo kanału równolegle do nagrywania: NDI i SRT (5.9) | **wydana** — `tests\live_test.ps1 -Type srt/ndi` |
-| **1.2** | Sesja i listy (5.5): zapis/wczytanie, autosave, ostatnie pliki; operacje grupowe ze wspólnym `T` | 16 × testsrc startuje w ±1 klatce; lista wraca identyczna po wczytaniu |
-| **1.3** | Inspektor Input/Output w pełni edytowalny; wejścia lokalne: Screen grab (DXGI/WGC), UVC/MF, WASAPI (urządzenie, loopback) | nagranie ekranu z dźwiękiem systemowym |
-| **1.4** | SRT, RTSP, passthrough, `fallbacksrc` + polityka zaniku sygnału, stan RECONNECTING | SRT/RTSP z lokalnego `ffmpeg`/MediaMTX; zerwanie i powrót strumienia bez utraty pliku |
-| **1.5** | NDI (discovery), DeckLink; kodeki H.265/AV1/ProRes/DNxHR wg dostępności; MOV/MP4 robust | NDI z NDI Tools; DeckLink — niesprawdzone na sprzęcie |
-| **1.6** | Scheduler (reguły, catch‑up, DST), blokada uśpienia, logi rotowane, widok Lista, folder zapasowy | testy jednostkowe schedulera; kontrolowany Stop przy braku miejsca |
-| **1.7** | WHEP, WHIP, magazyn poświadczeń, odzyskiwanie po awarii, instalator Inno Setup | instalacja na czystym Windows; test 24 h |
+| **1.2** | Sesja i listy (5.5): zapis/wczytanie, edytowalna nazwa sesji, autozapis i przywracanie po awarii, ostatnie pliki, otwieranie ostatniej listy | **wydana** — `tests\list_test.ps1` |
+| **1.3** | Operacje grupowe ze wspólnym `T` (wspólny moment startu, pauzy i stopu wielu kanałów) | 16 × testsrc startuje w ±1 klatce |
+| **1.4** | Inspektor Input/Output w pełni edytowalny; wejścia lokalne: Screen grab (DXGI/WGC), UVC/MF, WASAPI (urządzenie, loopback) | nagranie ekranu z dźwiękiem systemowym |
+| **1.5** | SRT, RTSP, passthrough, `fallbacksrc` + polityka zaniku sygnału, stan RECONNECTING | SRT/RTSP z lokalnego `ffmpeg`/MediaMTX; zerwanie i powrót strumienia bez utraty pliku |
+| **1.6** | NDI (discovery), DeckLink; kodeki H.265/AV1/ProRes/DNxHR wg dostępności; MOV/MP4 robust | NDI z NDI Tools; DeckLink — niesprawdzone na sprzęcie |
+| **1.7** | Scheduler (reguły, catch‑up, DST), blokada uśpienia, logi rotowane, widok Lista, folder zapasowy | testy jednostkowe schedulera; kontrolowany Stop przy braku miejsca |
+| **1.8** | WHEP, WHIP, magazyn poświadczeń, odzyskiwanie po awarii, instalator Inno Setup | instalacja na czystym Windows; test 24 h |
 
 Każda runda poprawek po uwagach właściciela dostaje własny numer, więc pozycje poniżej bieżącej wersji przesuwają się o jedną. Numery wersji, od których zapowiadane funkcje będą dostępne, są w kodzie w jednym miejscu: `Roadmap` w `src/core/Lang.h`.
 
@@ -355,5 +357,5 @@ iso-recorder/
 
 ## 8. Otwarte pytania do właściciela projektu
 
-1. Docelowy sprzęt nagrywający (GPU, karty HDMI) — od tego zależy, czy 1.5 (DeckLink) i profil 16 kanałów da się w ogóle potwierdzić.
-2. Czy WHIP jako serwer w aplikacji jest wymagany, czy wystarczy WHEP + SRT/RTSP (wtedy 1.7 jest wyraźnie prostsze).
+1. Docelowy sprzęt nagrywający (GPU, karty HDMI) — od tego zależy, czy 1.6 (DeckLink) i profil 16 kanałów da się w ogóle potwierdzić.
+2. Czy WHIP jako serwer w aplikacji jest wymagany, czy wystarczy WHEP + SRT/RTSP (wtedy 1.8 jest wyraźnie prostsze).

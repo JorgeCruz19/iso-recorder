@@ -4,6 +4,11 @@
 #include <QButtonGroup>
 #include <QDateTime>
 #include <QDialog>
+#include <QDir>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QInputDialog>
+#include <QSettings>
 #include <QHBoxLayout>
 #include <QCloseEvent>
 #include <QKeyEvent>
@@ -97,6 +102,7 @@ MainWindow::MainWindow(ChannelManager* mgr, QWidget* parent) : QWidget(parent), 
     connect(mgr, &ChannelManager::statsChanged, this, &MainWindow::refreshRecording);
     connect(mgr, &ChannelManager::selectionChanged, this, &MainWindow::refreshRecording);
     connect(mgr, &ChannelManager::activeChanged, this, &MainWindow::refreshRecording);
+    connect(mgr, &ChannelManager::sessionChanged, this, &MainWindow::refreshSession);
 
     auto* second = new QTimer(this);
     connect(second, &QTimer::timeout, this, &MainWindow::tickSecond);
@@ -115,6 +121,7 @@ MainWindow::MainWindow(ChannelManager* mgr, QWidget* parent) : QWidget(parent), 
 
     refreshCounts();
     refreshActive();
+    refreshSession();
     tickSecond();
 }
 
@@ -135,6 +142,9 @@ QWidget* MainWindow::buildHeader() {
     vs->addStretch();
     QFrame* c = cell("cell", vs, 18);
     c->setMinimumWidth(170);
+    c->setCursor(Qt::PointingHandCursor);       // klik = zmiana nazwy sesji
+    c->installEventFilter(this);
+    m_sessionCell = c;
     h->addWidget(c);
 
     auto* vr = new QVBoxLayout;
@@ -207,8 +217,23 @@ QWidget* MainWindow::buildHeader() {
     menuBtn->setObjectName(QStringLiteral("vb"));
     menuBtn->setFocusPolicy(Qt::NoFocus);
     auto* menu = new QMenu(menuBtn);
-    for (const char* t : {"New list", "Load list…", "Save list", "Save as…"})
-        menu->addAction(T(t) + QStringLiteral("  ") + T("(from %1)").arg(QLatin1String(Roadmap::lists)))->setEnabled(false);
+    menu->addAction(T("New list"), this, &MainWindow::newList);
+    menu->addAction(T("Load list…"), this, [this] { loadList(); });
+    menu->addAction(T("Save list"), this, [this] { saveList(false); });
+    menu->addAction(T("Save as…"), this, [this] { saveList(true); });
+    QMenu* recent = menu->addMenu(T("Recent lists"));
+    connect(menu, &QMenu::aboutToShow, this, [this, recent] {
+        recent->clear();
+        for (const QString& p : m_mgr->recentLists())
+            recent->addAction(QDir::toNativeSeparators(p), this, [this, p] { loadList(p); });
+        recent->setEnabled(!recent->isEmpty());
+    });
+    QAction* openLast = menu->addAction(T("Open last list at startup"));
+    openLast->setCheckable(true);
+    openLast->setChecked(QSettings(ChannelManager::settingsOrg(), QStringLiteral("IsoRecorder")).value(QStringLiteral("openLastList"), true).toBool());
+    connect(openLast, &QAction::toggled, this, [](bool on) {
+        QSettings(ChannelManager::settingsOrg(), QStringLiteral("IsoRecorder")).setValue(QStringLiteral("openLastList"), on);
+    });
     menu->addSeparator();
     QMenu* langMenu = menu->addMenu(T("Language") + (Lang::current() == QLatin1String("en") ? QString() : QStringLiteral(" / Language")));
     for (const Lang::Info& li : Lang::available()) {
@@ -310,10 +335,8 @@ QWidget* MainWindow::buildControlPanel() {
     m_btnAdd = new KeyButton(T("ADD SOURCE"), KeyButton::None, true);
     auto* load = new KeyButton(T("LOAD"), KeyButton::None, true);
     auto* save = new KeyButton(T("SAVE"), KeyButton::None, true);
-    load->setEnabled(false);
-    save->setEnabled(false);
-    load->setToolTip(T("From version %1").arg(QLatin1String(Roadmap::lists)));
-    save->setToolTip(T("From version %1").arg(QLatin1String(Roadmap::lists)));
+    connect(load, &KeyButton::clicked, this, [this] { loadList(); });
+    connect(save, &KeyButton::clicked, this, [this] { saveList(false); });
     connect(m_btnAdd, &KeyButton::clicked, m_mgr, [this] { m_mgr->addChannel(); });
     m_count = label(QString(), "countN");
     m_count->setTextFormat(Qt::RichText);
@@ -330,9 +353,9 @@ QWidget* MainWindow::buildStatus() {
     auto* h = new QHBoxLayout(st);
     h->setContentsMargins(12, 0, 12, 0);
     h->setSpacing(22);
-    auto* autosave = new QLabel(QStringLiteral("<b style='color:#9d9d9d'>Autosave</b> — ") + T("(from version %1)").arg(QLatin1String(Roadmap::lists)));
-    autosave->setTextFormat(Qt::RichText);
-    h->addWidget(autosave);
+    m_autosave = new QLabel;
+    m_autosave->setTextFormat(Qt::RichText);
+    h->addWidget(m_autosave);
     h->addWidget(m_events = new QLabel, 1);
     h->addWidget(m_hint = new QLabel);
     // stany kanalow: REC / PAUSED / PREVIEW / WAITING (+ ERROR)
@@ -417,6 +440,10 @@ void MainWindow::removeSelected() {
 
 // Zamkniecie okna w trakcie nagrywania: najpierw finalizacja wszystkich plikow, dopiero potem wyjscie.
 void MainWindow::closeEvent(QCloseEvent* e) {
+    if (!m_closing && !maybeSave()) {       // niezapisana lista: Zapisz / Odrzuc / Anuluj
+        e->ignore();
+        return;
+    }
     if (m_mgr->recordingCount() == 0) {
         e->accept();
         return;
@@ -477,6 +504,10 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* e) {
         showDisks();
         return true;
     }
+    if (watched == m_sessionCell && e->type() == QEvent::MouseButtonRelease) {
+        renameSession();
+        return true;
+    }
     return QWidget::eventFilter(watched, e);
 }
 
@@ -514,7 +545,12 @@ void MainWindow::keyPressEvent(QKeyEvent* e) {
     case Qt::Key_D: if (ctrl) m_mgr->duplicateChannels(m_mgr->selected()); break;
     case Qt::Key_R: if (ch && !ctrl) m_mgr->transport(ch, Transport::Rec); break;
     case Qt::Key_P: if (ch && !ctrl) m_mgr->transport(ch, Transport::Pause); break;
-    case Qt::Key_S: if (ch && !ctrl) m_mgr->transport(ch, Transport::Stop); break;
+    case Qt::Key_S:
+        if (ctrl) saveList(shift);
+        else if (ch) m_mgr->transport(ch, Transport::Stop);
+        break;
+    case Qt::Key_O: if (ctrl) loadList(); break;
+    case Qt::Key_N: if (ctrl) newList(); break;
     case Qt::Key_X: if (ch && !ctrl) m_mgr->transport(ch, Transport::Split); break;
     case Qt::Key_Up: if (ctrl) m_mgr->moveActive(-1); break;
     case Qt::Key_Down: if (ctrl) m_mgr->moveActive(1); break;
@@ -523,4 +559,83 @@ void MainWindow::keyPressEvent(QKeyEvent* e) {
     case Qt::Key_Space: if (ch) ch->setSelected(!ch->isSelected()); break;
     default: QWidget::keyPressEvent(e);
     }
+}
+
+// ---------------------------------------------------------------- sesja i lista kanalow
+
+void MainWindow::refreshSession() {
+    const QString name = m_mgr->session().isEmpty() ? T("New session") : m_mgr->session();
+    m_session->setText(name + (m_mgr->isDirty() ? QStringLiteral(" *") : QString()));
+    setWindowTitle(QStringLiteral("ISO Recorder — ") + name + (m_mgr->isDirty() ? QStringLiteral(" *") : QString()));
+    QString tip = T("Click to rename the session");
+    if (!m_mgr->listPath().isEmpty()) tip += QLatin1Char('\n') + QDir::toNativeSeparators(m_mgr->listPath());
+    m_sessionCell->setToolTip(tip);
+    const QTime t = m_mgr->autosavedAt();
+    m_autosave->setText(QStringLiteral("<b style='color:#9d9d9d'>Autosave</b> — ") +
+                        (t.isValid() && m_mgr->isDirty() ? t.toString(QStringLiteral("HH:mm:ss")) : QStringLiteral("—")));
+}
+
+void MainWindow::renameSession() {
+    bool ok = false;
+    const QString name = QInputDialog::getText(this, T("Session name"), T("Name:"), QLineEdit::Normal, m_mgr->session(), &ok);
+    if (ok) m_mgr->setSession(name);
+}
+
+bool MainWindow::saveList(bool askPath) {
+    QString path = m_mgr->listPath();
+    if (askPath || path.isEmpty()) {
+        const QString suffix = QLatin1String(ChannelManager::ListSuffix);
+        const QString dir = path.isEmpty() ? QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation) : QFileInfo(path).absolutePath();
+        const QString base = m_mgr->session().isEmpty() ? QStringLiteral("Session") : m_mgr->session();
+        path = QFileDialog::getSaveFileName(this, T("Save channel list"), QDir(dir).filePath(base + suffix),
+                                            T("Channel list") + QStringLiteral(" (*") + suffix + QLatin1Char(')'));
+        if (path.isEmpty()) return false;
+        if (!path.endsWith(suffix, Qt::CaseInsensitive)) {
+            if (path.endsWith(QLatin1String(".json"), Qt::CaseInsensitive)) path.chop(5);
+            path += suffix;
+        }
+    }
+    QString err;
+    if (!m_mgr->saveList(path, &err)) {
+        QMessageBox::warning(this, QStringLiteral("ISO Recorder"), T("Cannot save the list: %1").arg(err));
+        return false;
+    }
+    return true;
+}
+
+// Pytanie o niezapisane zmiany przed porzuceniem biezacej listy.
+bool MainWindow::maybeSave() {
+    // w trybach testowych (--demo, --list) program nie pyta - zamyka go skrypt
+    if (qApp->property("automation").toBool() || !m_mgr->persistence() || !m_mgr->isDirty() || (m_mgr->count() == 0 && m_mgr->listPath().isEmpty())) return true;
+    const auto r = QMessageBox::question(this, QStringLiteral("ISO Recorder"), T("Save changes to the channel list?"),
+                                         QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel, QMessageBox::Save);
+    if (r == QMessageBox::Cancel) return false;
+    return r == QMessageBox::Discard || saveList(false);
+}
+
+// Podmiana listy przy trwajacych nagraniach wymaga zgody - pliki sa najpierw finalizowane.
+bool MainWindow::confirmReplace() {
+    if (!maybeSave()) return false;
+    if (m_mgr->recordingCount() == 0) return true;
+    return QMessageBox::question(this, QStringLiteral("ISO Recorder"),
+                                 T("Replace the current channel list?") + QStringLiteral("\n\n") +
+                                     T("Recordings in progress will be finished and saved first.")) == QMessageBox::Yes;
+}
+
+void MainWindow::loadList(const QString& file) {
+    if (!confirmReplace()) return;
+    QString path = file;
+    if (path.isEmpty()) {
+        const QString suffix = QLatin1String(ChannelManager::ListSuffix);
+        const QString dir = m_mgr->listPath().isEmpty() ? QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)
+                                                        : QFileInfo(m_mgr->listPath()).absolutePath();
+        path = QFileDialog::getOpenFileName(this, T("Load channel list"), dir,
+                                            T("Channel list") + QStringLiteral(" (*") + suffix + QStringLiteral(" *.json)"));
+        if (path.isEmpty()) return;
+    }
+    m_mgr->replaceListWhenIdle(path);
+}
+
+void MainWindow::newList() {
+    if (confirmReplace()) m_mgr->replaceListWhenIdle(QString());
 }
