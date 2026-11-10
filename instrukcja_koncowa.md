@@ -88,7 +88,8 @@ Wejścia sieciowe — stan po wersji 1.6:
 - **Segmenty**: źródło po ponownym połączeniu zaczyna nowy segment czasu. Sondy na wejściu gałęzi zapisu zapamiętują segment źródła (osobno obraz i dźwięk), zastępują zdarzenie SEGMENT stałym segmentem od zera, a znaczniki buforów przeliczają segmentem źródła na running‑time. Samo przepisywanie PTS bez podmiany segmentu kończyło się odrzucaniem klatek przez enkoder (znaczniki sprzed początku nowego segmentu). To zastępuje wcześniejsze założenie „PTS = running‑time”.
 - RTSP: `rtspsrc` ma 2 s bufora (jitterbuffer), więc obraz jest opóźniony o 2 s, po zerwaniu przepada to, co było w buforze, a przy ponownym połączeniu w znacznikach zostaje luka ok. 1,9 s (`videorate` nie wypełnia przerwy między segmentami). SRT nie ma tej luki.
 - Stop czeka na bufory do `T` Stop najdłużej 2 s + latencja pipeline'u, dla wejść sieciowych co najmniej 3 s.
-- Dopięcie gałęzi do `tee` wysyła w górę RECONFIGURE; za źródłem stoi `identity` z sondą, która to zdarzenie zatrzymuje (format za źródłem jest stały).
+- **Nie wolno** zatrzymywać zdarzenia RECONFIGURE idącego od `tee` do źródła. W 1.6 stała tam „osłona” (`identity` z sondą) — źródło nie mogło wtedy uzgodnić formatu z gałęzią nagrywania, co kosztowało ok. 0,1 rdzenia na kanał (zbędna konwersja) i nasycało maszynę przy 16 kanałach. Usunięte w 1.7.
+- **Zmiany stanu z limitem czasu** (1.7): `setStateTimed()` wykonuje `gst_element_set_state` w wątku pomocniczym (`gst_element_call_async`), a wątek okna czeka najwyżej 2,5 s (start) lub 2 s (stop). Sterowniki urządzeń potrafią zablokować zmianę stanu na zawsze (wirtualna kamera bez źródła blokuje przejście do NULL). Po przekroczeniu limitu pipeline jest porzucany (`Channel::abandonPipeline`: zdjęte wywołania podglądu i szyny, numer generacji w górę), a proces przy wyjściu kończy się przez `TerminateProcess`, bo wiszące wątki blokowałyby `gst_deinit`.
 - Narzędzie testowe `tests/tools/rtsp_test_server.cpp` (GstRtspServer) buduje się razem z programem, nie trafia do paczki.
 
 ### 3.1a Nagrywanie — stan po wersji 0.5
@@ -348,10 +349,12 @@ Każda wersja: działający program, commit, tag, push. Kryterium = to, co da si
 | **1.4** | Operacje grupowe ze wspólnym `T` (wspólny moment startu, pauzy i stopu wielu kanałów) | **wydana** — `tests\sync_test.ps1`: 16 × testsrc startuje, pauzuje i kończy w ±1 klatce |
 | **1.5** | Wejścia lokalne: Screen grab (`d3d11screencapturesrc`), kamera (`mfvideosrc`), dźwięk WASAPI (urządzenie, loopback); wybór w zakładce Input; Stop czekający na opóźnione źródła | **wydana** — `tests\rec_test.ps1 -Source screen -Audio loopback`; kamera niesprawdzona na sprzęcie |
 | **1.6** | Wejścia SRT i RTSP przez `fallbacksrc`: zanik sygnału nie przerywa nagrania (ostatnia klatka → czarny obraz), automatyczne ponowne łączenie, RECONNECTING na kaflu | **wydana** — `tests\net_test.ps1 -Type srt/rtsp` |
-| **1.7** | Passthrough: zapis strumienia SRT/RTSP bez ponownego kodowania; pauza = nowa część | plik zgodny bit w bit ze strumieniem, split na klatce kluczowej źródła |
-| **1.8** | NDI (discovery), DeckLink; kodeki H.265/AV1/ProRes/DNxHR wg dostępności; MOV/MP4 robust | NDI z NDI Tools; DeckLink — niesprawdzone na sprzęcie |
-| **1.9** | Scheduler (reguły, catch‑up, DST), blokada uśpienia, logi rotowane, widok Lista, folder zapasowy | testy jednostkowe schedulera; kontrolowany Stop przy braku miejsca |
-| **2.0** | WHEP, WHIP, magazyn poświadczeń, odzyskiwanie po awarii, instalator Inno Setup | instalacja na czystym Windows; test 24 h |
+| **1.7** | Poprawki: limit czasu startu i stopu kanału (źródło, które nie odpowiada, nie zawiesza programu), start awaryjny z Shiftem, usunięcie regresji zużycia procesora z 1.6 | **wydana** |
+| **1.8** | Poprawki po uwagach: reakcja na zanik sygnału do wyboru (trwa / pauza / nowa część), przechwytywanie okna, tryby kamery, głośność wejścia | |
+| **1.9** | Passthrough: zapis strumienia SRT/RTSP bez ponownego kodowania; pauza = nowa część | plik zgodny bit w bit ze strumieniem, split na klatce kluczowej źródła |
+| **2.0** | NDI (discovery), DeckLink; kodeki H.265/AV1/ProRes/DNxHR wg dostępności; MOV/MP4 robust | NDI z NDI Tools; DeckLink — niesprawdzone na sprzęcie |
+| **2.1** | Scheduler (reguły, catch‑up, DST), blokada uśpienia, logi rotowane, widok Lista, folder zapasowy | testy jednostkowe schedulera; kontrolowany Stop przy braku miejsca |
+| **2.2** | WHEP, WHIP, magazyn poświadczeń, odzyskiwanie po awarii, instalator Inno Setup | instalacja na czystym Windows; test 24 h |
 
 Każda runda poprawek po uwagach właściciela dostaje własny numer, więc pozycje poniżej bieżącej wersji przesuwają się o jedną. Numery wersji, od których zapowiadane funkcje będą dostępne, są w kodzie w jednym miejscu: `Roadmap` w `src/core/Lang.h`.
 
@@ -380,5 +383,5 @@ iso-recorder/
 
 ## 8. Otwarte pytania do właściciela projektu
 
-1. Docelowy sprzęt nagrywający (GPU, karty HDMI) — od tego zależy, czy 1.8 (DeckLink) i profil 16 kanałów da się w ogóle potwierdzić.
-2. Czy WHIP jako serwer w aplikacji jest wymagany, czy wystarczy WHEP + SRT/RTSP (wtedy 2.0 jest wyraźnie prostsze).
+1. Docelowy sprzęt nagrywający (GPU, karty HDMI) — od tego zależy, czy 2.0 (DeckLink) i profil 16 kanałów da się w ogóle potwierdzić.
+2. Czy WHIP jako serwer w aplikacji jest wymagany, czy wystarczy WHEP + SRT/RTSP (wtedy 2.2 jest wyraźnie prostsze).

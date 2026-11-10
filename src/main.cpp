@@ -27,6 +27,7 @@
 #include "core/DiskTest.h"
 #include "core/EnvCheck.h"
 #include "core/Lang.h"
+#include "media/Devices.h"
 
 // Argumenty:
 //   --check-env           raport o elementach GStreamera (kod wyjscia 1, gdy brakuje obowiazkowych)
@@ -36,6 +37,7 @@
 //   --rec-test S          test nagrywania: wszystkie kanaly nagrywaja S sekund, potem Stop i wyjscie po finalizacji
 //   --cycles N            ile razy powtorzyc cykl Rec/Stop w --rec-test (domyslnie 1)
 //   --out folder          folder nagran dla kanalow --demo
+//   Shift przy starcie    nie otwieraj ostatniej listy ani autozapisu (start z pusta lista, gdy lista sprawia klopot)
 //   --list plik           wczytaj liste kanalow (tryb testowy: bez autozapisu i pamieci ostatnich list)
 //   --save-list plik      po 2,5 s zapisz kopie biezacej listy do pliku i wyjdz
 //   --persist             z --demo / --list: mimo trybu testowego wlacz autozapis i pamiec ostatnich list
@@ -156,7 +158,12 @@ int main(int argc, char* argv[]) {
         // Zwykle uruchomienie: autozapis, propozycja przywrocenia listy po awarii, otwarcie ostatniej listy.
         const bool testMode = (args.contains(QStringLiteral("--demo")) || args.contains(QStringLiteral("--list"))) &&
                               !args.contains(QStringLiteral("--persist"));
-        if (!testMode) {
+        // Awaryjny start z pusta lista: Shift trzymany przy uruchomieniu albo argument --empty.
+        const bool safeStart = args.contains(QStringLiteral("--empty")) || (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+        if (!testMode && safeStart) {
+            manager.setPersistence(true);
+            manager.discardAutosave();
+        } else if (!testMode) {
             manager.setPersistence(true);
             const QString last = settings.value(QStringLiteral("lastList")).toString();
             if (QFile::exists(ChannelManager::autosavePath())) {
@@ -199,6 +206,19 @@ int main(int argc, char* argv[]) {
                 InputConfig in = c->config().in;
                 in.type = argAfter("--input");
                 in.uri = argAfter("--uri");
+                c->setInput(in);
+            }
+        }
+        if (argAfter("--input") == QLatin1String("camera")) {      // --camera N: numer kamery z listy urzadzen (od 0)
+            const QList<Devices::Info> cams = Devices::list().cameras;
+            const int n = argAfter("--camera").toInt();
+            for (Channel* c : manager.channels()) {
+                InputConfig in = c->config().in;
+                in.type = QStringLiteral("camera");
+                if (n >= 0 && n < cams.size()) {
+                    in.cameraPath = cams.at(n).id;
+                    in.cameraName = cams.at(n).name;
+                }
                 c->setInput(in);
             }
         }
@@ -413,6 +433,12 @@ int main(int argc, char* argv[]) {
         rc = app.exec();
         if (!testMode) manager.discardAutosave();    // poprawne wyjscie - autozapis niepotrzebny
     }   // kanaly i pipeline'y sa zamykane tutaj, przed gst_deinit
+    // Jesli jakies zrodlo nie odpowiedzialo i jego pipeline zostal porzucony, jego watki moga wisiec bez konca -
+    // zwykle zamykanie GStreamera i procesu czekaloby na nie. Wszystkie pliki sa juz zamkniete, wiec konczymy proces od razu.
+    if (Channel::abandonedPipelines() > 0) {
+        fflush(nullptr);
+        TerminateProcess(GetCurrentProcess(), UINT(rc));
+    }
     gst_deinit();
     return rc;
 }

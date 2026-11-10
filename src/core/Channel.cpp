@@ -16,6 +16,67 @@
 #include <gst/video/video-event.h>
 
 #include <algorithm>
+#include <chrono>
+#include <condition_variable>
+#include <memory>
+#include <mutex>
+
+namespace {
+std::atomic<int> g_abandoned{0};
+
+// Zmiana stanu z limitem czasu. Sterowniki urzadzen (np. wirtualna kamera bez zrodla) potrafia zablokowac zmiane stanu
+// na zawsze; wykonana wprost w watku okna zawiesilaby caly program. Zmiana idzie wiec w watku pomocniczym, a watek okna
+// czeka najwyzej timeoutMs. Zwraca false, gdy zmiana nie skonczyla sie w limicie (trwa dalej w tle).
+bool setStateTimed(GstElement* element, GstState state, int timeoutMs, GstStateChangeReturn* result = nullptr) {
+    struct Job {
+        std::mutex mutex;
+        std::condition_variable cv;
+        bool done = false;
+        GstState state = GST_STATE_NULL;
+        GstStateChangeReturn result = GST_STATE_CHANGE_FAILURE;
+    };
+    auto job = std::make_shared<Job>();
+    job->state = state;
+    gst_element_call_async(
+        element,
+        [](GstElement* el, gpointer data) {
+            const std::shared_ptr<Job> j = *static_cast<std::shared_ptr<Job>*>(data);
+            const GstStateChangeReturn r = gst_element_set_state(el, j->state);
+            {
+                std::lock_guard<std::mutex> lock(j->mutex);
+                j->result = r;
+                j->done = true;
+            }
+            j->cv.notify_all();
+        },
+        new std::shared_ptr<Job>(job), [](gpointer data) { delete static_cast<std::shared_ptr<Job>*>(data); });
+    std::unique_lock<std::mutex> lock(job->mutex);
+    const bool finished = job->cv.wait_for(lock, std::chrono::milliseconds(timeoutMs), [&] { return job->done; });
+    if (finished && result) *result = job->result;
+    return finished;
+}
+}  // namespace
+
+int Channel::abandonedPipelines() { return g_abandoned.load(); }
+
+// Pipeline, ktory nie odpowiada: odcinamy go od kanalu (szyna, podglad) i zostawiamy. Jego watki moga wisiec dalej,
+// ale nie maja juz drogi do obiektu kanalu; proces konczy sie wtedy bez czekania na nie.
+void Channel::abandonPipeline() {
+    if (!m_pipeline) return;
+    ++g_abandoned;
+    if (GstElement* sink = gst_bin_get_by_name(GST_BIN(m_pipeline), "preview")) {
+        GstAppSinkCallbacks none{};
+        gst_app_sink_set_callbacks(GST_APP_SINK(sink), &none, nullptr, nullptr);
+        gst_object_unref(sink);
+    }
+    GstBus* bus = gst_element_get_bus(m_pipeline);
+    gst_bus_set_sync_handler(bus, nullptr, nullptr, nullptr);
+    gst_object_unref(bus);
+    ++m_gen;                            // komunikaty, ktore zdazyly wejsc do kolejki, zostana pominiete
+    gst_object_unref(m_pipeline);       // watek pomocniczy trzyma wlasna referencje do konca swojej pracy
+    m_pipeline = nullptr;
+    m_level = {0.0, 0.0};
+}
 
 Channel::Channel(const ChannelConfig& cfg, QObject* parent) : QObject(parent), m_cfg(cfg) {
     m_finalizeTimeout.setSingleShot(true);
@@ -281,8 +342,8 @@ QString Channel::sourceDescription() const {
         // dalsza czesc pipeline'u (takze nagrywanie) nie widzi przerwy.
         return QStringLiteral("fallbacksrc name=fs uri=%1 timeout=2000000000 restart-timeout=3000000000 retry-timeout=86400000000000 "
                               "enable-dummy=true immediate-fallback=true "
-                              "fs. ! queue ! videoconvertscale add-borders=true ! videorate ! video/x-raw,%2,framerate=%3/1 ! identity name=vguard ! tee name=tv "
-                              "fs. ! queue ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! identity name=aguard ")
+                              "fs. ! queue ! videoconvertscale add-borders=true ! videorate ! video/x-raw,%2,framerate=%3/1 ! tee name=tv "
+                              "fs. ! queue ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ")
             .arg(quoted(networkUri()), size).arg(m_cfg.fps);
     }
     QString video;
@@ -307,8 +368,7 @@ QString Channel::sourceDescription() const {
         audio = QStringLiteral("audiotestsrc is-live=true wave=%1 volume=%2")
                     .arg(silent ? 4 : m_cfg.audioWave).arg(QString::number(m_cfg.audioVolume, 'f', 3));
     }
-    return video + QStringLiteral(" ! identity name=vguard ! tee name=tv ") + audio +
-           QStringLiteral(" ! audio/x-raw,rate=48000,channels=2 ! identity name=aguard ");
+    return video + QStringLiteral(" ! tee name=tv ") + audio + QStringLiteral(" ! audio/x-raw,rate=48000,channels=2 ");
 }
 
 void Channel::startPreview() {
@@ -336,19 +396,6 @@ void Channel::startPreview() {
     // EOS galezi nagrywania nie moze czekac na EOS calego pipeline'u (podglad gra dalej) -
     // pipeline przekazuje go od razu jako komunikat "GstBinForwarded".
     g_object_set(m_pipeline, "message-forward", TRUE, nullptr);
-    // Oslona zrodla: dopiecie galezi nagrywania albo wyjscia do tee wysyla w gore zdarzenie RECONFIGURE. Format za zrodlem
-    // jest staly, wiec renegocjacja nic nie zmienia, a zrodla sieciowe (RTSP) potrafia przez nia zerwac strumien.
-    for (const char* guard : {"vguard", "aguard"}) {
-        if (GstElement* el = gst_bin_get_by_name(GST_BIN(m_pipeline), guard)) {
-            GstPad* src = gst_element_get_static_pad(el, "src");
-            gst_pad_add_probe(src, GST_PAD_PROBE_TYPE_EVENT_UPSTREAM,
-                [](GstPad*, GstPadProbeInfo* info, gpointer) -> GstPadProbeReturn {
-                    return GST_EVENT_TYPE(GST_PAD_PROBE_INFO_EVENT(info)) == GST_EVENT_RECONFIGURE ? GST_PAD_PROBE_DROP : GST_PAD_PROBE_OK;
-                }, nullptr, nullptr);
-            gst_object_unref(src);
-            gst_object_unref(el);
-        }
-    }
     // Jeden zegar dla wszystkich kanalow (nie zegar urzadzenia audio) - warunek wspolnego startu, pauzy i stopu grupy.
     GstClock* sys = gst_system_clock_obtain();
     gst_pipeline_use_clock(GST_PIPELINE(m_pipeline), sys);
@@ -365,7 +412,15 @@ void Channel::startPreview() {
     gst_bus_set_sync_handler(bus, &Channel::onBus, this, nullptr);
     gst_object_unref(bus);
 
-    if (gst_element_set_state(m_pipeline, GST_STATE_PLAYING) == GST_STATE_CHANGE_FAILURE) {
+    GstStateChangeReturn started = GST_STATE_CHANGE_FAILURE;
+    if (!setStateTimed(m_pipeline, GST_STATE_PLAYING, 2500, &started)) {
+        // zrodlo nie odpowiada (np. sterownik kamery czeka na sygnal, ktorego nie ma)
+        abandonPipeline();
+        setState(ChannelState::Error, T("the source does not respond"));
+        emit notice(T("%1: the source does not respond").arg(m_cfg.name));
+        return;
+    }
+    if (started == GST_STATE_CHANGE_FAILURE) {
         stopPreview();
         setState(ChannelState::Error, T("cannot start the preview"));
         return;
@@ -406,8 +461,14 @@ void Channel::stopPreview() {
     if (!m_pipeline) return;
     if (m_recBin) finishRecording(false, T("channel stopped"));   // wymuszone zamkniecie, bez czekania na EOS
     detachLive();
-    // NULL zatrzymuje watki streamingu synchronicznie - po tym zaden callback juz nie wejdzie.
-    gst_element_set_state(m_pipeline, GST_STATE_NULL);
+    // NULL zatrzymuje watki streamingu - po tym zaden callback juz nie wejdzie. Zrodlo, ktore nie odpowiada, mogloby
+    // zablokowac zatrzymanie na zawsze, wiec czekamy najwyzej 2 s i w razie czego porzucamy pipeline.
+    if (!setStateTimed(m_pipeline, GST_STATE_NULL, 2000)) {
+        emit notice(T("%1: the source does not respond").arg(m_cfg.name));
+        abandonPipeline();
+        m_state = ChannelState::Idle;
+        return;
+    }
     GstBus* bus = gst_element_get_bus(m_pipeline);
     gst_bus_set_sync_handler(bus, nullptr, nullptr, nullptr);
     gst_object_unref(bus);

@@ -94,6 +94,8 @@ public:
     QString liveText() const;                // krotki opis na kafel: "NDI", "SRT :9001"
     static QString srtUri(const QString& address);
     static QString defaultOutputDir();
+    // Liczba pipeline'ow porzuconych, bo zrodlo nie odpowiedzialo w limicie czasu (ich watki moga wisiec do konca procesu).
+    static int abandonedPipelines();
     QString outputDir() const { return m_cfg.out.dir.isEmpty() ? defaultOutputDir() : m_cfg.out.dir; }
 
     ChannelState state() const { return m_state; }
@@ -163,6 +165,7 @@ private:
     static GstPadProbeReturn onStopBlock(GstPad* pad, GstPadProbeInfo* info, gpointer user);
     void setState(ChannelState s, const QString& error = {});
     void restart();
+    void abandonPipeline();
     QString sourceDescription() const;      // poczatek opisu pipeline'u: zrodla do tee "tv" i "ta"
     QString liveDescription();
     void attachLive();

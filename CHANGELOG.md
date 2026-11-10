@@ -2,6 +2,22 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 1.7
+
+Poprawki błędów:
+- **Zawieszanie przy źródle, które nie odpowiada.** Kamera, która przestała podawać obraz (np. „NDI Webcam” po zniknięciu
+  źródła NDI), blokowała program przy zatrzymywaniu kanału: przy zamykaniu, zmianie ustawień i podmianie listy —
+  także przy starcie, gdy program sam otwierał ostatnią listę. Start i stop kanału mają teraz limit czasu (2,5 s i 2 s);
+  po jego przekroczeniu kanał przechodzi w stan błędu „the source does not respond”, a program działa dalej.
+- **Start awaryjny.** Shift trzymany przy uruchamianiu (albo argument `--empty`) otwiera program z pustą listą, bez
+  wczytywania ostatniej listy i autozapisu.
+- **Zużycie procesora.** Wersja 1.6 zużywała ok. 45% więcej procesora podczas nagrywania (8 kanałów: 3,4 zamiast
+  2,3 rdzenia), bo dodana w niej „osłona źródła” blokowała uzgodnienie formatu obrazu i wymuszała zbędną konwersję.
+  Przy 16 kanałach maszyna się nasycała i kanały kończyły się nierówno. Osłona została usunięta.
+
+Ograniczenie: po przekroczeniu limitu czasu program porzuca niedziałające źródło i przy wyjściu kończy proces bez
+czekania na nie; 16 niedziałających źródeł w liście oznacza do ok. 40 s oczekiwania przy starcie.
+
 ## 1.6
 
 Wejścia sieciowe (zakładka Input):
