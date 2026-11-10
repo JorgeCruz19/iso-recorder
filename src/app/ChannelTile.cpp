@@ -146,6 +146,14 @@ void ChannelTile::paintEvent(QPaintEvent*) {
     p.fillRect(fr, chip);
     p.setPen(Qt::white);
     p.drawText(fr, Qt::AlignCenter, fmt);
+    if (m_ch->liveOn()) {       // wyjscie na zywo: niebieski znacznik, po awarii przekreslony szary
+        const QString lt = m_ch->liveText().section(QLatin1Char(' '), 0, 0);
+        const QRect lr(fr.right() + 5, fr.top(), p.fontMetrics().horizontalAdvance(lt) + 12, fr.height());
+        p.fillRect(lr, m_ch->liveFailed() ? QColor(0x55, 0x55, 0x55) : QColor(0x1d, 0x6f, 0xd6));
+        p.setPen(Qt::white);
+        p.drawText(lr, Qt::AlignCenter, lt);
+        if (m_ch->liveFailed()) p.drawLine(lr.left() + 3, lr.center().y(), lr.right() - 3, lr.center().y());
+    }
     // czas nagrania z kropka stanu (prawy gorny rog)
     if (m_ch->isRecording()) {
         const qint64 sec = m_ch->recordMs() / 1000;

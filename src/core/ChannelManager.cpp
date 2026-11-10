@@ -88,6 +88,7 @@ void ChannelManager::duplicateChannels(const QList<Channel*>& list) {
         }
         ChannelConfig cfg = src->config();
         cfg.name = T("%1 copy").arg(cfg.name);
+        cfg.live.type = QStringLiteral("off");      // ta sama nazwa NDI / ten sam port SRT nie moga dzialac dwa razy
         addChannel(cfg, indexOf(src) + 1);
     }
 }

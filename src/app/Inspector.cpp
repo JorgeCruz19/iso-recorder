@@ -244,6 +244,28 @@ QWidget* Inspector::buildOutputPage() {
     m_applySelected->setObjectName(QStringLiteral("ibtn"));
     bar->addWidget(m_applySelected);
     fv->addLayout(bar);
+
+    // Wyjscie na zywo: rownolegle do nagrywania (i bez niego) kanal idzie na NDI albo SRT.
+    fv->addWidget(section(T("Live output")));
+    g = form(fv);
+    m_liveType = new QComboBox;
+    m_liveType->addItem(T("Off"), QStringLiteral("off"));
+    m_liveType->addItem(QStringLiteral("NDI"), QStringLiteral("ndi"));
+    m_liveType->addItem(QStringLiteral("SRT  (MPEG-TS, H.264 + AAC)"), QStringLiteral("srt"));
+    row(g, T("Send to"), m_liveType);
+    m_liveNdi = new QLineEdit;
+    row(g, T("NDI name"), m_liveNdi);
+    m_liveSrt = new QLineEdit;
+    m_liveSrt->setPlaceholderText(QStringLiteral(":9001"));
+    m_liveSrt->setToolTip(T(":9001 — receivers connect to this computer on port 9001;  host:9001 — this computer connects to the receiver"));
+    row(g, T("SRT address"), m_liveSrt);
+    m_liveRate = new QComboBox;
+    for (int mb : {2, 4, 6, 8, 12, 20}) m_liveRate->addItem(QStringLiteral("%1 Mb/s").arg(mb), mb * 1000);
+    row(g, T("Stream bitrate"), m_liveRate);
+    connect(m_liveType, &QComboBox::activated, this, &Inspector::commitLive);
+    connect(m_liveRate, &QComboBox::activated, this, &Inspector::commitLive);
+    connect(m_liveNdi, &QLineEdit::editingFinished, this, &Inspector::commitLive);
+    connect(m_liveSrt, &QLineEdit::editingFinished, this, &Inspector::commitLive);
     v->addStretch(1);
 
     connect(m_outDir, &QLineEdit::editingFinished, this, &Inspector::commitOutput);
@@ -296,6 +318,20 @@ void Inspector::commitOutput() {
         emit m_mgr->notice(T("This folder is on a FAT32 disk: files are limited to 4 GB — enable auto-split"));
 }
 
+void Inspector::commitLive() {
+    Channel* ch = m_mgr->active();
+    if (!ch || !ch->canEdit()) return;
+    LiveConfig live = ch->config().live;
+    live.type = m_liveType->currentData().toString();
+    live.ndiName = m_liveNdi->text().trimmed();
+    live.srtAddress = m_liveSrt->text().trimmed();
+    live.srtKbps = m_liveRate->currentData().toInt();
+    // domyslny port SRT wynika z numeru kanalu, zeby kanaly nie wchodzily sobie w droge
+    if (live.type == QLatin1String("srt") && live.srtAddress.isEmpty())
+        live.srtAddress = QStringLiteral(":%1").arg(9000 + m_mgr->indexOf(ch) + 1);
+    ch->setLive(live);
+}
+
 void Inspector::bind() {
     Channel* ch = m_mgr->active();
     const int number = ch ? m_mgr->indexOf(ch) + 1 : 0;
@@ -333,6 +369,15 @@ void Inspector::refresh() {
     m_outAudioRate->setCurrentIndex(qMax(0, m_outAudioRate->findData(out.audioKbps)));
     m_outContainer->setCurrentIndex(qMax(0, m_outContainer->findData(out.container)));
     m_outSplit->setCurrentIndex(qMax(0, m_outSplit->findData(out.splitSeconds > 0 ? qlonglong(out.splitSeconds) : -qlonglong(out.splitBytes))));
+    const LiveConfig& live = ch->config().live;
+    m_liveType->setCurrentIndex(qMax(0, m_liveType->findData(live.type)));
+    if (!m_liveNdi->hasFocus()) m_liveNdi->setText(live.ndiName);
+    m_liveNdi->setPlaceholderText(ch->config().name);
+    if (!m_liveSrt->hasFocus()) m_liveSrt->setText(live.srtAddress);
+    m_liveRate->setCurrentIndex(qMax(0, m_liveRate->findData(live.srtKbps)));
+    m_liveNdi->setEnabled(live.type == QLatin1String("ndi"));
+    m_liveSrt->setEnabled(live.type == QLatin1String("srt"));
+    m_liveRate->setEnabled(live.type == QLatin1String("srt"));
     m_pattern->setCurrentIndex(qMax(0, m_pattern->findData(ch->config().pattern)));
     m_wave->setCurrentIndex(qMax(0, m_wave->findData(ch->config().audioWave)));
     m_format->setCurrentIndex(qMax(0, m_format->findData(QSize(ch->config().width, ch->config().height))));

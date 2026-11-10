@@ -29,6 +29,15 @@ struct OutputConfig {
     qint64 splitBytes = 0;          // auto-split co N bajtow (0 = wylaczony)
 };
 
+// Wyjscie na zywo: obraz i dzwiek kanalu ida rownolegle do nagrywania na NDI albo SRT (dziala takze bez nagrywania).
+struct LiveConfig {
+    QString type = QStringLiteral("off");   // "off", "ndi", "srt"
+    QString ndiName;                        // puste = nazwa kanalu
+    QString srtAddress;                     // ":9001" = ten komputer czeka na odbiorce; "host:9001" = laczy sie z odbiorca
+    int srtKbps = 6000;
+    bool operator==(const LiveConfig&) const = default;
+};
+
 // Jedna czesc nagrania (plik). Czasy liczone od poczatku nagrania.
 struct RecordPart {
     QString file;
@@ -46,6 +55,7 @@ struct ChannelConfig {
     int height = 720;
     int fps = 25;
     OutputConfig out;
+    LiveConfig live;
 };
 
 // Jeden kanal = konfiguracja + wlasny GstPipeline (awaria jednego nie dotyka pozostalych).
@@ -62,6 +72,11 @@ public:
     void setAudioWave(int wave);
     void setFormat(int width, int height);
     void setOutput(const OutputConfig& out);
+    void setLive(const LiveConfig& live);    // przebudowuje pipeline - tylko gdy kanal nie nagrywa
+    bool liveOn() const { return m_cfg.live.type != QLatin1String("off"); }
+    bool liveFailed() const { return m_liveFailed; }
+    QString liveText() const;                // krotki opis na kafel: "NDI", "SRT :9001"
+    static QString srtUri(const QString& address);
     static QString defaultOutputDir();
     QString outputDir() const { return m_cfg.out.dir.isEmpty() ? defaultOutputDir() : m_cfg.out.dir; }
 
@@ -117,6 +132,8 @@ private:
     static GstPadProbeReturn onStopBlock(GstPad* pad, GstPadProbeInfo* info, gpointer user);
     void setState(ChannelState s, const QString& error = {});
     void restart();
+    QString liveBranch();
+    void liveError(const QString& text);
     void finishRecording(bool clean, const QString& reason = {});
     void writeSidecar(bool clean, const QString& reason) const;
 
@@ -128,6 +145,9 @@ private:
     std::array<double, 2> m_level{0.0, 0.0};
     GstElement* m_pipeline = nullptr;
     bool m_largePreview = false;
+    bool m_liveFailed = false;              // wyjscie na zywo zglosilo blad - wylaczone do zmiany ustawien
+    std::atomic<int> m_gen{0};              // numer kolejnego pipeline'u (komunikaty ze starego sa ignorowane)
+    int m_liveFailGen = -1;
     void applyPreviewSize();
 
     GstElement* m_recBin = nullptr;                    // watek GUI

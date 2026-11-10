@@ -1,5 +1,7 @@
 #include <QApplication>
 #include <QMouseEvent>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QSettings>
 #include <QTimer>
 
@@ -32,6 +34,7 @@
 //   --cycles N            ile razy powtorzyc cykl Rec/Stop w --rec-test (domyslnie 1)
 //   --out folder          folder nagran dla kanalow --demo
 //   --container ts|mkv    kontener dla kanalow --demo
+//   --live ndi|srt [port] wyjscie na zywo dla kanalow --demo: NDI o nazwie "ISO <kanal>" albo SRT na portach port+1, port+2...
 //   --auto-split S        auto-split co S sekund dla kanalow --demo
 //   --split-every S       w --rec-test: reczny split wszystkich kanalow co S sekund
 //   --pause-at S --pause-for P [--pause-count N]  w --rec-test: N pauz po P sekund, kazda po S sekundach nagrywania
@@ -151,6 +154,18 @@ int main(int argc, char* argv[]) {
             const int at = int(args.indexOf(QLatin1String(name)));
             return at >= 0 && at + 1 < args.size() ? args.at(at + 1) : QString();
         };
+        if (const QString live = argAfter("--live"); !live.isEmpty()) {
+            const int liveAt = int(args.indexOf(QStringLiteral("--live")));
+            const int port = liveAt + 2 < args.size() && args.at(liveAt + 2).toInt() > 0 ? args.at(liveAt + 2).toInt() : 9700;
+            int i = 0;
+            for (Channel* c : manager.channels()) {
+                LiveConfig l;
+                l.type = live;
+                l.ndiName = QStringLiteral("ISO ") + c->config().name;
+                l.srtAddress = QStringLiteral(":%1").arg(port + ++i);
+                c->setLive(l);
+            }
+        }
         for (Channel* c : manager.channels()) {
             OutputConfig o = c->config().out;
             if (!argAfter("--out").isEmpty()) o.dir = argAfter("--out");
@@ -290,6 +305,10 @@ int main(int argc, char* argv[]) {
         }
         const int tabAt = int(args.indexOf(QStringLiteral("--tab")));       // 0 Input, 1 Output, 2 Scheduler
         if (tabAt >= 0 && tabAt + 1 < args.size()) w->inspector()->setTab(args.at(tabAt + 1).toInt());
+        if (args.contains(QStringLiteral("--tab-end")))     // przewin zakladke inspektora na koniec (do zrzutow)
+            QTimer::singleShot(2000, &manager, [&w] {
+                if (auto* sa = w->inspector()->findChild<QScrollArea*>()) sa->verticalScrollBar()->setValue(sa->verticalScrollBar()->maximum());
+            });
         const int shotAt = int(args.indexOf(QStringLiteral("--screenshot")));
         if (shotAt >= 0 && shotAt + 1 < args.size()) {
             const QString path = args.at(shotAt + 1);

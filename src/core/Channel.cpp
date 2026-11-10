@@ -56,6 +56,72 @@ void Channel::setOutput(const OutputConfig& out) {
     emit changed();
 }
 
+void Channel::setLive(const LiveConfig& live) {
+    if (!canEdit() || (live == m_cfg.live && !m_liveFailed)) return;
+    m_cfg.live = live;
+    m_liveFailed = false;
+    restart();
+}
+
+// Adres z pola ustawien -> URI dla srtsink. Sam port = tryb listener (odbiorca laczy sie z tym komputerem).
+QString Channel::srtUri(const QString& address) {
+    QString a = address.trimmed();
+    if (a.startsWith(QLatin1String("srt://"), Qt::CaseInsensitive)) a = a.mid(6);
+    bool digits = !a.isEmpty();
+    for (QChar c : a) digits = digits && c.isDigit();
+    if (digits) a.prepend(QLatin1Char(':'));
+    if (a.isEmpty()) a = QStringLiteral(":9000");
+    if (!a.contains(QLatin1Char('?'))) a += a.startsWith(QLatin1Char(':')) ? QStringLiteral("?mode=listener") : QStringLiteral("?mode=caller");
+    return QStringLiteral("srt://") + a;
+}
+
+QString Channel::liveText() const {
+    if (m_cfg.live.type == QLatin1String("ndi")) return QStringLiteral("NDI");
+    if (m_cfg.live.type == QLatin1String("srt")) {
+        QString a = srtUri(m_cfg.live.srtAddress).mid(6);
+        return QStringLiteral("SRT ") + a.left(a.indexOf(QLatin1Char('?')));
+    }
+    return {};
+}
+
+// Galaz wyjscia na zywo, dopisywana do opisu pipeline'u. errorignore tuz za tee sprawia, ze awaria wyjscia
+// (zajety port, brak srodowiska NDI) nie zatrzymuje zrodla, podgladu ani nagrywania.
+QString Channel::liveBranch() {
+    if (!liveOn() || m_liveFailed) return {};
+    auto clean = [](QString s) { return s.remove(QLatin1Char('"')).remove(QLatin1Char('\\')).trimmed(); };
+    if (m_cfg.live.type == QLatin1String("ndi")) {
+        QString name = clean(m_cfg.live.ndiName);
+        if (name.isEmpty()) name = clean(m_cfg.name);
+        return QStringLiteral(
+            " tv. ! errorignore ! queue name=out_vq leaky=downstream max-size-buffers=5 ! videoconvert ! video/x-raw,format=UYVY "
+            "! ndisinkcombiner name=out_comb ! ndisink name=out_sink ndi-name=\"%1\" "
+            "ta. ! errorignore ! queue name=out_aq leaky=downstream ! audioconvert ! audio/x-raw,format=F32LE ! out_comb.audio").arg(name);
+    }
+    const EncoderFactory::Choice enc = EncoderFactory::pick(QStringLiteral("auto"), m_cfg.width, m_cfg.height, m_cfg.fps, m_cfg.live.srtKbps);
+    if (enc.name.isEmpty()) {
+        m_liveFailed = true;
+        emit notice(T("%1: live output stopped — %2").arg(m_cfg.name, T("no working H.264 encoder found")));
+        return {};
+    }
+    return QStringLiteral(
+        " tv. ! errorignore ! queue name=out_vq leaky=downstream max-size-buffers=5 ! %1 ! h264parse config-interval=-1 "
+        "! mpegtsmux name=out_mux alignment=7 ! srtsink name=out_sink uri=\"%2\" wait-for-connection=false sync=false "
+        "ta. ! errorignore ! queue name=out_aq leaky=downstream ! audioconvert ! audioresample ! avenc_aac bitrate=128000 ! aacparse ! out_mux.")
+        .arg(enc.launch, clean(srtUri(m_cfg.live.srtAddress)));
+}
+
+void Channel::liveError(const QString& text) {
+    m_liveFailed = true;
+    m_liveFailGen = m_gen.load();
+    emit notice(T("%1: live output stopped — %2").arg(m_cfg.name, text));
+    if (isRecording()) emit changed();      // nagranie trwa dalej; martwa galaz zniknie przy najblizszej przebudowie
+    else {                                  // takze gdy pipeline w ogole nie wystartowal (np. zajety port)
+        stopPreview();
+        startPreview();
+        emit changed();
+    }
+}
+
 QString Channel::defaultOutputDir() {
     return QDir(QStandardPaths::writableLocation(QStandardPaths::MoviesLocation)).filePath(QStringLiteral("ISO Recorder"));
 }
@@ -102,7 +168,8 @@ void Channel::startPreview() {
         "! level name=level interval=100000000 post-messages=true ! tee name=ta "
         "ta. ! queue ! fakesink sync=false")
         .arg(m_cfg.pattern).arg(m_cfg.width).arg(m_cfg.height).arg(m_cfg.fps)
-        .arg(m_cfg.audioWave).arg(QString::number(m_cfg.audioVolume, 'f', 3));
+        .arg(m_cfg.audioWave).arg(QString::number(m_cfg.audioVolume, 'f', 3)) + liveBranch();
+    ++m_gen;
 
     GError* err = nullptr;
     m_pipeline = gst_parse_launch(desc.toUtf8().constData(), &err);
@@ -683,9 +750,15 @@ GstBusSyncReply Channel::onBus(GstBus*, GstMessage* msg, gpointer user) {
         GstElement* rec = self->m_recBinShared.load();
         const bool inRecording = rec && GST_MESSAGE_SRC(msg) &&
                                  gst_object_has_as_ancestor(GST_MESSAGE_SRC(msg), GST_OBJECT(rec));
-        QMetaObject::invokeMethod(self, [self, text, inRecording] {
+        const int gen = self->m_gen.load();
+        QMetaObject::invokeMethod(self, [self, text, inRecording, gen] {
+            if (gen != self->m_gen.load() || gen == self->m_liveFailGen) return;   // stary pipeline albo echo awarii wyjscia
             if (inRecording) {
                 self->finishRecording(false, text);
+            } else if (self->liveOn() && !self->m_liveFailed) {
+                // Przy wlaczonym wyjsciu na zywo blad spoza galezi nagrywania to niemal zawsze samo wyjscie (zajety port,
+                // brak NDI): wylaczamy je i gramy dalej. Jesli blad wroci bez wyjscia - kanal przejdzie w stan bledu.
+                self->liveError(text);
             } else {
                 self->stopPreview();
                 self->setState(ChannelState::Error, text);

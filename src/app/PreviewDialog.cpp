@@ -67,6 +67,13 @@ protected:
         p.fillRect(fr, chip);
         p.setPen(Qt::white);
         p.drawText(fr, Qt::AlignCenter, fmt);
+        if (m_ch->liveOn()) {
+            const QString lt = m_ch->liveText();
+            const QRect lr(fr.right() + 8, fr.top(), p.fontMetrics().horizontalAdvance(lt) + 18, fr.height());
+            p.fillRect(lr, m_ch->liveFailed() ? QColor(0x55, 0x55, 0x55) : QColor(0x1d, 0x6f, 0xd6));
+            p.drawText(lr, Qt::AlignCenter, lt);
+            if (m_ch->liveFailed()) p.drawLine(lr.left() + 4, lr.center().y(), lr.right() - 4, lr.center().y());
+        }
         // czas nagrania (prawy gorny rog)
         if (m_ch->isRecording()) {
             const qint64 sec = m_ch->recordMs() / 1000;

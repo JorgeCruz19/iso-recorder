@@ -2,6 +2,23 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 1.1
+
+Wyjście na żywo (zakładka Output → Live output):
+- Każdy kanał może równolegle do nagrywania — i bez niego — wysyłać obraz z dźwiękiem na NDI albo SRT.
+- NDI: nazwa źródła do wpisania (domyślnie nazwa kanału); obraz bez kompresji po stronie programu.
+- SRT: MPEG-TS z H.264 + AAC, własny bitrate strumienia (2–20 Mb/s) niezależny od nagrania. Adres `:9001` — odbiorcy
+  łączą się z tym komputerem; `host:9001` — program łączy się z odbiorcą. Domyślny port to 9000 + numer kanału.
+- Kafel pokazuje niebieski znacznik NDI / SRT. Gdy wyjście zawiedzie (zajęty port, brak środowiska NDI), znacznik
+  szarzeje, w pasku stanu jest komunikat, a podgląd i nagrywanie działają dalej.
+- Pauza i split nagrania nie przerywają wyjścia. Wyjście ustawia się przed nagrywaniem (podczas nagrywania
+  ustawienia są zablokowane). Kopia kanału (DUPLICATE) ma wyjście wyłączone, żeby nie dublować nazwy ani portu.
+
+Test: `tests\live_test.ps1 -Type srt|ndi` — odbiór strumienia każdego kanału w trakcie nagrywania i kontrola plików.
+
+Jeszcze nie ma: wirtualnej kamery (na razie przez NDI Tools → Webcam), SRT z hasłem, RTMP, wyjścia z dźwiękiem
+innym niż stereo. Plan: sesja i listy przechodzą do 1.2, dalsze pozycje o jedną wersję.
+
 ## 1.0
 
 Pauza:

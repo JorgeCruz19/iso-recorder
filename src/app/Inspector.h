@@ -24,6 +24,7 @@ private:
     QWidget* buildInputPage();
     QWidget* buildOutputPage();
     void commitOutput();
+    void commitLive();
     QMetaObject::Connection m_conn;
 
     ChannelManager* m_mgr;
@@ -48,4 +49,8 @@ private:
     QComboBox* m_outContainer;
     QComboBox* m_outSplit;
     QPushButton* m_applySelected;
+    QComboBox* m_liveType;
+    QLineEdit* m_liveNdi;
+    QLineEdit* m_liveSrt;
+    QComboBox* m_liveRate;
 };

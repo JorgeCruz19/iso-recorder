@@ -16,10 +16,10 @@ inline QString T(const char* english) { return Lang::tr(english); }
 // Wersje, w ktorych pojawia sie zapowiedziane funkcje (instrukcja_koncowa.md, rozdz. 6).
 namespace Roadmap {
 inline constexpr const char* pause = "1.0";
-inline constexpr const char* lists = "1.1";
-inline constexpr const char* localInputs = "1.2";
-inline constexpr const char* network = "1.3";
-inline constexpr const char* ndiDecklink = "1.4";
-inline constexpr const char* scheduler = "1.5";
-inline constexpr const char* webrtc = "1.6";
+inline constexpr const char* lists = "1.2";
+inline constexpr const char* localInputs = "1.3";
+inline constexpr const char* network = "1.4";
+inline constexpr const char* ndiDecklink = "1.5";
+inline constexpr const char* scheduler = "1.6";
+inline constexpr const char* webrtc = "1.7";
 }

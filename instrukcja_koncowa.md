@@ -291,6 +291,17 @@ Potrzebny — przy wielu kanałach to dysk, nie procesor, najczęściej gubi kla
 - Przyciski mają szerokość dopasowaną do napisu; układ musi mieścić się przy 1600 px szerokości w najdłuższym języku (niemiecki, francuski).
 - Raport `--check-env` i dziennik techniczny są tylko po angielsku.
 
+### 5.9 Wyjście na żywo (dodane po uwagach właściciela, wersja 1.1)
+
+W `instrukcja.md` słowo „passthrough” oznacza zapis strumienia bez ponownego kodowania. Tu chodzi o coś innego: kanał ma równocześnie nagrywać się do pliku i wychodzić na zewnątrz.
+
+- Ustawienie per kanał w zakładce Output, sekcja **Live output**: Off / NDI / SRT. Działa niezależnie od nagrywania (także w samym podglądzie); pauza i split go nie dotykają.
+- **NDI**: `tee → errorignore → queue (leaky) → videoconvert → UYVY → ndisinkcombiner → ndisink`, dźwięk F32LE do `ndisinkcombiner`. Wymaga środowiska NDI na komputerze (NDI Tools / Runtime).
+- **SRT**: osobny enkoder H.264 (wybór jak przy nagrywaniu) + AAC 128 kb/s → `mpegtsmux` → `srtsink` (`wait-for-connection=false`). Sam port = tryb listener, `host:port` = caller. Osobny enkoder kosztuje drugą sesję enkodera na kanał, ale strumień ma własny bitrate i nie zależy od pauzy ani splitu nagrania.
+- Gałąź jest częścią pipeline'u kanału (zmiana ustawień przebudowuje pipeline, dlatego jest zablokowana podczas nagrywania). `errorignore` tuż za `tee` izoluje awarię wyjścia: źródło, podgląd i nagranie działają dalej, wyjście jest wyłączane do zmiany ustawień, a użytkownik dostaje komunikat.
+- **Wirtualna kamera**: Windows 10 nie ma systemowego API (MFCreateVirtualCamera jest od Windows 11). Na dziś: wyjście NDI + „Webcam” z NDI Tools. Możliwy następny krok: zapis klatek do pamięci współdzielonej wirtualnej kamery OBS (jedno urządzenie, tylko obraz, wymaga zainstalowanego OBS).
+- Do zrobienia później: SRT z hasłem i `streamid`, RTMP, ponawianie połączenia w trybie caller, włączanie wyjścia w trakcie nagrywania (dynamiczne dopinanie gałęzi jak przy Rec).
+
 ---
 
 ## 6. Plan wersji
@@ -309,12 +320,13 @@ Każda wersja: działający program, commit, tag, push. Kryterium = to, co da si
 | **0.8** | Duży podgląd kanału po dwukliku w obraz: okno ok. 80% ekranu, nazwa, stan, czas nagrania, mierniki audio; podgląd 1280×720 na czas otwarcia | **wydana** — `--shot-big K plik.png` |
 | **0.9** | Przyciski REC / PAUSE / STOP / SPLIT w oknie dużego podglądu | **wydana** — `--shot-big K plik.png --big-rec` |
 | **1.0** | Pauza wg 3.1: PAUSE/wznowienie w tym samym pliku, wspólne przesunięcie czasu obrazu i dźwięku, lista pauz w pliku opisu, skrót `P` | **wydana** — `tests\rec_test.ps1 -PauseAt/-PauseFor/-PauseCount` |
-| **1.1** | Sesja i listy (5.5): zapis/wczytanie, autosave, ostatnie pliki; operacje grupowe ze wspólnym `T` | 16 × testsrc startuje w ±1 klatce; lista wraca identyczna po wczytaniu |
-| **1.2** | Inspektor Input/Output w pełni edytowalny; wejścia lokalne: Screen grab (DXGI/WGC), UVC/MF, WASAPI (urządzenie, loopback) | nagranie ekranu z dźwiękiem systemowym |
-| **1.3** | SRT, RTSP, passthrough, `fallbacksrc` + polityka zaniku sygnału, stan RECONNECTING | SRT/RTSP z lokalnego `ffmpeg`/MediaMTX; zerwanie i powrót strumienia bez utraty pliku |
-| **1.4** | NDI (discovery), DeckLink; kodeki H.265/AV1/ProRes/DNxHR wg dostępności; MOV/MP4 robust | NDI z NDI Tools; DeckLink — niesprawdzone na sprzęcie |
-| **1.5** | Scheduler (reguły, catch‑up, DST), blokada uśpienia, logi rotowane, widok Lista, folder zapasowy | testy jednostkowe schedulera; kontrolowany Stop przy braku miejsca |
-| **1.6** | WHEP, WHIP, magazyn poświadczeń, odzyskiwanie po awarii, instalator Inno Setup | instalacja na czystym Windows; test 24 h |
+| **1.1** | Wyjście na żywo kanału równolegle do nagrywania: NDI i SRT (5.9) | **wydana** — `tests\live_test.ps1 -Type srt/ndi` |
+| **1.2** | Sesja i listy (5.5): zapis/wczytanie, autosave, ostatnie pliki; operacje grupowe ze wspólnym `T` | 16 × testsrc startuje w ±1 klatce; lista wraca identyczna po wczytaniu |
+| **1.3** | Inspektor Input/Output w pełni edytowalny; wejścia lokalne: Screen grab (DXGI/WGC), UVC/MF, WASAPI (urządzenie, loopback) | nagranie ekranu z dźwiękiem systemowym |
+| **1.4** | SRT, RTSP, passthrough, `fallbacksrc` + polityka zaniku sygnału, stan RECONNECTING | SRT/RTSP z lokalnego `ffmpeg`/MediaMTX; zerwanie i powrót strumienia bez utraty pliku |
+| **1.5** | NDI (discovery), DeckLink; kodeki H.265/AV1/ProRes/DNxHR wg dostępności; MOV/MP4 robust | NDI z NDI Tools; DeckLink — niesprawdzone na sprzęcie |
+| **1.6** | Scheduler (reguły, catch‑up, DST), blokada uśpienia, logi rotowane, widok Lista, folder zapasowy | testy jednostkowe schedulera; kontrolowany Stop przy braku miejsca |
+| **1.7** | WHEP, WHIP, magazyn poświadczeń, odzyskiwanie po awarii, instalator Inno Setup | instalacja na czystym Windows; test 24 h |
 
 Każda runda poprawek po uwagach właściciela dostaje własny numer, więc pozycje poniżej bieżącej wersji przesuwają się o jedną. Numery wersji, od których zapowiadane funkcje będą dostępne, są w kodzie w jednym miejscu: `Roadmap` w `src/core/Lang.h`.
 
@@ -343,5 +355,5 @@ iso-recorder/
 
 ## 8. Otwarte pytania do właściciela projektu
 
-1. Docelowy sprzęt nagrywający (GPU, karty HDMI) — od tego zależy, czy 1.4 (DeckLink) i profil 16 kanałów da się w ogóle potwierdzić.
-2. Czy WHIP jako serwer w aplikacji jest wymagany, czy wystarczy WHEP + SRT/RTSP (wtedy 1.6 jest wyraźnie prostsze).
+1. Docelowy sprzęt nagrywający (GPU, karty HDMI) — od tego zależy, czy 1.5 (DeckLink) i profil 16 kanałów da się w ogóle potwierdzić.
+2. Czy WHIP jako serwer w aplikacji jest wymagany, czy wystarczy WHEP + SRT/RTSP (wtedy 1.7 jest wyraźnie prostsze).
