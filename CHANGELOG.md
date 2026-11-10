@@ -2,6 +2,21 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 1.3
+
+Wyjście na żywo w trakcie nagrywania:
+- Sekcję Live output można zmieniać w każdej chwili, także podczas nagrywania i pauzy: włączyć, wyłączyć,
+  przełączyć między NDI i SRT, zmienić nazwę, adres albo bitrate. Nagranie trwa bez przerwy.
+- Pozostałe ustawienia zakładki Output (folder, kontener, enkoder…) są nadal zablokowane podczas nagrywania.
+- Awaria wyjścia włączanego w trakcie nagrania (np. zajęty port) wyłącza tylko wyjście — plik jest nienaruszony.
+- Technicznie: gałąź wyjścia jest dopinana do działającego kanału tak samo jak gałąź nagrywania, zamiast być
+  stałą częścią kanału; zmiana wyjścia nie przebudowuje już kanału i nie przerywa podglądu.
+
+Test: `tests\rec_test.ps1 -LiveCycle S [-LiveType srt|ndi]` (przełączanie wyjścia co S sekund w trakcie nagrania)
+i `tests\live_test.ps1 -EnableAfter S` (wyjście włączone S sekund po starcie nagrania).
+
+Plan: wspólny moment startu wielu kanałów przechodzi do 1.4, dalsze pozycje o jedną wersję.
+
 ## 1.2
 
 Sesja i listy kanałów:

@@ -61,11 +61,17 @@ void Channel::setOutput(const OutputConfig& out) {
     emit configChanged();
 }
 
+// Wyjscie mozna wlaczyc, wylaczyc i zmienic w kazdej chwili, takze podczas nagrywania: galaz jest dopinana
+// do dzialajacego pipeline'u tak samo jak galaz nagrywania i nie dotyka ani zrodla, ani pliku.
 void Channel::setLive(const LiveConfig& live) {
-    if (!canEdit() || (live == m_cfg.live && !m_liveFailed)) return;
+    if (live == m_cfg.live && !m_liveFailed) return;
     m_cfg.live = live;
     m_liveFailed = false;
-    restart();
+    if (m_pipeline) {
+        detachLive();
+        attachLive();
+    }
+    emit changed();
     emit configChanged();
 }
 
@@ -90,42 +96,118 @@ QString Channel::liveText() const {
     return {};
 }
 
-// Galaz wyjscia na zywo, dopisywana do opisu pipeline'u. errorignore tuz za tee sprawia, ze awaria wyjscia
-// (zajety port, brak srodowiska NDI) nie zatrzymuje zrodla, podgladu ani nagrywania.
-QString Channel::liveBranch() {
-    if (!liveOn() || m_liveFailed) return {};
+// Opis galezi wyjscia (osobny bin). errorignore na wejsciu sprawia, ze awaria wyjscia w trakcie pracy
+// nie zatrzymuje zrodla, podgladu ani nagrywania.
+QString Channel::liveDescription() {
     auto clean = [](QString s) { return s.remove(QLatin1Char('"')).remove(QLatin1Char('\\')).trimmed(); };
     if (m_cfg.live.type == QLatin1String("ndi")) {
         QString name = clean(m_cfg.live.ndiName);
         if (name.isEmpty()) name = clean(m_cfg.name);
         return QStringLiteral(
-            " tv. ! errorignore ! queue name=out_vq leaky=downstream max-size-buffers=5 ! videoconvert ! video/x-raw,format=UYVY "
+            "errorignore name=lv_in ! queue name=out_vq leaky=downstream max-size-buffers=5 ! videoconvert ! video/x-raw,format=UYVY "
             "! ndisinkcombiner name=out_comb ! ndisink name=out_sink ndi-name=\"%1\" "
-            "ta. ! errorignore ! queue name=out_aq leaky=downstream ! audioconvert ! audio/x-raw,format=F32LE ! out_comb.audio").arg(name);
+            "errorignore name=la_in ! queue name=out_aq leaky=downstream ! audioconvert ! audio/x-raw,format=F32LE ! out_comb.audio").arg(name);
     }
     const EncoderFactory::Choice enc = EncoderFactory::pick(QStringLiteral("auto"), m_cfg.width, m_cfg.height, m_cfg.fps, m_cfg.live.srtKbps);
-    if (enc.name.isEmpty()) {
-        m_liveFailed = true;
-        emit notice(T("%1: live output stopped — %2").arg(m_cfg.name, T("no working H.264 encoder found")));
-        return {};
-    }
+    if (enc.name.isEmpty()) return {};
     return QStringLiteral(
-        " tv. ! errorignore ! queue name=out_vq leaky=downstream max-size-buffers=5 ! %1 ! h264parse config-interval=-1 "
+        "errorignore name=lv_in ! queue name=out_vq leaky=downstream max-size-buffers=5 ! %1 ! h264parse config-interval=-1 "
         "! mpegtsmux name=out_mux alignment=7 ! srtsink name=out_sink uri=\"%2\" wait-for-connection=false sync=false "
-        "ta. ! errorignore ! queue name=out_aq leaky=downstream ! audioconvert ! audioresample ! avenc_aac bitrate=128000 ! aacparse ! out_mux.")
+        "errorignore name=la_in ! queue name=out_aq leaky=downstream ! audioconvert ! audioresample ! avenc_aac bitrate=128000 ! aacparse ! out_mux.")
         .arg(enc.launch, clean(srtUri(m_cfg.live.srtAddress)));
 }
 
-void Channel::liveError(const QString& text) {
-    m_liveFailed = true;
-    m_liveFailGen = m_gen.load();
-    emit notice(T("%1: live output stopped — %2").arg(m_cfg.name, text));
-    if (isRecording()) emit changed();      // nagranie trwa dalej; martwa galaz zniknie przy najblizszej przebudowie
-    else {                                  // takze gdy pipeline w ogole nie wystartowal (np. zajety port)
-        stopPreview();
-        startPreview();
+void Channel::attachLive() {
+    if (!m_pipeline || m_liveBin || !liveOn() || m_liveFailed) return;
+    ++m_liveSerial;
+    m_liveNoticed = false;
+    const QString desc = liveDescription();
+    GError* err = nullptr;
+    GstElement* bin = desc.isEmpty() ? nullptr : gst_parse_bin_from_description(desc.toUtf8().constData(), FALSE, &err);
+    if (!bin || err) {
+        const QString text = err ? QString::fromUtf8(err->message) : T("no working H.264 encoder found");
+        g_clear_error(&err);
+        if (bin) gst_object_unref(bin);
+        liveError(text);
+        return;
+    }
+    GstElement* vin = gst_bin_get_by_name(GST_BIN(bin), "lv_in");
+    GstElement* ain = gst_bin_get_by_name(GST_BIN(bin), "la_in");
+    GstPad* vs = gst_element_get_static_pad(vin, "sink");
+    GstPad* as = gst_element_get_static_pad(ain, "sink");
+    GstPad* ghostV = gst_ghost_pad_new("video_sink", vs);
+    GstPad* ghostA = gst_ghost_pad_new("audio_sink", as);
+    gst_element_add_pad(bin, ghostV);
+    gst_element_add_pad(bin, ghostA);
+    gst_object_unref(vs);
+    gst_object_unref(as);
+    gst_object_unref(vin);
+    gst_object_unref(ain);
+
+    gst_object_ref(bin);                       // wlasna referencja na czas dzialania wyjscia
+    gst_bin_add(GST_BIN(m_pipeline), bin);
+    m_liveBin = bin;
+    m_liveBinShared = bin;
+    // Najpierw stan, potem podpiecie do tee. Zajety port albo brak srodowiska NDI wychodzi juz tutaj.
+    const bool started = gst_element_sync_state_with_parent(bin);
+    GstElement* tv = gst_bin_get_by_name(GST_BIN(m_pipeline), "tv");
+    GstElement* ta = gst_bin_get_by_name(GST_BIN(m_pipeline), "ta");
+    bool ok = started;
+    if (ok) {
+        m_liveTeeVideo = gst_element_request_pad_simple(tv, "src_%u");
+        m_liveTeeAudio = gst_element_request_pad_simple(ta, "src_%u");
+        ok = m_liveTeeVideo && m_liveTeeAudio && gst_pad_link(m_liveTeeVideo, ghostV) == GST_PAD_LINK_OK &&
+             gst_pad_link(m_liveTeeAudio, ghostA) == GST_PAD_LINK_OK;
+    }
+    gst_object_unref(tv);
+    gst_object_unref(ta);
+    if (!ok) {
+        // Elementy zwykle zglaszaja wlasny, dokladniejszy komunikat na szynie; ten jest zapasowy.
+        const int serial = m_liveSerial.load();
+        m_liveFailed = true;
+        detachLive();
+        QTimer::singleShot(400, this, [this, serial] {
+            if (serial == m_liveSerial.load() && m_liveFailed && !m_liveNoticed) liveError(T("cannot start the output"));
+        });
         emit changed();
     }
+}
+
+// Odpiecie galezi wyjscia od dzialajacego pipeline'u. Kolejnosc ma znaczenie: m_liveBinShared jest zerowany dopiero
+// po zatrzymaniu galezi, zeby jej ostatnie komunikaty byly jeszcze rozpoznane jako komunikaty wyjscia.
+void Channel::detachLive() {
+    if (!m_liveBin) return;
+    GstElement* bin = m_liveBin;
+    m_liveBin = nullptr;
+    GstElement* tv = m_pipeline ? gst_bin_get_by_name(GST_BIN(m_pipeline), "tv") : nullptr;
+    GstElement* ta = m_pipeline ? gst_bin_get_by_name(GST_BIN(m_pipeline), "ta") : nullptr;
+    for (auto [tee, pad] : {std::pair{tv, &m_liveTeeVideo}, std::pair{ta, &m_liveTeeAudio}}) {
+        if (*pad) {
+            if (GstPad* peer = gst_pad_get_peer(*pad)) {
+                gst_pad_unlink(*pad, peer);
+                gst_object_unref(peer);
+            }
+            if (tee) gst_element_release_request_pad(tee, *pad);
+            gst_object_unref(*pad);
+            *pad = nullptr;
+        }
+        if (tee) gst_object_unref(tee);
+    }
+    gst_element_set_state(bin, GST_STATE_NULL);
+    m_liveBinShared = nullptr;
+    if (m_pipeline) gst_bin_remove(GST_BIN(m_pipeline), bin);
+    gst_object_unref(bin);
+}
+
+// Awaria wyjscia: wyjscie jest wylaczane do zmiany ustawien, kanal i nagranie dzialaja dalej.
+void Channel::liveError(const QString& text) {
+    m_liveFailed = true;
+    detachLive();
+    if (!m_liveNoticed) {
+        m_liveNoticed = true;
+        emit notice(T("%1: live output stopped — %2").arg(m_cfg.name, text));
+    }
+    emit changed();
 }
 
 QString Channel::defaultOutputDir() {
@@ -174,7 +256,7 @@ void Channel::startPreview() {
         "! level name=level interval=100000000 post-messages=true ! tee name=ta "
         "ta. ! queue ! fakesink sync=false")
         .arg(m_cfg.pattern).arg(m_cfg.width).arg(m_cfg.height).arg(m_cfg.fps)
-        .arg(m_cfg.audioWave).arg(QString::number(m_cfg.audioVolume, 'f', 3)) + liveBranch();
+        .arg(m_cfg.audioWave).arg(QString::number(m_cfg.audioVolume, 'f', 3));
     ++m_gen;
 
     GError* err = nullptr;
@@ -207,6 +289,7 @@ void Channel::startPreview() {
         return;
     }
     setState(ChannelState::Preview);
+    attachLive();
 }
 
 void Channel::setLargePreview(bool on) {
@@ -238,6 +321,7 @@ void Channel::applyPreviewSize() {
 void Channel::stopPreview() {
     if (!m_pipeline) return;
     if (m_recBin) finishRecording(false, T("channel stopped"));   // wymuszone zamkniecie, bez czekania na EOS
+    detachLive();
     // NULL zatrzymuje watki streamingu synchronicznie - po tym zaden callback juz nie wejdzie.
     gst_element_set_state(m_pipeline, GST_STATE_NULL);
     GstBus* bus = gst_element_get_bus(m_pipeline);
@@ -756,15 +840,18 @@ GstBusSyncReply Channel::onBus(GstBus*, GstMessage* msg, gpointer user) {
         GstElement* rec = self->m_recBinShared.load();
         const bool inRecording = rec && GST_MESSAGE_SRC(msg) &&
                                  gst_object_has_as_ancestor(GST_MESSAGE_SRC(msg), GST_OBJECT(rec));
+        // Blad wewnatrz galezi wyjscia na zywo wylacza tylko wyjscie.
+        GstElement* live = self->m_liveBinShared.load();
+        const bool inLive = live && GST_MESSAGE_SRC(msg) && gst_object_has_as_ancestor(GST_MESSAGE_SRC(msg), GST_OBJECT(live));
+        const int liveSerial = self->m_liveSerial.load();
         const int gen = self->m_gen.load();
-        QMetaObject::invokeMethod(self, [self, text, inRecording, gen] {
-            if (gen != self->m_gen.load() || gen == self->m_liveFailGen) return;   // stary pipeline albo echo awarii wyjscia
+        QMetaObject::invokeMethod(self, [self, text, inRecording, inLive, liveSerial, gen] {
+            if (gen != self->m_gen.load()) return;      // komunikat ze starego pipeline'u
             if (inRecording) {
                 self->finishRecording(false, text);
-            } else if (self->liveOn() && !self->m_liveFailed) {
-                // Przy wlaczonym wyjsciu na zywo blad spoza galezi nagrywania to niemal zawsze samo wyjscie (zajety port,
-                // brak NDI): wylaczamy je i gramy dalej. Jesli blad wroci bez wyjscia - kanal przejdzie w stan bledu.
-                self->liveError(text);
+            } else if (inLive) {
+                // tylko dla biezacego podpiecia; komunikaty z galezi odpietej przez uzytkownika sa pomijane
+                if (liveSerial == self->m_liveSerial.load() && self->liveOn()) self->liveError(text);
             } else {
                 self->stopPreview();
                 self->setState(ChannelState::Error, text);

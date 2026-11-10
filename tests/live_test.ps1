@@ -2,8 +2,9 @@
 # W trakcie nagrywania strumien kazdego kanalu jest odbierany (SRT: ffprobe, NDI: gst-launch z instalacji GStreamera),
 # a po zakonczeniu sprawdzane sa pliki nagran (plik opisu: clean, jedna czesc).
 # Uzycie:  tests\live_test.ps1 [-Type srt|ndi] [-Channels 2] [-Seconds 14] [-Port 9700] [-Exe build\IsoRecorder.exe]
+# -EnableAfter S : wyjscie jest wlaczane dopiero S sekund po starcie nagrania (zmiana w trakcie nagrywania).
 # Kod wyjscia 0 = wszystko poprawne.
-param([string]$Type = 'srt', [int]$Channels = 2, [int]$Seconds = 14, [int]$Port = 9700, [string]$Exe)
+param([string]$Type = 'srt', [int]$Channels = 2, [int]$Seconds = 14, [int]$Port = 9700, [int]$EnableAfter = 0, [string]$Exe)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot
 if (-not $Exe) { $Exe = "$root\build\IsoRecorder.exe" }
@@ -19,9 +20,11 @@ if ($Exe -like "*\build\*") {
 $out = Join-Path $env:TEMP "isorec_live_$(Get-Date -Format 'HHmmss')"
 New-Item -ItemType Directory $out | Out-Null
 
-$p = Start-Process $Exe -ArgumentList @('--demo', $Channels, '--lang', 'en', '--out', $out, '--live', $Type, $Port, '--rec-test', $Seconds) -PassThru
+$arguments = @('--demo', $Channels, '--lang', 'en', '--out', $out, '--live', $Type, $Port, '--rec-test', $Seconds)
+if ($EnableAfter -gt 0) { $arguments += @('--live-at', $EnableAfter) }
+$p = Start-Process $Exe -ArgumentList $arguments -PassThru
 $env:PATH = $savedPath
-Start-Sleep 6          # program startuje, nagrywanie rusza po 3 s
+Start-Sleep (6 + $EnableAfter)          # program startuje, nagrywanie rusza po 3 s
 
 $fail = 0
 for ($i = 1; $i -le $Channels; $i++) {

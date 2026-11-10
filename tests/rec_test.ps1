@@ -5,9 +5,11 @@
 # -PauseAt S -PauseFor P [-PauseCount N] : N pauz po P sekund, kazda po S sekundach nagrywania (Seconds liczy tez pauzy).
 #   Sprawdzane: czas materialu = Seconds - N*P, brak przerw i cofniec w znacznikach obrazu i dzwieku,
 #   koniec obrazu i dzwieku w tym samym miejscu, liczba pauz w pliku opisu.
+# -LiveCycle S [-LiveType srt|ndi] : w trakcie nagrania wyjscie na zywo jest co S sekund wlaczane i wylaczane -
+#   nagranie musi pozostac ciagle (te same kontrole co zwykle).
 # Kod wyjscia 0 = wszystko poprawne.
 param([int]$Channels = 4, [int]$Seconds = 10, [int]$Cycles = 1, [int]$SplitEvery = 0, [int]$AutoSplit = 0,
-      [string]$Container = 'mkv', [int]$PauseAt = 0, [int]$PauseFor = 0, [int]$PauseCount = 1, [string]$Exe)
+      [string]$Container = 'mkv', [int]$PauseAt = 0, [int]$PauseFor = 0, [int]$PauseCount = 1, [int]$LiveCycle = 0, [string]$LiveType = 'srt', [string]$Exe)
 $ErrorActionPreference = 'Stop'
 $inv = [cultureinfo]::InvariantCulture
 $root = Split-Path $PSScriptRoot
@@ -25,6 +27,7 @@ New-Item -ItemType Directory $out | Out-Null
 $a = @('--demo', $Channels, '--lang', 'en', '--out', $out, '--rec-test', $Seconds, '--cycles', $Cycles, '--container', $Container)
 if ($SplitEvery -gt 0) { $a += @('--split-every', $SplitEvery) }
 if ($AutoSplit -gt 0) { $a += @('--auto-split', $AutoSplit) }
+if ($LiveCycle -gt 0) { $a += @('--live', $LiveType, 9750, '--live-cycle', $LiveCycle) }
 $pauses = 0
 if ($PauseAt -gt 0 -and $PauseFor -gt 0) { $pauses = $PauseCount; $a += @('--pause-at', $PauseAt, '--pause-for', $PauseFor, '--pause-count', $PauseCount) }
 $content = $Seconds - $pauses * $PauseFor      # ile sekund materialu ma byc w pliku

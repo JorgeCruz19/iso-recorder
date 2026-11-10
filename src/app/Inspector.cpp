@@ -183,7 +183,7 @@ QWidget* Inspector::buildOutputPage() {
     auto* v = new QVBoxLayout(page);
     v->setContentsMargins(0, 0, 0, 0);
     v->setSpacing(0);
-    m_lock = new QLabel(T("Settings are locked while recording"));
+    m_lock = new QLabel(T("Recording settings are locked while recording"));
     m_lock->setObjectName(QStringLiteral("lock"));
     v->addWidget(m_lock);
     m_outputForm = new QWidget;
@@ -246,8 +246,9 @@ QWidget* Inspector::buildOutputPage() {
     fv->addLayout(bar);
 
     // Wyjscie na zywo: rownolegle do nagrywania (i bez niego) kanal idzie na NDI albo SRT.
-    fv->addWidget(section(T("Live output")));
-    g = form(fv);
+    // Sekcja lezy poza formularzem blokowanym podczas nagrywania - wyjscie mozna zmieniac w kazdej chwili.
+    v->addWidget(section(T("Live output")));
+    g = form(v);
     m_liveType = new QComboBox;
     m_liveType->addItem(T("Off"), QStringLiteral("off"));
     m_liveType->addItem(QStringLiteral("NDI"), QStringLiteral("ndi"));
@@ -320,7 +321,7 @@ void Inspector::commitOutput() {
 
 void Inspector::commitLive() {
     Channel* ch = m_mgr->active();
-    if (!ch || !ch->canEdit()) return;
+    if (!ch) return;
     LiveConfig live = ch->config().live;
     live.type = m_liveType->currentData().toString();
     live.ndiName = m_liveNdi->text().trimmed();

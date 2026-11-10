@@ -45,6 +45,8 @@
 //   --live ndi|srt [port] wyjscie na zywo dla kanalow --demo: NDI o nazwie "ISO <kanal>" albo SRT na portach port+1, port+2...
 //   --auto-split S        auto-split co S sekund dla kanalow --demo
 //   --split-every S       w --rec-test: reczny split wszystkich kanalow co S sekund
+//   --live-at S           z --live: wyjscie wlaczane dopiero S sekund po starcie nagrania (zamiast od razu)
+//   --live-cycle S        z --live: w trakcie nagrania wyjscie jest co S sekund na przemian wlaczane i wylaczane
 //   --pause-at S --pause-for P [--pause-count N]  w --rec-test: N pauz po P sekund, kazda po S sekundach nagrywania
 //   --drag-test A B [plik] przeciagniecie kafla A na miejsce kafla B (numery od 1) zdarzeniami myszy;
 //                         kolejnosc kanalow na stdout, opcjonalny zrzut okna w trakcie przeciagania
@@ -192,12 +194,28 @@ int main(int argc, char* argv[]) {
         if (const QString live = argAfter("--live"); !live.isEmpty()) {
             const int liveAt = int(args.indexOf(QStringLiteral("--live")));
             const int port = liveAt + 2 < args.size() && args.at(liveAt + 2).toInt() > 0 ? args.at(liveAt + 2).toInt() : 9700;
+            const int liveLater = argAfter("--live-at").toInt(), liveCycle = argAfter("--live-cycle").toInt();
             int i = 0;
             for (Channel* c : manager.channels()) {
                 LiveConfig l;
                 l.type = live;
                 l.ndiName = QStringLiteral("ISO ") + c->config().name;
                 l.srtAddress = QStringLiteral(":%1").arg(port + ++i);
+                if (liveLater > 0 || liveCycle > 0) {
+                    // nagranie rusza 3 s po starcie programu
+                    if (liveCycle > 0) {
+                        auto* t = new QTimer(c);
+                        QObject::connect(t, &QTimer::timeout, c, [c, l] {
+                            LiveConfig next = l;
+                            if (c->liveOn()) next.type = QStringLiteral("off");
+                            c->setLive(next);
+                        });
+                        QTimer::singleShot(3000, t, [t, liveCycle] { t->start(liveCycle * 1000); });
+                    } else {
+                        QTimer::singleShot(3000 + liveLater * 1000, c, [c, l] { c->setLive(l); });
+                    }
+                    continue;
+                }
                 c->setLive(l);
             }
         }

@@ -299,9 +299,10 @@ W `instrukcja.md` słowo „passthrough” oznacza zapis strumienia bez ponowneg
 - Ustawienie per kanał w zakładce Output, sekcja **Live output**: Off / NDI / SRT. Działa niezależnie od nagrywania (także w samym podglądzie); pauza i split go nie dotykają.
 - **NDI**: `tee → errorignore → queue (leaky) → videoconvert → UYVY → ndisinkcombiner → ndisink`, dźwięk F32LE do `ndisinkcombiner`. Wymaga środowiska NDI na komputerze (NDI Tools / Runtime).
 - **SRT**: osobny enkoder H.264 (wybór jak przy nagrywaniu) + AAC 128 kb/s → `mpegtsmux` → `srtsink` (`wait-for-connection=false`). Sam port = tryb listener, `host:port` = caller. Osobny enkoder kosztuje drugą sesję enkodera na kanał, ale strumień ma własny bitrate i nie zależy od pauzy ani splitu nagrania.
-- Gałąź jest częścią pipeline'u kanału (zmiana ustawień przebudowuje pipeline, dlatego jest zablokowana podczas nagrywania). `errorignore` tuż za `tee` izoluje awarię wyjścia: źródło, podgląd i nagranie działają dalej, wyjście jest wyłączane do zmiany ustawień, a użytkownik dostaje komunikat.
+- Od wersji 1.3 gałąź wyjścia jest osobnym binem dopinanym do działającego pipeline'u (`Channel::attachLive` / `detachLive`), tak jak gałąź nagrywania: stan → żądanie padów `tee` → połączenie; odpięcie: rozłączenie → zwolnienie padów → `NULL` → usunięcie. Dzięki temu wyjście można zmieniać podczas nagrywania i pauzy. `errorignore` na wejściu gałęzi izoluje awarię w trakcie pracy, a błąd ze źródłem wewnątrz bina (rozpoznawany po przodku, z numerem podpięcia) wyłącza tylko wyjście: źródło, podgląd i nagranie działają dalej, użytkownik dostaje komunikat.
+- Narzut zmierzony na maszynie deweloperskiej (8 × 720p25 nagrywanych przez Quick Sync, 6 rdzeni logicznych): samo nagrywanie 2,2 rdzenia i 537 MB; z NDI na każdym kanale 2,9 rdzenia i 632 MB (bez podłączonego odbiornika); z SRT 6 Mb/s 2,5 rdzenia i 825 MB. SRT zajmuje drugą sesję enkodera na kanał — istotne przy limicie sesji NVENC.
 - **Wirtualna kamera**: Windows 10 nie ma systemowego API (MFCreateVirtualCamera jest od Windows 11). Na dziś: wyjście NDI + „Webcam” z NDI Tools. Możliwy następny krok: zapis klatek do pamięci współdzielonej wirtualnej kamery OBS (jedno urządzenie, tylko obraz, wymaga zainstalowanego OBS).
-- Do zrobienia później: SRT z hasłem i `streamid`, RTMP, ponawianie połączenia w trybie caller, włączanie wyjścia w trakcie nagrywania (dynamiczne dopinanie gałęzi jak przy Rec).
+- Do zrobienia później: SRT z hasłem i `streamid`, RTMP, ponawianie połączenia w trybie caller.
 
 ---
 
@@ -323,12 +324,13 @@ Każda wersja: działający program, commit, tag, push. Kryterium = to, co da si
 | **1.0** | Pauza wg 3.1: PAUSE/wznowienie w tym samym pliku, wspólne przesunięcie czasu obrazu i dźwięku, lista pauz w pliku opisu, skrót `P` | **wydana** — `tests\rec_test.ps1 -PauseAt/-PauseFor/-PauseCount` |
 | **1.1** | Wyjście na żywo kanału równolegle do nagrywania: NDI i SRT (5.9) | **wydana** — `tests\live_test.ps1 -Type srt/ndi` |
 | **1.2** | Sesja i listy (5.5): zapis/wczytanie, edytowalna nazwa sesji, autozapis i przywracanie po awarii, ostatnie pliki, otwieranie ostatniej listy | **wydana** — `tests\list_test.ps1` |
-| **1.3** | Operacje grupowe ze wspólnym `T` (wspólny moment startu, pauzy i stopu wielu kanałów) | 16 × testsrc startuje w ±1 klatce |
-| **1.4** | Inspektor Input/Output w pełni edytowalny; wejścia lokalne: Screen grab (DXGI/WGC), UVC/MF, WASAPI (urządzenie, loopback) | nagranie ekranu z dźwiękiem systemowym |
-| **1.5** | SRT, RTSP, passthrough, `fallbacksrc` + polityka zaniku sygnału, stan RECONNECTING | SRT/RTSP z lokalnego `ffmpeg`/MediaMTX; zerwanie i powrót strumienia bez utraty pliku |
-| **1.6** | NDI (discovery), DeckLink; kodeki H.265/AV1/ProRes/DNxHR wg dostępności; MOV/MP4 robust | NDI z NDI Tools; DeckLink — niesprawdzone na sprzęcie |
-| **1.7** | Scheduler (reguły, catch‑up, DST), blokada uśpienia, logi rotowane, widok Lista, folder zapasowy | testy jednostkowe schedulera; kontrolowany Stop przy braku miejsca |
-| **1.8** | WHEP, WHIP, magazyn poświadczeń, odzyskiwanie po awarii, instalator Inno Setup | instalacja na czystym Windows; test 24 h |
+| **1.3** | Wyjście na żywo przełączane w trakcie nagrywania (gałąź dopinana w locie) | **wydana** — `tests\rec_test.ps1 -LiveCycle`, `tests\live_test.ps1 -EnableAfter` |
+| **1.4** | Operacje grupowe ze wspólnym `T` (wspólny moment startu, pauzy i stopu wielu kanałów) | 16 × testsrc startuje w ±1 klatce |
+| **1.5** | Inspektor Input/Output w pełni edytowalny; wejścia lokalne: Screen grab (DXGI/WGC), UVC/MF, WASAPI (urządzenie, loopback) | nagranie ekranu z dźwiękiem systemowym |
+| **1.6** | SRT, RTSP, passthrough, `fallbacksrc` + polityka zaniku sygnału, stan RECONNECTING | SRT/RTSP z lokalnego `ffmpeg`/MediaMTX; zerwanie i powrót strumienia bez utraty pliku |
+| **1.7** | NDI (discovery), DeckLink; kodeki H.265/AV1/ProRes/DNxHR wg dostępności; MOV/MP4 robust | NDI z NDI Tools; DeckLink — niesprawdzone na sprzęcie |
+| **1.8** | Scheduler (reguły, catch‑up, DST), blokada uśpienia, logi rotowane, widok Lista, folder zapasowy | testy jednostkowe schedulera; kontrolowany Stop przy braku miejsca |
+| **1.9** | WHEP, WHIP, magazyn poświadczeń, odzyskiwanie po awarii, instalator Inno Setup | instalacja na czystym Windows; test 24 h |
 
 Każda runda poprawek po uwagach właściciela dostaje własny numer, więc pozycje poniżej bieżącej wersji przesuwają się o jedną. Numery wersji, od których zapowiadane funkcje będą dostępne, są w kodzie w jednym miejscu: `Roadmap` w `src/core/Lang.h`.
 
@@ -357,5 +359,5 @@ iso-recorder/
 
 ## 8. Otwarte pytania do właściciela projektu
 
-1. Docelowy sprzęt nagrywający (GPU, karty HDMI) — od tego zależy, czy 1.6 (DeckLink) i profil 16 kanałów da się w ogóle potwierdzić.
-2. Czy WHIP jako serwer w aplikacji jest wymagany, czy wystarczy WHEP + SRT/RTSP (wtedy 1.8 jest wyraźnie prostsze).
+1. Docelowy sprzęt nagrywający (GPU, karty HDMI) — od tego zależy, czy 1.7 (DeckLink) i profil 16 kanałów da się w ogóle potwierdzić.
+2. Czy WHIP jako serwer w aplikacji jest wymagany, czy wystarczy WHEP + SRT/RTSP (wtedy 1.9 jest wyraźnie prostsze).

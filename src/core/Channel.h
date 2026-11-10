@@ -73,7 +73,7 @@ public:
     void setAudioWave(int wave);
     void setFormat(int width, int height);
     void setOutput(const OutputConfig& out);
-    void setLive(const LiveConfig& live);    // przebudowuje pipeline - tylko gdy kanal nie nagrywa
+    void setLive(const LiveConfig& live);    // dziala takze podczas nagrywania: galaz wyjscia jest dopinana w locie
     bool liveOn() const { return m_cfg.live.type != QLatin1String("off"); }
     bool liveFailed() const { return m_liveFailed; }
     QString liveText() const;                // krotki opis na kafel: "NDI", "SRT :9001"
@@ -134,7 +134,9 @@ private:
     static GstPadProbeReturn onStopBlock(GstPad* pad, GstPadProbeInfo* info, gpointer user);
     void setState(ChannelState s, const QString& error = {});
     void restart();
-    QString liveBranch();
+    QString liveDescription();
+    void attachLive();
+    void detachLive();
     void liveError(const QString& text);
     void finishRecording(bool clean, const QString& reason = {});
     void writeSidecar(bool clean, const QString& reason) const;
@@ -149,7 +151,12 @@ private:
     bool m_largePreview = false;
     bool m_liveFailed = false;              // wyjscie na zywo zglosilo blad - wylaczone do zmiany ustawien
     std::atomic<int> m_gen{0};              // numer kolejnego pipeline'u (komunikaty ze starego sa ignorowane)
-    int m_liveFailGen = -1;
+    GstElement* m_liveBin = nullptr;                    // watek GUI
+    std::atomic<GstElement*> m_liveBinShared{nullptr};  // do porownan w watkach streamingu
+    std::atomic<int> m_liveSerial{0};                   // numer kolejnego podpiecia wyjscia
+    GstPad* m_liveTeeVideo = nullptr;
+    GstPad* m_liveTeeAudio = nullptr;
+    bool m_liveNoticed = false;             // komunikat o awarii biezacego podpiecia juz poszedl
     void applyPreviewSize();
 
     GstElement* m_recBin = nullptr;                    // watek GUI
