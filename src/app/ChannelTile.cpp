@@ -8,6 +8,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 
+#include "PreviewDialog.h"
 #include "Theme.h"
 #include "core/ChannelManager.h"
 #include "core/Lang.h"
@@ -261,7 +262,14 @@ void ChannelTile::mouseReleaseEvent(QMouseEvent* e) {
 }
 
 void ChannelTile::mouseDoubleClickEvent(QMouseEvent* e) {
-    if (!rects().label.contains(e->position().toPoint())) return;
+    const Rects r = rects();
+    const QPoint pt = e->position().toPoint();
+    m_pressed = false;
+    if (!r.label.contains(pt)) {        // dwuklik w obraz (poza polem zaznaczenia) = duzy podglad
+        if (r.vid.contains(pt) && !r.selBox.adjusted(-5, -5, 5, 5).contains(pt) && e->button() == Qt::LeftButton)
+            PreviewDialog::open(m_ch, m_number, window());
+        return;
+    }
     bool ok = false;
     const QString name = QInputDialog::getText(this, T("Channel name"), T("Name:"),
                                                QLineEdit::Normal, m_ch->config().name, &ok);

@@ -2,6 +2,19 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 0.8
+
+Duży podgląd:
+- Dwuklik w obraz na kaflu otwiera okno wielkości ok. 80% ekranu z dużym podglądem kanału.
+- W oknie widać numer i nazwę kanału, format, ramkę stanu, czas nagrania oraz mierniki audio L/R ze skalą dBFS.
+- Na czas otwarcia okna kanał podaje podgląd 1280×720 z pełną częstotliwością klatek (zwykle 480×270, 15 kl./s).
+- Zamknięcie: Esc, dwuklik w oknie albo przycisk okna. Okno nie blokuje programu; dwuklik w inny kafel przełącza je
+  na ten kanał. Dwuklik w etykietę z nazwą nadal zmienia nazwę.
+
+Test: `IsoRecorder.exe --demo N --shot-big K zrzut.png`.
+
+Plan: pauza przechodzi do 0.9, sesja i listy do 1.0, dalsze pozycje o jedną wersję.
+
 ## 0.7
 
 Kolejność kanałów:

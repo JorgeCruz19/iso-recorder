@@ -93,9 +93,10 @@ void Channel::startPreview() {
     // tee "tv"/"ta" sa punktami zaczepienia galezi nagrywania.
     const QString desc = QStringLiteral(
         "videotestsrc is-live=true pattern=%1 ! video/x-raw,width=%2,height=%3,framerate=%4/1,pixel-aspect-ratio=1/1 ! tee name=tv "
-        "tv. ! queue leaky=downstream max-size-buffers=2 ! videorate drop-only=true max-rate=15 "
+        "tv. ! queue leaky=downstream max-size-buffers=2 ! videorate name=pvrate drop-only=true max-rate=15 "
         // staly kadr 16:9 i kwadratowy piksel: videoconvertscale sam dopisuje czarne pasy dla innych proporcji
-        "! videoconvertscale add-borders=true ! video/x-raw,format=BGRx,width=480,height=270,pixel-aspect-ratio=1/1 "
+        "! videoconvertscale add-borders=true "
+        "! capsfilter name=pvcaps caps=video/x-raw,format=BGRx,width=480,height=270,pixel-aspect-ratio=1/1 "
         "! appsink name=preview sync=false max-buffers=1 drop=true "
         "audiotestsrc is-live=true wave=%5 volume=%6 ! audio/x-raw,rate=48000,channels=2 "
         "! level name=level interval=100000000 post-messages=true ! tee name=ta "
@@ -115,6 +116,7 @@ void Channel::startPreview() {
     // EOS galezi nagrywania nie moze czekac na EOS calego pipeline'u (podglad gra dalej) -
     // pipeline przekazuje go od razu jako komunikat "GstBinForwarded".
     g_object_set(m_pipeline, "message-forward", TRUE, nullptr);
+    applyPreviewSize();
 
     GstElement* sink = gst_bin_get_by_name(GST_BIN(m_pipeline), "preview");
     GstAppSinkCallbacks cb{};
@@ -132,6 +134,32 @@ void Channel::startPreview() {
         return;
     }
     setState(ChannelState::Preview);
+}
+
+void Channel::setLargePreview(bool on) {
+    if (m_largePreview == on) return;
+    m_largePreview = on;
+    applyPreviewSize();
+}
+
+// Rozmiar i czestotliwosc klatek podgladu mozna zmieniac w dzialajacym pipeline'ie - skaler renegocjuje format.
+void Channel::applyPreviewSize() {
+    if (!m_pipeline) return;
+    GstElement* caps = gst_bin_get_by_name(GST_BIN(m_pipeline), "pvcaps");
+    GstElement* rate = gst_bin_get_by_name(GST_BIN(m_pipeline), "pvrate");
+    if (caps) {
+        GstCaps* c = gst_caps_new_simple("video/x-raw", "format", G_TYPE_STRING, "BGRx",
+                                         "width", G_TYPE_INT, m_largePreview ? 1280 : 480,
+                                         "height", G_TYPE_INT, m_largePreview ? 720 : 270,
+                                         "pixel-aspect-ratio", GST_TYPE_FRACTION, 1, 1, nullptr);
+        g_object_set(caps, "caps", c, nullptr);
+        gst_caps_unref(c);
+        gst_object_unref(caps);
+    }
+    if (rate) {
+        g_object_set(rate, "max-rate", m_largePreview ? 60 : 15, nullptr);
+        gst_object_unref(rate);
+    }
 }
 
 void Channel::stopPreview() {

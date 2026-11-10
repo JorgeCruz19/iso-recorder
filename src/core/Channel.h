@@ -76,6 +76,8 @@ public:
 
     void startPreview();
     void stopPreview();
+    // Duzy podglad (okno po dwukliku): klatki 1280x720 z pelna czestotliwoscia zamiast 480x270 / 15 kl./s.
+    void setLargePreview(bool on);
 
     // Nagrywanie
     bool startRecording(const QString& session, int index);
@@ -114,6 +116,8 @@ private:
     QImage m_frame;
     std::array<double, 2> m_level{0.0, 0.0};
     GstElement* m_pipeline = nullptr;
+    bool m_largePreview = false;
+    void applyPreviewSize();
 
     GstElement* m_recBin = nullptr;                    // watek GUI
     std::atomic<GstElement*> m_recBinShared{nullptr};  // do porownan w watkach streamingu

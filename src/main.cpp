@@ -15,6 +15,7 @@
 #include "app/DisksDialog.h"
 #include "app/Inspector.h"
 #include "app/MainWindow.h"
+#include "app/PreviewDialog.h"
 #include "app/Theme.h"
 #include "core/ChannelManager.h"
 #include "core/DiskTest.h"
@@ -34,6 +35,7 @@
 //   --split-every S       w --rec-test: reczny split wszystkich kanalow co S sekund
 //   --drag-test A B [plik] przeciagniecie kafla A na miejsce kafla B (numery od 1) zdarzeniami myszy;
 //                         kolejnosc kanalow na stdout, opcjonalny zrzut okna w trakcie przeciagania
+//   --shot-big N plik.png zrzut okna duzego podgladu kanalu N (od 1), otwartego dwuklikiem w kafel
 //   --disk-test folder [S] test predkosci zapisu (domyslnie 10 s), wynik na stdout
 // Paczka samodzielna: gdy obok EXE lezy katalog gstreamer-1.0\, GStreamer bierze wtyczki tylko stamtad
 // (instalacja systemowa jest ignorowana), a rejestr wtyczek trafia do %LOCALAPPDATA%\IsoRecorder.
@@ -194,6 +196,30 @@ int main(int argc, char* argv[]) {
             dlg->show();
             const QString path = argAfter("--shot-disks");
             QTimer::singleShot(2500, dlg, [dlg, path] { dlg->grab().save(path); QApplication::quit(); });
+        }
+        const int bigAt = int(args.indexOf(QStringLiteral("--shot-big")));
+        if (bigAt >= 0 && bigAt + 2 < args.size()) {
+            const int n = args.at(bigAt + 1).toInt() - 1;
+            const QString path = args.at(bigAt + 2);
+            QTimer::singleShot(2500, &manager, [&w, &manager, n, path] {
+                for (ChannelTile* t : w->findChildren<ChannelTile*>()) {
+                    if (n < 0 || n >= manager.count() || t->channel() != manager.channels().at(n) || !t->isVisible()) continue;
+                    const QPoint local(t->width() / 2, t->height() / 3);
+                    QMouseEvent e(QEvent::MouseButtonDblClick, QPointF(local), QPointF(t->mapToGlobal(local)),
+                                  Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+                    QApplication::sendEvent(t, &e);
+                }
+                QTimer::singleShot(2500, &manager, [&w, path] {
+                    PreviewDialog* dlg = w->findChild<PreviewDialog*>();
+                    const QByteArray line = dlg ? QStringLiteral("%1x%2\n").arg(dlg->width()).arg(dlg->height()).toUtf8()
+                                                : QByteArray("no dialog\n");
+                    fwrite(line.constData(), 1, size_t(line.size()), stdout);
+                    fflush(stdout);
+                    if (dlg) dlg->grab().save(path);
+                    if (dlg) dlg->close();
+                    QTimer::singleShot(1500, w.get(), [] { QApplication::quit(); });
+                });
+            });
         }
         const int dragAt = int(args.indexOf(QStringLiteral("--drag-test")));
         if (dragAt >= 0 && dragAt + 2 < args.size()) {
