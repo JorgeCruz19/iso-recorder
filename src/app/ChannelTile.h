@@ -10,6 +10,11 @@ class ChannelTile : public QWidget {
 public:
     ChannelTile(ChannelManager* mgr, Channel* ch, int number, QWidget* parent = nullptr);
 
+    static constexpr int Margin = 4;     // miejsce na ramke kanalu aktywnego
+    static constexpr int StripH = 26;
+    static int heightForTileWidth(int w);
+    static int tileWidthForHeight(int h);
+
 protected:
     void paintEvent(QPaintEvent*) override;
     void mousePressEvent(QMouseEvent*) override;

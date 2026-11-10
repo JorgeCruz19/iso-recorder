@@ -35,6 +35,7 @@ public:
 
 protected:
     void paintEvent(QPaintEvent*) override;
+    void resizeEvent(QResizeEvent*) override;
 
 private:
     QPointer<Channel> m_ch;

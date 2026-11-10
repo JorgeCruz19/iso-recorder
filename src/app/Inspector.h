@@ -33,5 +33,5 @@ private:
     QComboBox* m_type;
     QComboBox* m_pattern;
     QComboBox* m_wave;
-    QLabel* m_format;
+    QComboBox* m_format;
 };

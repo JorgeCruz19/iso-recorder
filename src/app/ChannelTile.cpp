@@ -10,7 +10,6 @@
 
 namespace {
 const char* const kBtn[4] = {"REC", "II", "STOP", "SPLIT"};
-const int kStripH = 26;
 }
 
 ChannelTile::ChannelTile(ChannelManager* mgr, Channel* ch, int number, QWidget* parent)
@@ -22,27 +21,38 @@ ChannelTile::ChannelTile(ChannelManager* mgr, Channel* ch, int number, QWidget* 
     connect(mgr, &ChannelManager::activeChanged, this, qOverload<>(&QWidget::update));
 }
 
+// Wysokosc kafla dla danej szerokosci: kadr wideo jest zawsze 16:9.
+int ChannelTile::heightForTileWidth(int w) {
+    return (w - 2 * Margin) * 9 / 16 + StripH + 2 * Margin;
+}
+
+int ChannelTile::tileWidthForHeight(int h) {
+    return (h - StripH - 2 * Margin) * 16 / 9 + 2 * Margin;
+}
+
 ChannelTile::Rects ChannelTile::rects() const {
     Rects r;
-    r.vid = QRect(0, 0, width(), height() - kStripH);
-    r.strip = QRect(0, height() - kStripH, width(), kStripH);
-    r.selBox = QRect(8, 7, 14, 14);
+    const QRect in = rect().adjusted(Margin, Margin, -Margin, -Margin);
+    r.vid = QRect(in.left(), in.top(), in.width(), in.height() - StripH);
+    r.strip = QRect(in.left(), r.vid.bottom() + 1, in.width(), StripH);
+    r.selBox = QRect(in.left() + 8, in.top() + 8, 18, 18);
     const QFontMetrics fm(Theme::font(10, QFont::Bold, 0.5));
-    int x = 4;
+    int x = in.left() + 4;
     for (int i = 0; i < 4; ++i) {
         const int w = qMax(30, fm.horizontalAdvance(QLatin1String(kBtn[i])) + 14);
         r.btn[i] = QRect(x, r.strip.top() + 4, w, 19);
         x += w + 3;
     }
     r.srcLeft = x + 3;
-    r.close = QRect(width() - 22, r.strip.top(), 20, kStripH);
-    r.grip = QRect(width() - 42, r.strip.top(), 18, kStripH);
+    r.close = QRect(in.right() - 21, r.strip.top(), 20, StripH);
+    r.grip = QRect(in.right() - 41, r.strip.top(), 18, StripH);
 
     const QString num = QStringLiteral("%1").arg(m_number, 2, 10, QLatin1Char('0'));
     const int wn = QFontMetrics(Theme::font(12, QFont::Bold)).horizontalAdvance(num);
-    const int wt = QFontMetrics(Theme::font(12, QFont::DemiBold)).horizontalAdvance(m_ch->config().name);
-    const int lw = qMin(width() - 16, wn + 7 + wt + 20);
-    r.label = QRect((width() - lw) / 2, r.vid.bottom() - 6 - 20, lw, 21);
+    // szerokosc liczona dla pogrubienia (etykieta kanalu aktywnego jest pogrubiona)
+    const int wt = QFontMetrics(Theme::font(12, QFont::Bold)).horizontalAdvance(m_ch->config().name);
+    const int lw = qMin(in.width() - 16, wn + 7 + wt + 22);
+    r.label = QRect(in.left() + (in.width() - lw) / 2, r.vid.bottom() - 6 - 20, lw, 21);
     return r;
 }
 
@@ -66,15 +76,22 @@ void ChannelTile::paintEvent(QPaintEvent*) {
     const Rects r = rects();
     const ChannelState st = m_ch->state();
     const bool active = m_mgr->active() == m_ch;
+    const bool selected = m_ch->isSelected();
 
-    // --- obraz (object-fit: cover) ---
+    // --- tlo i ramka kanalu aktywnego: gruba, pomaranczowa, wokol calego kafla ---
+    p.fillRect(rect(), QColor(0x0b, 0x0b, 0x0b));
+    if (active) {
+        p.setPen(QPen(Theme::orange, 3, Qt::SolidLine, Qt::SquareCap, Qt::MiterJoin));
+        p.setBrush(Qt::NoBrush);
+        p.drawRect(QRectF(rect()).adjusted(1.5, 1.5, -1.5, -1.5));
+    }
+
+    // --- obraz: klatka podgladu ma zawsze 16:9 (inne proporcje sa juz wpisane z czarnymi pasami) ---
     p.fillRect(r.vid, Qt::black);
     const QImage& img = m_ch->frame();
     if (!img.isNull()) {
-        const QSize crop = QSize(r.vid.size()).scaled(img.size(), Qt::KeepAspectRatio);
-        const QRect src((img.width() - crop.width()) / 2, (img.height() - crop.height()) / 2, crop.width(), crop.height());
-        p.setRenderHint(QPainter::SmoothPixmapTransform, r.vid.width() > img.width());
-        p.drawImage(r.vid, img, src);
+        p.setRenderHint(QPainter::SmoothPixmapTransform, r.vid.width() != img.width());
+        p.drawImage(r.vid, img);
     }
     if (st == ChannelState::Error || st == ChannelState::Idle || st == ChannelState::Reconnecting) {
         p.fillRect(r.vid, QColor(0, 0, 0, 158));
@@ -90,7 +107,7 @@ void ChannelTile::paintEvent(QPaintEvent*) {
         }
     }
 
-    // --- ramka stanu ---
+    // --- ramka stanu (wewnatrz kadru) ---
     QColor frame = Theme::idle;
     int fw = 2;
     if (st == ChannelState::Recording || st == ChannelState::Reconnecting || st == ChannelState::Error) { frame = Theme::red; fw = 3; }
@@ -100,50 +117,48 @@ void ChannelTile::paintEvent(QPaintEvent*) {
     p.setBrush(Qt::NoBrush);
     const double h = fw / 2.0;
     p.drawRect(QRectF(r.vid).adjusted(h, h, -h, -h));
-    if (active) {
-        p.setPen(QPen(Qt::white, 1));
-        p.drawRect(QRectF(r.vid).adjusted(3.5, 3.5, -3.5, -3.5));
-    }
 
     // --- nakladki ---
     const QColor chip(0, 0, 0, 178);
-    // pole zaznaczenia
-    p.setPen(QPen(m_ch->isSelected() ? QColor(0xe6, 0xe6, 0xe6) : QColor(0xcf, 0xcf, 0xcf), 1.5));
-    p.setBrush(m_ch->isSelected() ? QColor(0xe6, 0xe6, 0xe6) : QColor(0, 0, 0, 140));
-    p.drawRect(r.selBox);
-    if (m_ch->isSelected()) {
-        p.setPen(Qt::black);
-        p.setFont(Theme::font(10, QFont::Bold));
-        p.drawText(r.selBox, Qt::AlignCenter, QStringLiteral("✓"));
+    // pole zaznaczenia: zaznaczone = biale, pelne, z czarnym znakiem
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setPen(QPen(selected ? Qt::white : QColor(0xcf, 0xcf, 0xcf), 1.5));
+    p.setBrush(selected ? QColor(Qt::white) : QColor(0, 0, 0, 150));
+    p.drawRect(QRectF(r.selBox).adjusted(0.5, 0.5, -0.5, -0.5));
+    if (selected) {
+        p.setPen(QPen(Qt::black, 2.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+        const QPointF o = r.selBox.topLeft();
+        p.drawPolyline(QPolygonF() << o + QPointF(4, 9.5) << o + QPointF(7.5, 13) << o + QPointF(14, 5));
     }
+    p.setRenderHint(QPainter::Antialiasing, false);
     // format
     p.setFont(Theme::font(10, QFont::Bold, 0.3));
     const QString fmt = m_ch->formatText();
-    const QRect fr(30, 7, p.fontMetrics().horizontalAdvance(fmt) + 12, 15);
+    const QRect fr(r.selBox.right() + 7, r.vid.top() + 9, p.fontMetrics().horizontalAdvance(fmt) + 12, 15);
     p.fillRect(fr, chip);
     p.setPen(Qt::white);
     p.drawText(fr, Qt::AlignCenter, fmt);
     // miernik audio
-    const QRectF am(width() - 8 - 12, 30, 12, r.vid.height() - 30 - 8);
+    const QRectF am(r.vid.right() - 8 - 11, r.vid.top() + 30, 12, r.vid.height() - 30 - 8);
     if (am.height() > 10) {
         Theme::paintMeter(p, QRectF(am.left(), am.top(), 5, am.height()), m_ch->level(0), true, QColor(0, 0, 0, 166));
         Theme::paintMeter(p, QRectF(am.left() + 7, am.top(), 5, am.height()), m_ch->level(1), true, QColor(0, 0, 0, 166));
     }
-    // etykieta
+    // etykieta: na kanale aktywnym pomaranczowa z ciemnym tekstem
     const QString num = QStringLiteral("%1").arg(m_number, 2, 10, QLatin1Char('0'));
-    p.fillRect(r.label, QColor(0, 0, 0, 209));
+    p.fillRect(r.label, active ? Theme::orange : QColor(0, 0, 0, 209));
     p.setFont(Theme::font(12, QFont::Bold));
     const int wn = p.fontMetrics().horizontalAdvance(num);
-    p.setPen(QColor(0xbd, 0xbd, 0xbd));
+    p.setPen(active ? QColor(0x3a, 0x1c, 0x00) : QColor(0xbd, 0xbd, 0xbd));
     p.drawText(r.label.adjusted(10, 0, 0, 0), Qt::AlignVCenter | Qt::AlignLeft, num);
-    p.setFont(Theme::font(12, QFont::DemiBold));
-    p.setPen(Qt::white);
+    p.setFont(Theme::font(12, active ? QFont::Bold : QFont::DemiBold));
+    p.setPen(active ? QColor(0x14, 0x0a, 0x00) : QColor(Qt::white));
     const QRect nameRect = r.label.adjusted(10 + wn + 7, 0, -10, 0);
     p.drawText(nameRect, Qt::AlignVCenter | Qt::AlignLeft,
                p.fontMetrics().elidedText(m_ch->config().name, Qt::ElideRight, nameRect.width()));
 
-    // --- pasek ---
-    p.fillRect(r.strip, m_ch->isSelected() ? QColor(0x3d, 0x3d, 0x3d) : QColor(0x2b, 0x2b, 0x2b));
+    // --- pasek: jasniejszy na kanalach zaznaczonych ---
+    p.fillRect(r.strip, selected ? QColor(0x4e, 0x4e, 0x4e) : QColor(0x2b, 0x2b, 0x2b));
     p.setPen(Qt::black);
     p.drawLine(r.strip.topLeft(), r.strip.topRight());
     p.setRenderHint(QPainter::Antialiasing);
@@ -164,14 +179,14 @@ void ChannelTile::paintEvent(QPaintEvent*) {
     p.setOpacity(1.0);
     p.setRenderHint(QPainter::Antialiasing, false);
     p.setFont(Theme::font(12));
-    p.setPen(Theme::t2);
+    p.setPen(selected ? Theme::t1 : Theme::t2);
     p.drawText(r.close, Qt::AlignCenter, QStringLiteral("✕"));
-    p.setPen(Theme::t3);
+    p.setPen(selected ? Theme::t2 : Theme::t3);
     p.drawText(r.grip, Qt::AlignCenter, QStringLiteral("⋮⋮"));
-    const QRect sr(r.srcLeft, r.strip.top(), r.grip.left() - r.srcLeft - 4, kStripH);
+    const QRect sr(r.srcLeft, r.strip.top(), r.grip.left() - r.srcLeft - 4, StripH);
     if (sr.width() > 20) {
         p.setFont(Theme::font(10));
-        p.setPen(Theme::t2);
+        p.setPen(selected ? Theme::t1 : Theme::t2);
         p.drawText(sr, Qt::AlignVCenter | Qt::AlignLeft,
                    p.fontMetrics().elidedText(m_ch->sourceText(), Qt::ElideRight, sr.width()));
     }
@@ -188,7 +203,7 @@ void ChannelTile::mousePressEvent(QMouseEvent* e) {
             return;
         }
     }
-    if (r.selBox.adjusted(-4, -4, 4, 4).contains(pt) || (e->modifiers() & Qt::ControlModifier)) {
+    if (r.selBox.adjusted(-5, -5, 5, 5).contains(pt) || (e->modifiers() & Qt::ControlModifier)) {
         m_ch->setSelected(!m_ch->isSelected());
         return;
     }

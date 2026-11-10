@@ -127,7 +127,11 @@ QWidget* Inspector::buildInputPage() {
         {"Spokes", 22}, {"Circles", 11}, {"Gradient", 23}, {"Snow", 1}, {"Black", 2}};
     for (const auto& pt : patterns) m_pattern->addItem(T(pt.name), pt.id);
     row(g, T("Pattern"), m_pattern);
-    m_format = new QLabel;
+    m_format = new QComboBox;
+    const struct { int w, h; const char* ratio; } formats[] = {
+        {1280, 720, "16:9"}, {1920, 1080, "16:9"}, {1024, 768, "4:3"}, {720, 1280, "9:16"}, {1920, 800, "2.40:1"}, {1080, 1080, "1:1"}};
+    for (const auto& f : formats)
+        m_format->addItem(QStringLiteral("%1 × %2  ·  %3").arg(f.w).arg(f.h).arg(QLatin1String(f.ratio)), QSize(f.w, f.h));
     row(g, T("Video format"), m_format);
 
     v->addWidget(section(QStringLiteral("Audio")));
@@ -147,6 +151,10 @@ QWidget* Inspector::buildInputPage() {
     });
     connect(m_pattern, &QComboBox::activated, this, [this](int i) {
         if (Channel* ch = m_mgr->active()) ch->setPattern(m_pattern->itemData(i).toInt());
+    });
+    connect(m_format, &QComboBox::activated, this, [this](int i) {
+        const QSize s = m_format->itemData(i).toSize();
+        if (Channel* ch = m_mgr->active()) ch->setFormat(s.width(), s.height());
     });
     connect(m_wave, &QComboBox::activated, this, [this](int i) {
         if (Channel* ch = m_mgr->active()) ch->setAudioWave(m_wave->itemData(i).toInt());
@@ -170,7 +178,6 @@ void Inspector::refresh() {
     if (!ch) {
         m_title->setText(T("Inspector"));
         m_name->clear();
-        m_format->clear();
         return;
     }
     m_title->setText(QStringLiteral("%1&nbsp;&nbsp;<span style='color:#6e6e6e;font-weight:400'>%2</span>")
@@ -180,5 +187,5 @@ void Inspector::refresh() {
     if (!m_name->hasFocus()) m_name->setText(ch->config().name);
     m_pattern->setCurrentIndex(qMax(0, m_pattern->findData(ch->config().pattern)));
     m_wave->setCurrentIndex(qMax(0, m_wave->findData(ch->config().audioWave)));
-    m_format->setText(T("%1 × %2, %3 fps").arg(ch->config().width).arg(ch->config().height).arg(ch->config().fps));
+    m_format->setCurrentIndex(qMax(0, m_format->findData(QSize(ch->config().width, ch->config().height))));
 }

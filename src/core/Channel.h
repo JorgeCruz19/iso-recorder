@@ -31,6 +31,7 @@ public:
     void setName(const QString& name);
     void setPattern(int pattern);
     void setAudioWave(int wave);
+    void setFormat(int width, int height);
 
     ChannelState state() const { return m_state; }
     QString errorText() const { return m_error; }

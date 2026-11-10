@@ -104,6 +104,10 @@ int main(int argc, char* argv[]) {
             if (n > 0) {
                 manager.setActive(manager.channels().first());
                 for (int i = 0; i < qMin(n, 4); ++i) manager.channels().at(i)->setSelected(true);
+                // kilka kanalow o innych proporcjach - widac wpisanie w kadr 16:9
+                const struct { int index, w, h; } odd[] = {{2, 1024, 768}, {3, 720, 1280}, {6, 1920, 800}};
+                for (const auto& o : odd)
+                    if (o.index < n) manager.channels().at(o.index)->setFormat(o.w, o.h);
             }
         }
         // --switch-lang xx: po 2 s przelacza jezyk ta sama droga co menu (test przebudowy okna)

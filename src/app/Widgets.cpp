@@ -85,7 +85,13 @@ void KeyButton::paintEvent(QPaintEvent*) {
 
 // ---------- PreviewPane ----------
 
-PreviewPane::PreviewPane(QWidget* parent) : QWidget(parent) { setFixedHeight(236); }
+PreviewPane::PreviewPane(QWidget* parent) : QWidget(parent) { setFixedHeight(225); }
+
+// Kadr podgladu jest zawsze 16:9 - wysokosc wynika z szerokosci inspektora.
+void PreviewPane::resizeEvent(QResizeEvent*) {
+    const int h = width() * 9 / 16;
+    if (h > 0 && h != height()) setFixedHeight(h);
+}
 
 void PreviewPane::setChannel(Channel* ch, int number) {
     if (m_ch) m_ch->disconnect(this);
@@ -110,8 +116,7 @@ void PreviewPane::paintEvent(QPaintEvent*) {
     const QImage& img = m_ch->frame();
     if (!img.isNull()) {
         p.setRenderHint(QPainter::SmoothPixmapTransform);
-        const QSize s = img.size().scaled(size(), Qt::KeepAspectRatio);
-        p.drawImage(QRect((width() - s.width()) / 2, (height() - s.height()) / 2, s.width(), s.height()), img);
+        p.drawImage(rect(), img);   // klatka ma juz 16:9, tak jak ten widget
     }
     // etykieta jak na kaflu
     const QString num = QStringLiteral("%1").arg(m_number, 2, 10, QLatin1Char('0'));

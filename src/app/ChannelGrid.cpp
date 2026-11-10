@@ -47,14 +47,18 @@ void ChannelGrid::rebuild() {
 }
 
 void ChannelGrid::relayout() {
-    const int pad = 6, gap = 6;
+    // Kadr kafla ma zawsze 16:9, wiec rozmiar kafla wynika z ciasniejszego z dwoch wymiarow;
+    // siatka jest wysrodkowana w poziomie, a wolne miejsce zostaje tlem.
+    const int pad = 2;   // kafle maja wlasny margines na ramke kanalu aktywnego
     const QSize vp = viewport()->size();
-    const int cw = (vp.width() - 2 * pad - gap * (m_cols - 1)) / m_cols;
-    const int chh = (vp.height() - 2 * pad - gap * (m_cols - 1)) / m_cols;
+    const int availW = (vp.width() - 2 * pad) / m_cols;
+    const int availH = (vp.height() - 2 * pad) / m_cols;
+    const int tw = qMax(120, qMin(availW, ChannelTile::tileWidthForHeight(availH)));
+    const int th = ChannelTile::heightForTileWidth(tw);
     const int rows = (int(m_tiles.size()) + m_cols - 1) / m_cols;
-    const int needed = 2 * pad + rows * chh + qMax(0, rows - 1) * gap;
-    m_inner->resize(vp.width(), qMax(vp.height(), needed));
+    m_inner->resize(vp.width(), qMax(vp.height(), 2 * pad + rows * th));
     m_hint->setGeometry(m_inner->rect());
+    const int x0 = (vp.width() - m_cols * tw) / 2;
     for (int i = 0; i < m_tiles.size(); ++i)
-        m_tiles[i]->setGeometry(pad + (i % m_cols) * (cw + gap), pad + (i / m_cols) * (chh + gap), cw, chh);
+        m_tiles[i]->setGeometry(x0 + (i % m_cols) * tw, pad + (i / m_cols) * th, tw, th);
 }

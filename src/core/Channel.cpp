@@ -28,6 +28,13 @@ void Channel::setAudioWave(int wave) {
     restart();
 }
 
+void Channel::setFormat(int width, int height) {
+    if (width == m_cfg.width && height == m_cfg.height) return;
+    m_cfg.width = width;
+    m_cfg.height = height;
+    restart();
+}
+
 void Channel::setSelected(bool on) {
     if (on == m_selected) return;
     m_selected = on;
@@ -35,7 +42,8 @@ void Channel::setSelected(bool on) {
 }
 
 QString Channel::formatText() const {
-    return QStringLiteral("%1p%2").arg(m_cfg.height).arg(m_cfg.fps);
+    if (m_cfg.width * 9 == m_cfg.height * 16) return QStringLiteral("%1p%2").arg(m_cfg.height).arg(m_cfg.fps);
+    return QStringLiteral("%1×%2p%3").arg(m_cfg.width).arg(m_cfg.height).arg(m_cfg.fps);
 }
 
 QString Channel::sourceText() const {
@@ -59,9 +67,10 @@ void Channel::startPreview() {
     if (m_pipeline) return;
     // tee "tv"/"ta" sa punktami zaczepienia galezi nagrywania (od wersji 0.2).
     const QString desc = QStringLiteral(
-        "videotestsrc is-live=true pattern=%1 ! video/x-raw,width=%2,height=%3,framerate=%4/1 ! tee name=tv "
+        "videotestsrc is-live=true pattern=%1 ! video/x-raw,width=%2,height=%3,framerate=%4/1,pixel-aspect-ratio=1/1 ! tee name=tv "
         "tv. ! queue leaky=downstream max-size-buffers=2 ! videorate drop-only=true max-rate=15 "
-        "! videoconvertscale ! video/x-raw,format=BGRx,width=480,height=270 "
+        // staly kadr 16:9 i kwadratowy piksel: videoconvertscale sam dopisuje czarne pasy dla innych proporcji
+        "! videoconvertscale add-borders=true ! video/x-raw,format=BGRx,width=480,height=270,pixel-aspect-ratio=1/1 "
         "! appsink name=preview sync=false max-buffers=1 drop=true "
         "audiotestsrc is-live=true wave=%5 volume=%6 ! audio/x-raw,rate=48000,channels=2 "
         "! level name=level interval=100000000 post-messages=true ! tee name=ta "

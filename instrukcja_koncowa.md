@@ -14,11 +14,11 @@
 | D2 | **Mockup jest specyfikacją interfejsu.** Rozdz. 6.1–6.2 `instrukcja.md` (szkic ASCII, zakładki w karcie kanału, pasek menu) przestają obowiązywać — patrz rozdz. 5 niżej. |
 | D3 | Limit **16 kanałów od pierwszej wersji** (nie 4, jak proponuje rozmowa). Jeden pipeline na kanał sprawia, że limit jest stałą, nie kosztem. Ogranicza się liczbę *typów wejść* w kolejnych wersjach, nie liczbę kanałów. |
 | D4 | **Pauza**: w trybie z enkoderem — prawdziwa pauza przez przepisywanie PTS przed enkoderem (rozdz. 3.1). W trybie passthrough — pauza = zamknięcie części, wznowienie = nowa część. |
-| D5 | **WHIP/WHEP zostają w zakresie**, ale jako ostatni typ wejścia (wersja 1.1) i tylko gdy wtyczka się ładuje. MediaMTX jako brama jest udokumentowaną alternatywą, nie zamiennikiem. |
+| D5 | **WHIP/WHEP zostają w zakresie**, ale jako ostatni typ wejścia (ostatnia wersja planu) i tylko gdy wtyczka się ładuje. MediaMTX jako brama jest udokumentowaną alternatywą, nie zamiennikiem. |
 | D6 | **Typy wejść i kodeki są bramkowane dostępnością**: przy starcie aplikacja sprawdza, które elementy GStreamera faktycznie działają; niedostępne pozycje są w UI wyszarzone z powodem („brak wtyczki ndi”, „brak enkodera HW”). |
 | D7 | Wersjonowanie: **0.1, 0.2, … co 0.1** — każda wersja to commit + tag `v0.N` + push do prywatnego repo `studiokrause/iso-recorder`. |
-| D8 | Testy plików (`ffprobe`) od wersji 0.3 (pierwszej z nagrywaniem), nie na końcu. |
-| D9 | Interfejs w jednym języku naraz: domyślnie angielski, do wyboru PL, DE, ES, IT, FR (5.5). |
+| D8 | Testy plików (`ffprobe`) od pierwszej wersji z nagrywaniem, nie na końcu. |
+| D9 | Interfejs w jednym języku naraz: domyślnie angielski, do wyboru PL, DE, ES, IT, FR (5.8). |
 
 ---
 
@@ -60,7 +60,7 @@ Rozwiązanie obowiązujące (tryb z enkoderem):
 
 Tryb passthrough: Pause = `split` + wstrzymanie zapisu do następnej klatki kluczowej po Resume; plik po wznowieniu to nowa część (`{part}` rośnie). UI pokazuje to wprost w podpowiedzi przycisku.
 
-Test akceptacyjny (od wersji 0.5): Rec 10 s → Pause 5 s → Resume → 10 s → Stop; `ffprobe`: czas ≈ 20 s (±2 klatki), PTS wideo ściśle rosnące bez luki > 1,5 klatki, różnica początku/końca A i V < 40 ms.
+Test akceptacyjny (od wersji z pauzą): Rec 10 s → Pause 5 s → Resume → 10 s → Stop; `ffprobe`: czas ≈ 20 s (±2 klatki), PTS wideo ściśle rosnące bez luki > 1,5 klatki, różnica początku/końca A i V < 40 ms.
 
 ### 3.2 Stop, split i `splitmuxsink`
 
@@ -162,7 +162,7 @@ Odstępstwa od mockupu (świadome):
 | „NVENC 12/∞” | „ENK. HW n” | Patrz 3.3 |
 | Czcionka Open Sans z Google Fonts | Open Sans dołączona do zasobów (licencja OFL), zapas: Segoe UI | Program nie może zależeć od sieci |
 | Grupa „Wybór”: SELECT ALL + ADD SOURCE; grupa „Lista kanałów”: W GÓRĘ, W DÓŁ, WCZYTAJ, ZAPISZ | Cztery grupy: **Selected channels** (transport), **Selection** (SELECT ALL / SELECT NONE / INVERT), **Active channel** (MOVE UP / MOVE DOWN), **Channel list** (ADD SOURCE / LOAD / SAVE) | Decyzja właściciela: dodawanie źródła nie jest wyborem, a przesuwanie dotyczy jednego kanału, nie listy |
-| Etykiety mieszane PL/EN | Jeden język naraz: domyślnie **angielski**, do wyboru PL, DE, ES, IT, FR (☰ → Language) | Decyzja właściciela; patrz 5.5 |
+| Etykiety mieszane PL/EN | Jeden język naraz: domyślnie **angielski**, do wyboru PL, DE, ES, IT, FR (☰ → Language) | Decyzja właściciela; patrz 5.8 |
 | Widok „Lista” niezaprojektowany | Tabela: nr, nazwa, stan, źródło, format, czas, rozmiar, VU poziomy, przyciski | — |
 
 Kolory, wymiary i typografia — dokładnie z bloku `:root` i reguł CSS mockupu (jedno źródło prawdy: `src/app/Theme.h`).
@@ -171,8 +171,11 @@ Kolory, wymiary i typografia — dokładnie z bloku `:root` i reguł CSS mockupu
 
 Jeden widget, całość malowana w `paintEvent` (`QPainter`), bez widgetów potomnych — 16 kafli × kilkanaście kontrolek byłoby zbyt kosztowne w odświeżaniu 15 Hz.
 
-- **Obraz** 16:9, `object-fit: cover`; ramka: 3 px czerwona (REC), bursztynowa (PAUZA), zielona (PREVIEW), 2 px szara #3c3c3c (bezczynny/czeka). Kanał aktywny: dodatkowa biała linia 1 px wewnątrz.
-- **Nakładki**: pole zaznaczenia (lewy górny), format `1080p50`, czas nagrania z kropką stanu (prawy górny; przy zaplanowanym starcie „START 11:00”), miernik audio pionowy 2 słupki (prawa krawędź), etykieta `NN NAZWA` (dół, środek), komunikat pełnoekranowy (`RECONNECTING`, `NO SIGNAL`, `BŁĄD`) z przyciemnieniem i odbarwieniem obrazu.
+- **Kadr zawsze 16:9** — w kaflu i w inspektorze; rozmiar kafla wynika z ciaśniejszego wymiaru siatki, wolne miejsce zostaje tłem. Źródło o innych proporcjach (4:3, 9:16, 2.40:1, 1:1…) jest **wpisane w kadr w całości**, z czarnymi pasami; nic nie jest obcinane (mockup używał `object-fit: cover` — odrzucone). Pasy dopisuje `videoconvertscale add-borders=true` przy stałych `caps` podglądu 16:9 z kwadratowym pikselem, więc działa to dla każdego wejścia, także anamorficznego.
+- **Ramka stanu** (wewnątrz kadru): 3 px czerwona (REC), bursztynowa (PAUZA), zielona (PREVIEW), 2 px szara #3c3c3c (bezczynny/czeka).
+- **Kanał aktywny** (jeden; pokazany w inspektorze, przesuwany przez MOVE UP/DOWN): pomarańczowa ramka 3 px **wokół całego kafla** i pomarańczowa etykieta z ciemnym tekstem. Biała linia 1 px z mockupu była nieczytelna na tle ramki stanu — odrzucona. Pomarańcz to ten sam akcent co aktywna zakładka inspektora.
+- **Kanały zaznaczone** (dowolnie wiele; cel przycisków Selected channels): białe, pełne pole wyboru 18 px z czarnym znakiem i jaśniejszy pasek pod kadrem.
+- **Nakładki**: pole zaznaczenia (lewy górny), format `1080p50` (dla proporcji innych niż 16:9: `1024×768p25`), czas nagrania z kropką stanu (prawy górny; przy zaplanowanym starcie „START 11:00”), miernik audio pionowy 2 słupki (prawa krawędź), etykieta `NN NAZWA` (dół, środek), komunikat pełnoekranowy (`RECONNECTING`, `NO SIGNAL`, `BŁĄD`) z przyciemnieniem i odbarwieniem obrazu.
 - **Pasek** 26 px: `REC` `II` `STOP` `SPLIT` (podświetlenie i wyszarzenie wg stanu), opis źródła, uchwyt `⋮⋮`, `✕`.
 - **Mysz**: klik w obraz = kanał aktywny (inspektor); klik w pole zaznaczenia = zaznaczenie; Ctrl+klik = przełącz zaznaczenie; Shift+klik = zakres; dwuklik w etykietę = zmiana nazwy; przeciąganie za `⋮⋮` = zmiana kolejności; dwuklik w obraz = powiększenie kanału na całą siatkę.
 - **Klawiatura** (kanał aktywny): `R` Rec, `P` Pause/Resume, `S` Stop, `X` Split, `Del` usuń, `Ctrl+↑/↓` przesuń, strzałki = zmiana aktywnego; `Ctrl+A` zaznacz wszystkie; z `Shift` — to samo dla zaznaczonych (`Shift+R` itd.).
@@ -189,7 +192,38 @@ Zakładki Input / Output / Scheduler dotyczą **kanału aktywnego** (nie zaznacz
 - Licznik `n / 16` i legenda: REC, PAUZA, PREVIEW, CZEKA (zaplanowany start), BŁĄD (tylko gdy > 0).
 - Pasek stanu: czas ostatniego autozapisu, dwa ostatnie zdarzenia z dziennika, komunikat kontekstowy po prawej.
 
-### 5.5 Języki
+### 5.5 Sesja i listy kanałów
+
+- **Sesja** = nazwa bieżącego zestawu nagrań. Trafia do nazw plików i folderów przez token `{session}` oraz jest nazwą pliku listy. „New session” oznacza listę jeszcze niezapisaną.
+- **Lista kanałów** = plik `<sesja>.isorec.json` (rozdz. 8 `instrukcja.md`): wszystkie kanały z ustawieniami Input, Output i Scheduler, kolejność, nazwa sesji, foldery docelowe. Nie zawiera haseł.
+- **Interfejs** (wersja z listami — patrz rozdz. 6):
+  - nazwa sesji w nagłówku jest edytowalna (klik → pole tekstowe); gwiazdka przy nazwie = niezapisane zmiany;
+  - grupa **Channel list**: `LOAD` (okno wyboru pliku), `SAVE` (zapis do bieżącego pliku; przy nowej sesji pyta o miejsce);
+  - menu ☰: New list, Load list…, Save list, Save as…, Recent (ostatnie 8 plików);
+  - autozapis do `%LOCALAPPDATA%\IsoRecorder\autosave.json` i propozycja przywrócenia po awarii;
+  - przy starcie program otwiera ostatnio używaną listę (opcja w ustawieniach).
+- Wczytanie listy przy trwających nagraniach wymaga potwierdzenia i najpierw je finalizuje.
+
+### 5.6 Zapis na kilku dyskach
+
+- **Folder docelowy jest ustawieniem kanału** (zakładka Output), z jednym folderem domyślnym sesji. Kanały można więc rozłożyć na dowolną liczbę dysków — przy 16 kanałach to zwykle konieczność.
+- Program grupuje kanały według wolumenu i liczy dla każdego osobno: wolne miejsce, sumę bitrate'ów kanałów, czas do zapełnienia.
+- **Nagłówek**: komórka „Disk” pokazuje wolumen z **najkrótszym** czasem do zapełnienia i liczbę używanych wolumenów („D: · 1 of 3”); klik rozwija listę wszystkich wolumenów z paskami. Mockup zakładał jeden dysk.
+- Ostrzeżenia i kontrolowany Stop przy braku miejsca działają **per wolumen** — zatrzymywane są tylko kanały z dysku, który się kończy.
+- Folder zapasowy (opcja kanału): gdy wolumen podstawowy osiągnie próg krytyczny albo zniknie, następna część (split) trafia do folderu zapasowego zamiast kończyć nagranie.
+- Ostrzeżenie przy wyborze folderu: FAT32 (limit 4 GB), dysk sieciowy lub USB, ten sam dysk co system.
+
+### 5.7 Test prędkości zapisu
+
+Potrzebny — przy wielu kanałach to dysk, nie procesor, najczęściej gubi klatki, a widać to dopiero po kilkunastu minutach.
+
+- **Gdzie**: zakładka Output (przycisk „Test disk” obok folderu) oraz ☰ → Diagnostics dla wszystkich używanych wolumenów naraz.
+- **Jak**: zapis pliku tymczasowego w folderze docelowym przez 10 s (tryb szybki) lub 60 s (tryb pełny), bez bufora systemowego (`FILE_FLAG_NO_BUFFERING | FILE_FLAG_WRITE_THROUGH`), blokami 1 MB, z tyloma równoległymi strumieniami, ile kanałów jest przypisanych do wolumenu. Plik jest usuwany po teście. Test wymaga wolnego miejsca (maks. 8 GB) i nie startuje podczas nagrywania na tym wolumenie.
+- **Wynik**: średnia MB/s, **najgorsza sekunda** (ważniejsza niż średnia — dyski SSD z pamięcią podręczną zwalniają po jej zapełnieniu, co wykrywa dopiero tryb pełny), najdłuższy pojedynczy zapis w ms.
+- **Werdykt**: porównanie najgorszej sekundy z sumą bitrate'ów kanałów na wolumenie: zielony ≥ 3×, żółty 1,5–3×, czerwony < 1,5×. Wynik zapisany przy wolumenie z datą i pokazywany na liście dysków.
+- **W trakcie nagrywania** miarą jest zapełnienie kolejek przed muxerem (rozdz. 12.30 `instrukcja.md`): > 50% przez 5 s = ostrzeżenie „disk too slow” na kaflu i w nagłówku.
+
+### 5.8 Języki
 
 - Interfejs występuje zawsze w jednym języku. Domyślny jest angielski; dodatkowe: polski, niemiecki, hiszpański, włoski, francuski.
 - Wybór: ☰ → Language; zapamiętywany w ustawieniach użytkownika; zmiana działa od razu, bez restartu i bez przerywania kanałów (okno jest budowane od nowa, pipeline'y zostają).
@@ -208,17 +242,18 @@ Każda wersja: działający program, commit, tag, push. Kryterium = to, co da si
 |---|---|---|
 | **0.1** | Repo, CMake, `--check-env`, okno wg mockupu (nagłówek, siatka, inspektor, panel, pasek stanu), kafel malowany, kanały `testsrc` z podglądem i VU, dodawanie/usuwanie/zaznaczanie/kanał aktywny, widoki 2×2/3×3/4×4 | **wydana** |
 | **0.2** | Języki (EN domyślnie + PL, DE, ES, IT, FR), nowy podział panelu sterowania, SELECT NONE i INVERT, paczka samodzielna `dist\` | **wydana** |
-| **0.3** | `RecordBin`: Rec/Stop → MKV, enkoder z próbą mini‑pipeline'u, AAC, szablon nazw, finalizacja z timeoutem, zamknięcie aplikacji czeka na finalizację | `ffprobe`: plik poprawny, pierwsza klatka kluczowa; 50 × Rec/Stop bez wzrostu uchwytów |
-| **0.4** | Split ręczny i automatyczny (czas/rozmiar), numeracja części, sidecar JSON, MPEG‑TS | suma długości części = czas nagrania ±1 klatka, brak luk PTS |
-| **0.5** | Pauza wg 3.1 | test z 3.1 |
-| **0.6** | Operacje grupowe ze wspólnym `T`, przenoszenie przeciąganiem, zapis/wczytanie listy, autosave, ostatnie pliki | 16 × testsrc startuje w ±1 klatce; lista wraca identyczna po wczytaniu |
-| **0.7** | Inspektor Input/Output w pełni edytowalny; wejścia lokalne: Screen grab (DXGI/WGC), UVC/MF, WASAPI (urządzenie, loopback) | nagranie ekranu z dźwiękiem systemowym |
-| **0.8** | SRT, RTSP, passthrough, `fallbacksrc` + polityka zaniku sygnału, stan RECONNECTING | SRT/RTSP z lokalnego `ffmpeg`/MediaMTX; zerwanie i powrót strumienia bez utraty pliku |
-| **0.9** | NDI (discovery), DeckLink; kodeki H.265/AV1/ProRes/DNxHR wg dostępności; MOV/MP4 robust | NDI z NDI Tools; DeckLink — niesprawdzone na sprzęcie |
-| **1.0** | Scheduler (reguły, catch‑up, DST), monitor dysku i prognoza, blokada uśpienia, logi rotowane, widok Lista | testy jednostkowe schedulera; kontrolowany Stop przy braku miejsca |
-| **1.1** | WHEP, WHIP, magazyn poświadczeń, odzyskiwanie po awarii, instalator Inno Setup | instalacja na czystym Windows; test 24 h |
+| **0.3** | Kadr zawsze 16:9 (inne proporcje wpisane z pasami), wyraźne oznaczenie kanału aktywnego i zaznaczonych, wybór formatu generatora testowego | **wydana** |
+| **0.4** | `RecordBin`: Rec/Stop → MKV, enkoder z próbą mini‑pipeline'u, AAC, szablon nazw, folder docelowy per kanał, finalizacja z timeoutem, zamknięcie aplikacji czeka na finalizację | `ffprobe`: plik poprawny, pierwsza klatka kluczowa; 50 × Rec/Stop bez wzrostu uchwytów |
+| **0.5** | Split ręczny i automatyczny (czas/rozmiar), numeracja części, sidecar JSON, MPEG‑TS; monitor wolumenów i test prędkości zapisu (5.6, 5.7) | suma długości części = czas nagrania ±1 klatka, brak luk PTS; test dysku daje powtarzalny wynik |
+| **0.6** | Pauza wg 3.1 | test z 3.1 |
+| **0.7** | Sesja i listy (5.5): zapis/wczytanie, autosave, ostatnie pliki; operacje grupowe ze wspólnym `T`; przenoszenie przeciąganiem | 16 × testsrc startuje w ±1 klatce; lista wraca identyczna po wczytaniu |
+| **0.8** | Inspektor Input/Output w pełni edytowalny; wejścia lokalne: Screen grab (DXGI/WGC), UVC/MF, WASAPI (urządzenie, loopback) | nagranie ekranu z dźwiękiem systemowym |
+| **0.9** | SRT, RTSP, passthrough, `fallbacksrc` + polityka zaniku sygnału, stan RECONNECTING | SRT/RTSP z lokalnego `ffmpeg`/MediaMTX; zerwanie i powrót strumienia bez utraty pliku |
+| **1.0** | NDI (discovery), DeckLink; kodeki H.265/AV1/ProRes/DNxHR wg dostępności; MOV/MP4 robust | NDI z NDI Tools; DeckLink — niesprawdzone na sprzęcie |
+| **1.1** | Scheduler (reguły, catch‑up, DST), blokada uśpienia, logi rotowane, widok Lista, folder zapasowy | testy jednostkowe schedulera; kontrolowany Stop przy braku miejsca |
+| **1.2** | WHEP, WHIP, magazyn poświadczeń, odzyskiwanie po awarii, instalator Inno Setup | instalacja na czystym Windows; test 24 h |
 
-Numery wersji, od których zapowiadane funkcje będą dostępne, są w kodzie w jednym miejscu: `Roadmap` w `src/core/Lang.h`.
+Każda runda poprawek po uwagach właściciela dostaje własny numer, więc pozycje poniżej bieżącej wersji przesuwają się o jedną. Numery wersji, od których zapowiadane funkcje będą dostępne, są w kodzie w jednym miejscu: `Roadmap` w `src/core/Lang.h`.
 
 ---
 
@@ -232,13 +267,13 @@ iso-recorder/
 ├─ src/
 │  ├─ main.cpp
 │  ├─ app/      Theme.h, MainWindow, HeaderBar, ChannelGrid, ChannelTile, Inspector, ControlPanel
-│  ├─ core/     Channel, ChannelManager, EnvCheck, Lang   (+ Scheduler, SystemHealth od 1.0)
-│  ├─ media/    PipelineBuilder, InputFactory, PreviewSink, GstBusBridge   (+ RecordBin, EncoderFactory od 0.3)
+│  ├─ core/     Channel, ChannelManager, EnvCheck, Lang   (+ Scheduler, SystemHealth później)
+│  ├─ media/    PipelineBuilder, InputFactory, PreviewSink, GstBusBridge   (+ RecordBin, EncoderFactory z nagrywaniem)
 │  └─ util/     GstPtr.h, FileNameTemplate
 ├─ resources/   czcionki, ikony, app.manifest, app.rc
-├─ tests/       (od 0.3: testy z ffprobe)
+├─ tests/       (z nagrywaniem: testy z ffprobe)
 ├─ scripts/     build.ps1, run.ps1
-└─ installer/   (1.1)
+└─ installer/   (ostatnia wersja planu)
 ```
 
 ---

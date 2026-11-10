@@ -2,6 +2,16 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 0.3
+
+- Kadr wideo zawsze 16:9 — na kaflach i w inspektorze. Źródła o innych proporcjach są wpisane w kadr w całości,
+  z czarnymi pasami; nic nie jest obcinane.
+- Kanał aktywny: pomarańczowa ramka wokół całego kafla i pomarańczowa etykieta (zamiast cienkiej białej linii).
+- Kanały zaznaczone: większe, białe pole wyboru i jaśniejszy pasek pod kadrem.
+- Inspektor: wybór formatu generatora testowego (16:9, 4:3, 9:16, 2.40:1, 1:1) do sprawdzania proporcji.
+- Instrukcja końcowa: opis sesji i list kanałów (5.5), zapisu na kilku dyskach (5.6) i testu prędkości zapisu (5.7).
+- Plan wersji przesunięty o jedną: nagrywanie od 0.4.
+
 ## 0.2
 
 - Interfejs w jednym języku: domyślnie angielski, do wyboru polski, niemiecki, hiszpański, włoski, francuski
@@ -25,6 +35,5 @@ Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 - Paczka samodzielna: `scripts/package.ps1` składa `dist\IsoRecorder\` (EXE + Qt + GStreamer, uruchamiana dwuklikiem);
   składana przy każdej wersji, zastępuje poprzednią, nie trafia do repo.
 
-Jeszcze nie działa (przyciski widoczne, ale nieaktywne lub z komunikatem) — numery po przesunięciu planu w 0.2:
-nagrywanie (0.3), split (0.4), pauza (0.5), zapis/wczytanie listy (0.6), prawdziwe wejścia (0.7–0.9, 1.1),
-scheduler i widok Lista (1.0).
+Jeszcze nie działa (przyciski widoczne, ale nieaktywne lub z komunikatem): nagrywanie, split, pauza, zapis/wczytanie
+listy, prawdziwe wejścia, scheduler i widok Lista. Aktualne numery wersji: `instrukcja_koncowa.md`, rozdz. 6.
