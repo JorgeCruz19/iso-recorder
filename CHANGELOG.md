@@ -2,6 +2,30 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 1.5
+
+Wejścia lokalne (zakładka Input):
+- Input type: Test generator, Screen grab (przechwytywanie ekranu) albo Camera (kamera UVC / karta przechwytująca
+  widoczna w systemie jako kamera). Pole Device wybiera monitor albo kamerę.
+- Audio source: sygnały testowe, cisza, dźwięk systemowy (to, co gra na wybranym wyjściu) albo wejście dźwięku
+  (mikrofon, wejście liniowe) — urządzenie domyślne lub wskazane z listy.
+- Obraz z każdego źródła jest wpisywany w wybrany format kanału (Video format) z czarnymi pasami przy innych
+  proporcjach; kursor myszy jest nagrywany.
+- Pasek kafla pokazuje źródło (Screen 1, nazwa kamery). Ustawienia wejścia zapisują się w liście kanałów.
+- Nagrywanie, pauza, split, wspólny start grupy i wyjście na żywo działają z nowymi źródłami tak samo.
+
+Stop:
+- Zamknięcie pliku czeka, aż obraz i dźwięk dojdą do wspólnej chwili Stop (najdłużej 600 ms). Urządzenia dźwiękowe
+  oddają dane z opóźnieniem i bez tego końcówka dźwięku mogła być krótsza od obrazu nawet o 0,17 s.
+
+Test: `tests\rec_test.ps1 -Source screen -Audio loopback|device|none`.
+
+Nie sprawdzone na sprzęcie: wejście Camera — na maszynie deweloperskiej są tylko wirtualne kamery (NDI Webcam,
+OBS), które bez działającego programu-źródła nie podają obrazu.
+
+Jeszcze nie ma: wyboru okna zamiast całego ekranu, wyboru rozdzielczości i klatkażu kamery, regulacji głośności
+i opóźnienia dźwięku, więcej niż dwóch kanałów dźwięku.
+
 ## 1.4
 
 Wspólny moment dla grupy kanałów:

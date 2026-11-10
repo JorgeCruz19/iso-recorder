@@ -21,6 +21,10 @@ Channel::Channel(const ChannelConfig& cfg, QObject* parent) : QObject(parent), m
     m_finalizeTimeout.setSingleShot(true);
     m_finalizeTimeout.setInterval(10000);
     connect(&m_finalizeTimeout, &QTimer::timeout, this, [this] { finishRecording(false, T("finalization timed out")); });
+    m_stopPoll.setInterval(15);
+    connect(&m_stopPoll, &QTimer::timeout, this, [this] {
+        if ((m_stopSeenVideo && m_stopSeenAudio) || m_stopWait.elapsed() > 600) closeBranch();
+    });
 }
 
 Channel::~Channel() { stopPreview(); }
@@ -50,6 +54,13 @@ void Channel::setFormat(int width, int height) {
     if ((width == m_cfg.width && height == m_cfg.height) || !canEdit()) return;
     m_cfg.width = width;
     m_cfg.height = height;
+    restart();
+    emit configChanged();
+}
+
+void Channel::setInput(const InputConfig& in) {
+    if (in == m_cfg.in || !canEdit()) return;
+    m_cfg.in = in;
     restart();
     emit configChanged();
 }
@@ -226,6 +237,8 @@ QString Channel::formatText() const {
 }
 
 QString Channel::sourceText() const {
+    if (m_cfg.in.type == QLatin1String("screen")) return T("Screen %1").arg(m_cfg.in.screenIndex + 1);
+    if (m_cfg.in.type == QLatin1String("camera")) return m_cfg.in.cameraName.isEmpty() ? T("Camera") : m_cfg.in.cameraName;
     return T("Test generator");
 }
 
@@ -242,21 +255,49 @@ void Channel::restart() {
     emit changed();
 }
 
+// Zrodla kanalu. Kazde zrodlo obrazu konczy sie tym samym formatem (rozmiar i klatkaz z ustawien kanalu, kwadratowy
+// piksel, czarne pasy przy innych proporcjach), a dzwieku - stereo 48 kHz. Dalsza czesc pipeline'u jest wspolna.
+QString Channel::sourceDescription() const {
+    auto quoted = [](QString s) {      // wartosc w cudzyslowie w skladni gst_parse_launch
+        return QLatin1Char('"') + s.replace(QLatin1Char('\\'), QStringLiteral("\\\\")).replace(QLatin1Char('"'), QStringLiteral("\\\"")) + QLatin1Char('"');
+    };
+    const QString size = QStringLiteral("width=%1,height=%2,pixel-aspect-ratio=1/1").arg(m_cfg.width).arg(m_cfg.height);
+    QString video;
+    if (m_cfg.in.type == QLatin1String("screen")) {
+        video = QStringLiteral("d3d11screencapturesrc monitor-index=%1 show-cursor=true ! capsfilter caps=\"video/x-raw(memory:D3D11Memory),framerate=%2/1\" "
+                               "! d3d11download ! videoconvertscale add-borders=true ! video/x-raw,%3")
+                    .arg(m_cfg.in.screenIndex).arg(m_cfg.fps).arg(size);
+    } else if (m_cfg.in.type == QLatin1String("camera")) {
+        video = QStringLiteral("mfvideosrc %1 ! decodebin ! videoconvertscale add-borders=true ! videorate ! video/x-raw,%2,framerate=%3/1")
+                    .arg(m_cfg.in.cameraPath.isEmpty() ? QString() : QStringLiteral("device-path=") + quoted(m_cfg.in.cameraPath))
+                    .arg(size).arg(m_cfg.fps);
+    } else {
+        video = QStringLiteral("videotestsrc is-live=true pattern=%1 ! video/x-raw,%2,framerate=%3/1").arg(m_cfg.pattern).arg(size).arg(m_cfg.fps);
+    }
+    QString audio;
+    if (m_cfg.in.audioType == QLatin1String("loopback") || m_cfg.in.audioType == QLatin1String("device")) {
+        audio = QStringLiteral("wasapi2src %1 %2 ! audioconvert ! audioresample")
+                    .arg(m_cfg.in.audioType == QLatin1String("loopback") ? QStringLiteral("loopback=true") : QString())
+                    .arg(m_cfg.in.audioDevice.isEmpty() ? QString() : QStringLiteral("device=") + quoted(m_cfg.in.audioDevice));
+    } else {
+        const bool silent = m_cfg.in.audioType == QLatin1String("none");
+        audio = QStringLiteral("audiotestsrc is-live=true wave=%1 volume=%2")
+                    .arg(silent ? 4 : m_cfg.audioWave).arg(QString::number(m_cfg.audioVolume, 'f', 3));
+    }
+    return video + QStringLiteral(" ! tee name=tv ") + audio + QStringLiteral(" ! audio/x-raw,rate=48000,channels=2 ");
+}
+
 void Channel::startPreview() {
     if (m_pipeline) return;
     // tee "tv"/"ta" sa punktami zaczepienia galezi nagrywania.
-    const QString desc = QStringLiteral(
-        "videotestsrc is-live=true pattern=%1 ! video/x-raw,width=%2,height=%3,framerate=%4/1,pixel-aspect-ratio=1/1 ! tee name=tv "
+    const QString desc = sourceDescription() + QStringLiteral(
+        "! level name=level interval=100000000 post-messages=true ! tee name=ta "
+        "ta. ! queue ! fakesink sync=false "
         "tv. ! queue leaky=downstream max-size-buffers=2 ! videorate name=pvrate drop-only=true max-rate=15 "
         // staly kadr 16:9 i kwadratowy piksel: videoconvertscale sam dopisuje czarne pasy dla innych proporcji
         "! videoconvertscale add-borders=true "
         "! capsfilter name=pvcaps caps=video/x-raw,format=BGRx,width=480,height=270,pixel-aspect-ratio=1/1 "
-        "! appsink name=preview sync=false max-buffers=1 drop=true "
-        "audiotestsrc is-live=true wave=%5 volume=%6 ! audio/x-raw,rate=48000,channels=2 "
-        "! level name=level interval=100000000 post-messages=true ! tee name=ta "
-        "ta. ! queue ! fakesink sync=false")
-        .arg(m_cfg.pattern).arg(m_cfg.width).arg(m_cfg.height).arg(m_cfg.fps)
-        .arg(m_cfg.audioWave).arg(QString::number(m_cfg.audioVolume, 'f', 3));
+        "! appsink name=preview sync=false max-buffers=1 drop=true");
     ++m_gen;
 
     GError* err = nullptr;
@@ -495,6 +536,17 @@ void Channel::stopRecording(quint64 clockNs) {
     m_stopRt = clockNs ? toRunning(clockNs) : runningTimeNow();      // wspolna chwila konca dla grupy
     if (m_state == ChannelState::Paused) m_pausedMs += m_pauseClock.elapsed();    // Stop w pauzie: plik konczy sie na poczatku pauzy
     setState(ChannelState::Finalizing);
+    // Zrodla sprzetowe (zwlaszcza dzwiek z WASAPI) oddaja dane z opoznieniem: galaz zamykamy dopiero wtedy, gdy obraz
+    // i dzwiek doszly do chwili Stop (sondy odrzucaja wszystko od tej chwili), najpozniej po 600 ms.
+    m_stopSeenVideo = false;
+    m_stopSeenAudio = false;
+    m_stopWait.start();
+    m_stopPoll.start();
+}
+
+void Channel::closeBranch() {
+    m_stopPoll.stop();
+    if (!m_recBin || m_state != ChannelState::Finalizing) return;
     gst_pad_add_probe(m_teeVideo, GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM, &Channel::onStopBlock, this, nullptr);
     gst_pad_add_probe(m_teeAudio, GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM, &Channel::onStopBlock, this, nullptr);
     m_finalizeTimeout.start();
@@ -631,6 +683,7 @@ void Channel::writeSidecar(bool clean, const QString& reason) const {
 void Channel::finishRecording(bool clean, const QString& reason) {
     if (!m_recBin) return;
     m_finalizeTimeout.stop();
+    m_stopPoll.stop();
     GstElement* bin = m_recBin;
     m_recBin = nullptr;
     m_recBinShared = nullptr;
@@ -695,7 +748,10 @@ GstPadProbeReturn Channel::recBuffer(GstPadProbeInfo* info, bool video) {
     const gint64 base = m_recBase.load();
     if (!GST_BUFFER_PTS_IS_VALID(buf) || gint64(GST_BUFFER_PTS(buf)) < base) return GST_PAD_PROBE_DROP;
     const gint64 rt = gint64(GST_BUFFER_PTS(buf));
-    if (rt >= m_stopRt.load()) return GST_PAD_PROBE_DROP;        // po wspolnej chwili Stop
+    if (rt >= m_stopRt.load()) {                                 // po wspolnej chwili Stop
+        (video ? m_stopSeenVideo : m_stopSeenAudio) = true;
+        return GST_PAD_PROBE_DROP;
+    }
     const gint64 dur = GST_BUFFER_DURATION_IS_VALID(buf) ? gint64(GST_BUFFER_DURATION(buf)) : 0;
     gint64 total = 0;
     bool discont = false;

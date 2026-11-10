@@ -19,6 +19,7 @@
 #include "core/DiskMonitor.h"
 #include "core/Lang.h"
 #include <QStorageInfo>
+#include "media/Devices.h"
 #include "media/EncoderFactory.h"
 #include "util/FileNameTemplate.h"
 
@@ -124,11 +125,12 @@ QWidget* Inspector::buildInputPage() {
     m_name = new QLineEdit;
     row(g, T("Channel name"), m_name);
     m_type = new QComboBox;
-    m_type->addItem(T("Test generator"));
+    m_type->addItem(T("Test generator"), QStringLiteral("test"));
+    m_type->addItem(T("Screen grab"), QStringLiteral("screen"));
+    m_type->addItem(T("Camera (UVC, capture card)"), QStringLiteral("camera"));
+    const int firstFuture = m_type->count();
     const struct { QString name; const char* from; } types[] = {
         {QStringLiteral("HDMI — Blackmagic DeckLink"), Roadmap::ndiDecklink},
-        {QStringLiteral("HDMI — UVC / Magewell"), Roadmap::localInputs},
-        {T("Screen grab"), Roadmap::localInputs},
         {QStringLiteral("SRT"), Roadmap::network},
         {QStringLiteral("RTSP"), Roadmap::network},
         {QStringLiteral("NDI"), Roadmap::ndiDecklink},
@@ -136,8 +138,10 @@ QWidget* Inspector::buildInputPage() {
         {QStringLiteral("WebRTC WHIP"), Roadmap::webrtc}};
     for (const auto& t : types) m_type->addItem(t.name + QStringLiteral("  ") + T("(from %1)").arg(QLatin1String(t.from)));
     if (auto* model = qobject_cast<QStandardItemModel*>(m_type->model()))
-        for (int i = 1; i < model->rowCount(); ++i) model->item(i)->setEnabled(false);
+        for (int i = firstFuture; i < model->rowCount(); ++i) model->item(i)->setEnabled(false);
     row(g, T("Input type"), m_type);
+    m_device = new QComboBox;
+    row(g, T("Device"), m_device);
     m_pattern = new QComboBox;
     const struct { const char* name; int id; } patterns[] = {
         {"SMPTE bars", 0}, {"SMPTE bars 75%", 13}, {"SMPTE bars 100%", 19}, {"Ball", 18}, {"Pinwheel", 21},
@@ -153,11 +157,22 @@ QWidget* Inspector::buildInputPage() {
 
     v->addWidget(section(QStringLiteral("Audio")));
     g = form(v);
+    // Zrodlo dzwieku: sygnaly testowe, dzwiek systemowy (loopback) i wejscia WASAPI.
+    // Dane pozycji: [typ, id urzadzenia, nazwa, ksztalt sygnalu testowego].
     m_wave = new QComboBox;
-    m_wave->addItem(T("Sine 440 Hz"), 0);
-    m_wave->addItem(T("Ticks every 1 s"), 8);
-    m_wave->addItem(T("Silence"), 4);
-    row(g, T("Audio signal"), m_wave);
+    auto audioItem = [this](const QString& text, const QString& type, const QString& id = {}, const QString& name = {}, int wave = 0) {
+        m_wave->addItem(text, QStringList{type, id, name, QString::number(wave)});
+    };
+    audioItem(T("Sine 440 Hz"), QStringLiteral("test"), {}, {}, 0);
+    audioItem(T("Ticks every 1 s"), QStringLiteral("test"), {}, {}, 8);
+    audioItem(T("Silence"), QStringLiteral("none"));
+    audioItem(T("System sound (default output)"), QStringLiteral("loopback"));
+    for (const Devices::Info& d : Devices::list().audioLoopbacks)
+        audioItem(T("System sound: %1").arg(d.name), QStringLiteral("loopback"), d.id, d.name);
+    audioItem(T("Microphone / line in (default input)"), QStringLiteral("device"));
+    for (const Devices::Info& d : Devices::list().audioInputs)
+        audioItem(T("Input: %1").arg(d.name), QStringLiteral("device"), d.id, d.name);
+    row(g, T("Audio source"), m_wave);
 
     v->addWidget(section(T("Scheduler — from version %1").arg(QLatin1String(Roadmap::scheduler)), true));
     v->addStretch(1);
@@ -172,8 +187,11 @@ QWidget* Inspector::buildInputPage() {
         const QSize s = m_format->itemData(i).toSize();
         if (Channel* ch = m_mgr->active()) ch->setFormat(s.width(), s.height());
     });
-    connect(m_wave, &QComboBox::activated, this, [this](int i) {
-        if (Channel* ch = m_mgr->active()) ch->setAudioWave(m_wave->itemData(i).toInt());
+    connect(m_wave, &QComboBox::activated, this, &Inspector::commitInput);
+    connect(m_device, &QComboBox::activated, this, &Inspector::commitInput);
+    connect(m_type, &QComboBox::activated, this, [this](int i) {
+        fillDevices(m_type->itemData(i).toString());
+        commitInput();
     });
     return page;
 }
@@ -319,6 +337,39 @@ void Inspector::commitOutput() {
         emit m_mgr->notice(T("This folder is on a FAT32 disk: files are limited to 4 GB — enable auto-split"));
 }
 
+// Lista urzadzen dla wybranego typu wejscia (ekrany albo kamery); generator testowy nie ma urzadzen.
+void Inspector::fillDevices(const QString& type) {
+    const QSignalBlocker block(m_device);
+    m_device->clear();
+    if (type == QLatin1String("screen")) {
+        for (const Devices::Info& d : Devices::list(true).screens)
+            m_device->addItem(QStringLiteral("%1: %2  ·  %3").arg(d.id.toInt() + 1).arg(d.name, d.detail), QStringList{d.id, d.name});
+    } else if (type == QLatin1String("camera")) {
+        for (const Devices::Info& d : Devices::list(true).cameras) m_device->addItem(d.name, QStringList{d.id, d.name});
+    }
+    m_device->setProperty("forType", type);
+}
+
+void Inspector::commitInput() {
+    Channel* ch = m_mgr->active();
+    if (!ch || !ch->canEdit()) return;
+    InputConfig in = ch->config().in;
+    in.type = m_type->currentData().toString();
+    if (in.type.isEmpty()) in.type = QStringLiteral("test");
+    const QStringList dev = m_device->currentData().toStringList();
+    if (in.type == QLatin1String("screen")) in.screenIndex = dev.value(0).toInt();
+    if (in.type == QLatin1String("camera")) {
+        in.cameraPath = dev.value(0);
+        in.cameraName = dev.value(1);
+    }
+    const QStringList au = m_wave->currentData().toStringList();
+    in.audioType = au.value(0, QStringLiteral("test"));
+    in.audioDevice = au.value(1);
+    in.audioName = au.value(2);
+    if (in.audioType == QLatin1String("test")) ch->setAudioWave(au.value(3).toInt());
+    ch->setInput(in);
+}
+
 void Inspector::commitLive() {
     Channel* ch = m_mgr->active();
     if (!ch) return;
@@ -380,6 +431,23 @@ void Inspector::refresh() {
     m_liveSrt->setEnabled(live.type == QLatin1String("srt"));
     m_liveRate->setEnabled(live.type == QLatin1String("srt"));
     m_pattern->setCurrentIndex(qMax(0, m_pattern->findData(ch->config().pattern)));
-    m_wave->setCurrentIndex(qMax(0, m_wave->findData(ch->config().audioWave)));
+    const InputConfig& in = ch->config().in;
+    m_type->setCurrentIndex(qMax(0, m_type->findData(in.type)));
+    if (m_device->property("forType").toString() != in.type) fillDevices(in.type);
+    int devIndex = -1;
+    for (int i = 0; i < m_device->count(); ++i) {
+        const QString id = m_device->itemData(i).toStringList().value(0);
+        if ((in.type == QLatin1String("screen") && id.toInt() == in.screenIndex) || (in.type == QLatin1String("camera") && id == in.cameraPath)) devIndex = i;
+    }
+    m_device->setCurrentIndex(devIndex);
+    m_device->setEnabled(in.type != QLatin1String("test"));
+    m_pattern->setEnabled(in.type == QLatin1String("test"));
+    int auIndex = 0;
+    for (int i = 0; i < m_wave->count(); ++i) {
+        const QStringList d = m_wave->itemData(i).toStringList();
+        if (d.value(0) != in.audioType) continue;
+        if (in.audioType == QLatin1String("test") ? d.value(3).toInt() == ch->config().audioWave : d.value(1) == in.audioDevice) { auIndex = i; break; }
+    }
+    m_wave->setCurrentIndex(auIndex);
     m_format->setCurrentIndex(qMax(0, m_format->findData(QSize(ch->config().width, ch->config().height))));
 }

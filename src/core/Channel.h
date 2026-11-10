@@ -46,7 +46,18 @@ struct RecordPart {
     qint64 endNs = -1;
 };
 
-// Jedynym typem wejscia jest na razie generator testowy.
+// Zrodlo obrazu i dzwieku kanalu.
+struct InputConfig {
+    QString type = QStringLiteral("test");        // "test" generator, "screen" ekran, "camera" kamera (Media Foundation)
+    int screenIndex = 0;                          // ekran: numer monitora
+    QString cameraPath;                           // kamera: sciezka urzadzenia
+    QString cameraName;
+    QString audioType = QStringLiteral("test");   // "test" sygnal testowy, "none" cisza, "loopback" dzwiek systemowy, "device" wejscie
+    QString audioDevice;                          // id urzadzenia WASAPI; puste = domyslne
+    QString audioName;
+    bool operator==(const InputConfig&) const = default;
+};
+
 struct ChannelConfig {
     QString name;
     int pattern = 0;        // videotestsrc pattern
@@ -55,6 +66,7 @@ struct ChannelConfig {
     int width = 1280;
     int height = 720;
     int fps = 25;
+    InputConfig in;
     OutputConfig out;
     LiveConfig live;
 };
@@ -72,6 +84,7 @@ public:
     void setPattern(int pattern);
     void setAudioWave(int wave);
     void setFormat(int width, int height);
+    void setInput(const InputConfig& in);
     void setOutput(const OutputConfig& out);
     void setLive(const LiveConfig& live);    // dziala takze podczas nagrywania: galaz wyjscia jest dopinana w locie
     bool liveOn() const { return m_cfg.live.type != QLatin1String("off"); }
@@ -141,6 +154,7 @@ private:
     static GstPadProbeReturn onStopBlock(GstPad* pad, GstPadProbeInfo* info, gpointer user);
     void setState(ChannelState s, const QString& error = {});
     void restart();
+    QString sourceDescription() const;      // poczatek opisu pipeline'u: zrodla do tee "tv" i "ta"
     QString liveDescription();
     void attachLive();
     void detachLive();
@@ -173,6 +187,11 @@ private:
     std::atomic<gint64> m_firstVideoRt{-1};            // pierwsza i ostatnia klatka, ktora trafila do pliku
     std::atomic<gint64> m_lastVideoRt{-1};
     quint64 m_recStartClock = 0;                       // wspolna chwila startu (czas zegara)
+    std::atomic<bool> m_stopSeenVideo{false};          // obraz / dzwiek doszly juz do chwili Stop
+    std::atomic<bool> m_stopSeenAudio{false};
+    QTimer m_stopPoll;
+    QElapsedTimer m_stopWait;
+    void closeBranch();
     // Pauza (instrukcja_koncowa.md, 3.1). Wszystkie czasy w running-time pipeline'u, jeden muteks dla obrazu i dzwieku.
     // Granice pauzy wyznacza klatka wideo: pierwsza odrzucona (startRt) i pierwsza przepuszczona po wznowieniu (resumeRt).
     struct PauseState {

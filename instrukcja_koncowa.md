@@ -71,6 +71,16 @@ Stan po wersji 1.0 (tryb z enkoderem) — zaimplementowane w sondach na wejściu
 - Wyniki (Quick Sync, 720p25): 1–3 pauzy, MKV i MPEG‑TS, 16 kanałów, z auto‑splitem — czas materiału zgodny, brak przerw w znacznikach obrazu (< 61 ms), koniec obrazu i dźwięku w odległości < 60 ms, tak samo jak bez pauzy.
 - Nie zrobione: pauza w trybie passthrough (nowa część pliku) — dojdzie razem z passthrough; wspólny moment pauzy wielu kanałów — razem ze startem grupowym.
 
+Wejścia lokalne — stan po wersji 1.5:
+
+- Źródła buduje `Channel::sourceDescription()`: każde źródło obrazu kończy się tym samym formatem (rozmiar i klatkaż kanału, kwadratowy piksel, `videoconvertscale add-borders`), dźwięk — stereo 48 kHz. Reszta pipeline'u (tee, podgląd, nagrywanie, wyjście na żywo) jest wspólna i nie wie, skąd pochodzi sygnał.
+- Ekran: `d3d11screencapturesrc monitor-index=N show-cursor=true ! capsfilter caps="video/x-raw(memory:D3D11Memory),framerate=F/1" ! d3d11download ! videoconvertscale`. Format z pamięcią D3D11 trzeba podać przez `capsfilter caps="…"` — zapis skrócony z nawiasami jest w `gst_parse_launch` błędem składni.
+- Kamera: `mfvideosrc device-path=… ! decodebin ! videoconvertscale ! videorate` (decodebin na wypadek MJPEG). Niesprawdzone na sprzęcie.
+- Dźwięk: `wasapi2src [loopback=true] [device=…] ! audioconvert ! audioresample`. Zegarem pipeline'u pozostaje zegar systemowy (wspólne `T` grupy), nie zegar urządzenia.
+- Lista urządzeń: `GstDeviceMonitor` (`src/media/Devices`), odświeżana przy zmianie typu wejścia. Ekrany są numerowane w kolejności dostawcy d3d11 (= `monitor-index`).
+- Stop czeka, aż sondy obrazu i dźwięku zobaczą bufor o czasie ≥ `T` Stop (najdłużej 600 ms), i dopiero wtedy zamyka gałąź — źródła sprzętowe oddają dane z opóźnieniem.
+- Założenie „PTS = running‑time” sprawdza się dla tych źródeł (są „live” i znakują bufory zegarem pipeline'u); przeliczenie przez segment będzie potrzebne dopiero przy wejściach sieciowych.
+
 ### 3.1a Nagrywanie — stan po wersji 0.5
 
 - Gałąź zapisu (`queue → konwersja → enkoder → h264parse` oraz `queue → audioconvert → avenc_aac → aacparse` → `splitmuxsink` z `matroskamux`) jest dopinana do działającego pipeline'u przy Rec i odpinana po Stop; podgląd nie przerywa.
@@ -326,7 +336,7 @@ Każda wersja: działający program, commit, tag, push. Kryterium = to, co da si
 | **1.2** | Sesja i listy (5.5): zapis/wczytanie, edytowalna nazwa sesji, autozapis i przywracanie po awarii, ostatnie pliki, otwieranie ostatniej listy | **wydana** — `tests\list_test.ps1` |
 | **1.3** | Wyjście na żywo przełączane w trakcie nagrywania (gałąź dopinana w locie) | **wydana** — `tests\rec_test.ps1 -LiveCycle`, `tests\live_test.ps1 -EnableAfter` |
 | **1.4** | Operacje grupowe ze wspólnym `T` (wspólny moment startu, pauzy i stopu wielu kanałów) | **wydana** — `tests\sync_test.ps1`: 16 × testsrc startuje, pauzuje i kończy w ±1 klatce |
-| **1.5** | Inspektor Input/Output w pełni edytowalny; wejścia lokalne: Screen grab (DXGI/WGC), UVC/MF, WASAPI (urządzenie, loopback) | nagranie ekranu z dźwiękiem systemowym |
+| **1.5** | Wejścia lokalne: Screen grab (`d3d11screencapturesrc`), kamera (`mfvideosrc`), dźwięk WASAPI (urządzenie, loopback); wybór w zakładce Input; Stop czekający na opóźnione źródła | **wydana** — `tests\rec_test.ps1 -Source screen -Audio loopback`; kamera niesprawdzona na sprzęcie |
 | **1.6** | SRT, RTSP, passthrough, `fallbacksrc` + polityka zaniku sygnału, stan RECONNECTING | SRT/RTSP z lokalnego `ffmpeg`/MediaMTX; zerwanie i powrót strumienia bez utraty pliku |
 | **1.7** | NDI (discovery), DeckLink; kodeki H.265/AV1/ProRes/DNxHR wg dostępności; MOV/MP4 robust | NDI z NDI Tools; DeckLink — niesprawdzone na sprzęcie |
 | **1.8** | Scheduler (reguły, catch‑up, DST), blokada uśpienia, logi rotowane, widok Lista, folder zapasowy | testy jednostkowe schedulera; kontrolowany Stop przy braku miejsca |

@@ -1,4 +1,4 @@
-# Test nagrywania na generatorach testowych: N kanalow nagrywa S sekund (C cykli), potem ffprobe sprawdza kazdy plik.
+﻿# Test nagrywania na generatorach testowych: N kanalow nagrywa S sekund (C cykli), potem ffprobe sprawdza kazdy plik.
 # Uzycie:  tests\rec_test.ps1 [-Channels 4] [-Seconds 10] [-Cycles 1] [-SplitEvery 0] [-AutoSplit 0] [-Container mkv|ts]
 #                             [-PauseAt 0] [-PauseFor 0] [-PauseCount 1] [-Exe build\IsoRecorder.exe]
 # -SplitEvery S : reczny split wszystkich kanalow co S sekund;  -AutoSplit S : auto-split co S sekund.
@@ -7,9 +7,10 @@
 #   koniec obrazu i dzwieku w tym samym miejscu, liczba pauz w pliku opisu.
 # -LiveCycle S [-LiveType srt|ndi] : w trakcie nagrania wyjscie na zywo jest co S sekund wlaczane i wylaczane -
 #   nagranie musi pozostac ciagle (te same kontrole co zwykle).
+# -Source screen : kanaly biora obraz z ekranu zamiast z generatora;  -Audio loopback|device|none : zrodlo dzwieku z WASAPI.
 # Kod wyjscia 0 = wszystko poprawne.
 param([int]$Channels = 4, [int]$Seconds = 10, [int]$Cycles = 1, [int]$SplitEvery = 0, [int]$AutoSplit = 0,
-      [string]$Container = 'mkv', [int]$PauseAt = 0, [int]$PauseFor = 0, [int]$PauseCount = 1, [int]$LiveCycle = 0, [string]$LiveType = 'srt', [string]$Exe)
+      [string]$Container = 'mkv', [int]$PauseAt = 0, [int]$PauseFor = 0, [int]$PauseCount = 1, [int]$LiveCycle = 0, [string]$LiveType = 'srt', [string]$Source = '', [string]$Audio = '', [string]$Exe)
 $ErrorActionPreference = 'Stop'
 $inv = [cultureinfo]::InvariantCulture
 $root = Split-Path $PSScriptRoot
@@ -28,6 +29,8 @@ $a = @('--demo', $Channels, '--lang', 'en', '--out', $out, '--rec-test', $Second
 if ($SplitEvery -gt 0) { $a += @('--split-every', $SplitEvery) }
 if ($AutoSplit -gt 0) { $a += @('--auto-split', $AutoSplit) }
 if ($LiveCycle -gt 0) { $a += @('--live', $LiveType, 9750, '--live-cycle', $LiveCycle) }
+if ($Source) { $a += @('--input', $Source) }
+if ($Audio) { $a += @('--audio', $Audio) }
 $pauses = 0
 if ($PauseAt -gt 0 -and $PauseFor -gt 0) { $pauses = $PauseCount; $a += @('--pause-at', $PauseAt, '--pause-for', $PauseFor, '--pause-count', $PauseCount) }
 $content = $Seconds - $pauses * $PauseFor      # ile sekund materialu ma byc w pliku

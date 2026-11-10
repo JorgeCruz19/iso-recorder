@@ -2,6 +2,7 @@
 #include <QFile>
 #include <QMessageBox>
 #include <QMouseEvent>
+#include <QScreen>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSettings>
@@ -42,6 +43,7 @@
 //   --save-list-real plik po 2,5 s zapisz liste tak jak przycisk SAVE (staje sie biezaca i ostatnia) i wyjdz
 //   Zmienna ISOREC_PROFILE=nazwa: osobny profil ustawien i autozapisu (testy nie dotykaja prawdziwych ustawien).
 //   --container ts|mkv    kontener dla kanalow --demo
+//   --input screen [--audio loopback|device|none]  kanaly --demo biora obraz z ekranu (kolejne monitory) i dzwiek z WASAPI
 //   --live ndi|srt [port] wyjscie na zywo dla kanalow --demo: NDI o nazwie "ISO <kanal>" albo SRT na portach port+1, port+2...
 //   --auto-split S        auto-split co S sekund dla kanalow --demo
 //   --split-every S       w --rec-test: reczny split wszystkich kanalow co S sekund
@@ -191,6 +193,18 @@ int main(int argc, char* argv[]) {
             const int at = int(args.indexOf(QLatin1String(name)));
             return at >= 0 && at + 1 < args.size() ? args.at(at + 1) : QString();
         };
+        if (argAfter("--input") == QLatin1String("screen") || !argAfter("--audio").isEmpty()) {
+            int i = 0;
+            for (Channel* c : manager.channels()) {
+                InputConfig in = c->config().in;
+                if (argAfter("--input") == QLatin1String("screen")) {
+                    in.type = QStringLiteral("screen");
+                    in.screenIndex = i++ % qMax(1, int(QGuiApplication::screens().size()));
+                }
+                if (!argAfter("--audio").isEmpty()) in.audioType = argAfter("--audio");
+                c->setInput(in);
+            }
+        }
         if (const QString live = argAfter("--live"); !live.isEmpty()) {
             const int liveAt = int(args.indexOf(QStringLiteral("--live")));
             const int port = liveAt + 2 < args.size() && args.at(liveAt + 2).toInt() > 0 ? args.at(liveAt + 2).toInt() : 9700;
@@ -373,6 +387,10 @@ int main(int argc, char* argv[]) {
         if (args.contains(QStringLiteral("--tab-end")))     // przewin zakladke inspektora na koniec (do zrzutow)
             QTimer::singleShot(2000, &manager, [&w] {
                 if (auto* sa = w->inspector()->findChild<QScrollArea*>()) sa->verticalScrollBar()->setValue(sa->verticalScrollBar()->maximum());
+            });
+        if (const int px = argAfter("--tab-scroll").toInt(); px > 0)     // przewin zakladke inspektora o N pikseli (do zrzutow)
+            QTimer::singleShot(2000, &manager, [&w, px] {
+                if (auto* sa = w->inspector()->findChild<QScrollArea*>()) sa->verticalScrollBar()->setValue(px);
             });
         const int shotAt = int(args.indexOf(QStringLiteral("--screenshot")));
         if (shotAt >= 0 && shotAt + 1 < args.size()) {

@@ -231,7 +231,13 @@ QJsonObject channelToJson(const Channel* ch) {
     return QJsonObject{
         {QStringLiteral("name"), c.name},
         {QStringLiteral("selected"), ch->isSelected()},
-        {QStringLiteral("input"), QJsonObject{{QStringLiteral("type"), QStringLiteral("test")},
+        {QStringLiteral("input"), QJsonObject{{QStringLiteral("type"), c.in.type},
+                                              {QStringLiteral("screenIndex"), c.in.screenIndex},
+                                              {QStringLiteral("cameraPath"), c.in.cameraPath},
+                                              {QStringLiteral("cameraName"), c.in.cameraName},
+                                              {QStringLiteral("audio"), QJsonObject{{QStringLiteral("type"), c.in.audioType},
+                                                                                    {QStringLiteral("device"), c.in.audioDevice},
+                                                                                    {QStringLiteral("name"), c.in.audioName}}},
                                               {QStringLiteral("pattern"), c.pattern},
                                               {QStringLiteral("audioWave"), c.audioWave},
                                               {QStringLiteral("audioVolume"), c.audioVolume},
@@ -258,6 +264,16 @@ ChannelConfig channelFromJson(const QJsonObject& j, int number) {
     c.name = j.value(QStringLiteral("name")).toString().trimmed();
     if (c.name.isEmpty()) c.name = QStringLiteral("CH %1").arg(number);
     const QJsonObject in = j.value(QStringLiteral("input")).toObject();
+    const QString it = in.value(QStringLiteral("type")).toString();
+    c.in.type = it == QLatin1String("screen") || it == QLatin1String("camera") ? it : QStringLiteral("test");
+    c.in.screenIndex = qBound(0, in.value(QStringLiteral("screenIndex")).toInt(), 15);
+    c.in.cameraPath = in.value(QStringLiteral("cameraPath")).toString();
+    c.in.cameraName = in.value(QStringLiteral("cameraName")).toString();
+    const QJsonObject au = in.value(QStringLiteral("audio")).toObject();
+    const QString at = au.value(QStringLiteral("type")).toString();
+    c.in.audioType = at == QLatin1String("none") || at == QLatin1String("loopback") || at == QLatin1String("device") ? at : QStringLiteral("test");
+    c.in.audioDevice = au.value(QStringLiteral("device")).toString();
+    c.in.audioName = au.value(QStringLiteral("name")).toString();
     c.pattern = in.value(QStringLiteral("pattern")).toInt(d.pattern);
     c.audioWave = in.value(QStringLiteral("audioWave")).toInt(d.audioWave);
     c.audioVolume = qBound(0.0, in.value(QStringLiteral("audioVolume")).toDouble(d.audioVolume), 1.0);

@@ -35,6 +35,9 @@ private:
     QStackedWidget* m_stack;
     QLineEdit* m_name;
     QComboBox* m_type;
+    QComboBox* m_device;
+    void fillDevices(const QString& type);
+    void commitInput();
     QComboBox* m_pattern;
     QComboBox* m_wave;
     QComboBox* m_format;
