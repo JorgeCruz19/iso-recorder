@@ -34,6 +34,7 @@
 //   --container ts|mkv    kontener dla kanalow --demo
 //   --auto-split S        auto-split co S sekund dla kanalow --demo
 //   --split-every S       w --rec-test: reczny split wszystkich kanalow co S sekund
+//   --pause-at S --pause-for P [--pause-count N]  w --rec-test: N pauz po P sekund, kazda po S sekundach nagrywania
 //   --drag-test A B [plik] przeciagniecie kafla A na miejsce kafla B (numery od 1) zdarzeniami myszy;
 //                         kolejnosc kanalow na stdout, opcjonalny zrzut okna w trakcie przeciagania
 //   --shot-big N plik.png zrzut okna duzego podgladu kanalu N (od 1), otwartego dwuklikiem w kafel;
@@ -172,6 +173,17 @@ int main(int argc, char* argv[]) {
             auto* startAll = new std::function<void()>;
             *startAll = [&manager, seconds, cyclesLeft, startAll] {
                 for (Channel* c : manager.channels()) manager.transport(c, Transport::Rec);
+                const QStringList av = QApplication::arguments();
+                auto num = [&av](const char* name, int def) {
+                    const int at = int(av.indexOf(QLatin1String(name)));
+                    return at >= 0 && at + 1 < av.size() ? av.at(at + 1).toInt() : def;
+                };
+                const int pauseAt = num("--pause-at", 0), pauseFor = num("--pause-for", 0), pauseCount = num("--pause-count", 1);
+                for (int k = 0; pauseAt > 0 && pauseFor > 0 && k < pauseCount; ++k) {
+                    const int t0 = (k * (pauseAt + pauseFor) + pauseAt) * 1000;
+                    QTimer::singleShot(t0, &manager, [&manager] { for (Channel* c : manager.channels()) c->pauseRecording(); });
+                    QTimer::singleShot(t0 + pauseFor * 1000, &manager, [&manager] { for (Channel* c : manager.channels()) c->resumeRecording(); });
+                }
                 QTimer::singleShot(seconds * 1000, &manager, [&manager, cyclesLeft, startAll] {
                     manager.stopAllRecording();
                     auto* wait = new QTimer(&manager);          // czekaj na finalizacje wszystkich plikow
@@ -281,7 +293,8 @@ int main(int argc, char* argv[]) {
         const int shotAt = int(args.indexOf(QStringLiteral("--screenshot")));
         if (shotAt >= 0 && shotAt + 1 < args.size()) {
             const QString path = args.at(shotAt + 1);
-            QTimer::singleShot(4000, &manager, [&w, path] {
+            const int delay = argAfter("--shot-delay").toInt() > 0 ? argAfter("--shot-delay").toInt() : 4000;   // ms
+            QTimer::singleShot(delay, &manager, [&w, path] {
                 w->grab().save(path);
                 QApplication::quit();
             });

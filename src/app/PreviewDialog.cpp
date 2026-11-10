@@ -81,7 +81,7 @@ protected:
             p.fillRect(rr, chip);
             p.setRenderHint(QPainter::Antialiasing);
             p.setPen(Qt::NoPen);
-            p.setBrush(Theme::red);
+            p.setBrush(st == ChannelState::Paused ? Theme::amber : Theme::red);
             p.drawEllipse(QRectF(rr.left() + 10, rr.top() + 8, 12, 12));
             p.setRenderHint(QPainter::Antialiasing, false);
             p.setPen(Qt::white);

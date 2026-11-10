@@ -62,6 +62,15 @@ Tryb passthrough: Pause = `split` + wstrzymanie zapisu do następnej klatki kluc
 
 Test akceptacyjny (od wersji z pauzą): Rec 10 s → Pause 5 s → Resume → 10 s → Stop; `ffprobe`: czas ≈ 20 s (±2 klatki), PTS wideo ściśle rosnące bez luki > 1,5 klatki, różnica początku/końca A i V < 40 ms.
 
+Stan po wersji 1.0 (tryb z enkoderem) — zaimplementowane w sondach na wejściu gałęzi nagrywania (`Channel::recBuffer`):
+
+- Jedna struktura stanu pod jednym muteksem, czasy w running‑time; znacznik w pliku = running‑time − początek nagrania − suma pauz, ta sama suma dla obrazu i dźwięku.
+- Obie granice pauzy wyznacza klatka wideo: pierwsza klatka po kliknięciu Pause jest pierwszą odrzuconą, a pierwsza klatka po kliknięciu Resume trafia dokładnie w jej miejsce — znaczniki obrazu są ciągłe co do klatki.
+- Dźwięk jest przycinany zachowawczo (bufor wątpliwy jest odrzucany), więc w miejscu cięcia może powstać luka do ok. 60 ms, ale znaczniki nigdy się nie nakładają; pierwszy bufor po wznowieniu ma `DISCONT`.
+- Po wznowieniu do enkodera idzie `force-key-unit`. Stop działa także w pauzie. Pauzy są w pliku opisu (`pauses`: `atMs`, `durationMs`).
+- Wyniki (Quick Sync, 720p25): 1–3 pauzy, MKV i MPEG‑TS, 16 kanałów, z auto‑splitem — czas materiału zgodny, brak przerw w znacznikach obrazu (< 61 ms), koniec obrazu i dźwięku w odległości < 60 ms, tak samo jak bez pauzy.
+- Nie zrobione: pauza w trybie passthrough (nowa część pliku) — dojdzie razem z passthrough; wspólny moment pauzy wielu kanałów — razem ze startem grupowym.
+
 ### 3.1a Nagrywanie — stan po wersji 0.5
 
 - Gałąź zapisu (`queue → konwersja → enkoder → h264parse` oraz `queue → audioconvert → avenc_aac → aacparse` → `splitmuxsink` z `matroskamux`) jest dopinana do działającego pipeline'u przy Rec i odpinana po Stop; podgląd nie przerywa.
@@ -299,7 +308,7 @@ Każda wersja: działający program, commit, tag, push. Kryterium = to, co da si
 | **0.7** | Zmiana kolejności kanałów przeciąganiem kafla (znacznik miejsca wstawienia, anulowanie poza siatką) | **wydana** — `--drag-test A B` |
 | **0.8** | Duży podgląd kanału po dwukliku w obraz: okno ok. 80% ekranu, nazwa, stan, czas nagrania, mierniki audio; podgląd 1280×720 na czas otwarcia | **wydana** — `--shot-big K plik.png` |
 | **0.9** | Przyciski REC / PAUSE / STOP / SPLIT w oknie dużego podglądu | **wydana** — `--shot-big K plik.png --big-rec` |
-| **1.0** | Pauza wg 3.1 | test z 3.1 |
+| **1.0** | Pauza wg 3.1: PAUSE/wznowienie w tym samym pliku, wspólne przesunięcie czasu obrazu i dźwięku, lista pauz w pliku opisu, skrót `P` | **wydana** — `tests\rec_test.ps1 -PauseAt/-PauseFor/-PauseCount` |
 | **1.1** | Sesja i listy (5.5): zapis/wczytanie, autosave, ostatnie pliki; operacje grupowe ze wspólnym `T` | 16 × testsrc startuje w ±1 klatce; lista wraca identyczna po wczytaniu |
 | **1.2** | Inspektor Input/Output w pełni edytowalny; wejścia lokalne: Screen grab (DXGI/WGC), UVC/MF, WASAPI (urządzenie, loopback) | nagranie ekranu z dźwiękiem systemowym |
 | **1.3** | SRT, RTSP, passthrough, `fallbacksrc` + polityka zaniku sygnału, stan RECONNECTING | SRT/RTSP z lokalnego `ffmpeg`/MediaMTX; zerwanie i powrót strumienia bez utraty pliku |

@@ -247,8 +247,8 @@ bool Channel::startRecording(const QString& session, int index) {
     GstPad* vqSink = gst_element_get_static_pad(vq, "sink");
     GstPad* aqSink = gst_element_get_static_pad(aq, "sink");
     // Znaczniki czasu sa przesuwane tak, zeby plik zaczynal sie od zera - wspolna baza dla obrazu i dzwieku.
-    gst_pad_add_probe(vqSink, GST_PAD_PROBE_TYPE_BUFFER, &Channel::onRecBuffer, this, nullptr);
-    gst_pad_add_probe(aqSink, GST_PAD_PROBE_TYPE_BUFFER, &Channel::onRecBuffer, this, nullptr);
+    gst_pad_add_probe(vqSink, GST_PAD_PROBE_TYPE_BUFFER, &Channel::onRecVideo, this, nullptr);
+    gst_pad_add_probe(aqSink, GST_PAD_PROBE_TYPE_BUFFER, &Channel::onRecAudio, this, nullptr);
     GstPad* ghostV = gst_ghost_pad_new("video_sink", vqSink);
     GstPad* ghostA = gst_ghost_pad_new("audio_sink", aqSink);
     gst_element_add_pad(bin, ghostV);
@@ -265,9 +265,15 @@ bool Channel::startRecording(const QString& session, int index) {
         return false;
     }
 
-    GstClock* clock = gst_element_get_clock(m_pipeline);
-    m_recBase = clock ? gint64(gst_clock_get_time(clock) - gst_element_get_base_time(m_pipeline)) : 0;
-    if (clock) gst_object_unref(clock);
+    m_recBase = runningTimeNow();
+    {
+        std::lock_guard<std::mutex> lock(m_pause.mutex);
+        m_pause.phase = PauseState::Run;
+        m_pause.reqRt = m_pause.startRt = m_pause.resumeRt = m_pause.total = 0;
+        m_pause.audioDiscont = false;
+        m_pause.pauses.clear();
+    }
+    m_pausedMs = 0;
 
     gst_object_ref(bin);                       // wlasna referencja na czas nagrania
     gst_bin_add(GST_BIN(m_pipeline), bin);
@@ -311,11 +317,70 @@ bool Channel::startRecording(const QString& session, int index) {
 
 // Stop: zablokuj wyjscia tee, odepnij galaz, wyslij do niej EOS i poczekaj na EOS z muxera (plik sfinalizowany).
 void Channel::stopRecording() {
-    if (m_state != ChannelState::Recording || !m_recBin) return;
+    if ((m_state != ChannelState::Recording && m_state != ChannelState::Paused) || !m_recBin) return;
+    if (m_state == ChannelState::Paused) m_pausedMs += m_pauseClock.elapsed();    // Stop w pauzie: plik konczy sie na poczatku pauzy
     setState(ChannelState::Finalizing);
     gst_pad_add_probe(m_teeVideo, GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM, &Channel::onStopBlock, this, nullptr);
     gst_pad_add_probe(m_teeAudio, GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM, &Channel::onStopBlock, this, nullptr);
     m_finalizeTimeout.start();
+}
+
+gint64 Channel::runningTimeNow() const {
+    if (!m_pipeline) return 0;
+    GstClock* clock = gst_element_get_clock(m_pipeline);
+    if (!clock) return 0;
+    const gint64 rt = gint64(gst_clock_get_time(clock) - gst_element_get_base_time(m_pipeline));
+    gst_object_unref(clock);
+    return rt;
+}
+
+qint64 Channel::recordMs() const {
+    if (!isRecording()) return 0;
+    return m_recClock.elapsed() - m_pausedMs - (m_state == ChannelState::Paused ? m_pauseClock.elapsed() : 0);
+}
+
+// Pauza: plik zostaje otwarty, galaz nagrywania dziala dalej, tylko bufory nie przechodza przez sondy.
+void Channel::pauseRecording() {
+    if (m_state != ChannelState::Recording || !m_recBin) return;
+    {
+        std::lock_guard<std::mutex> lock(m_pause.mutex);
+        if (m_pause.phase == PauseState::ResumePending) {
+            m_pause.phase = PauseState::Paused;      // wznowienie jeszcze nie doszlo do skutku - pauza trwa dalej
+        } else {
+            m_pause.reqRt = runningTimeNow();
+            m_pause.phase = PauseState::PausePending;
+        }
+    }
+    m_pauseClock.start();
+    setState(ChannelState::Paused);
+    emit notice(T("%1: recording paused").arg(m_cfg.name));
+}
+
+void Channel::resumeRecording() {
+    if (m_state != ChannelState::Paused || !m_recBin) return;
+    {
+        std::lock_guard<std::mutex> lock(m_pause.mutex);
+        if (m_pause.phase == PauseState::PausePending) {
+            m_pause.phase = PauseState::Run;         // pauza nie zdazyla sie zaczac
+            m_pause.audioDiscont = true;
+        } else {
+            m_pause.reqRt = runningTimeNow();
+            m_pause.phase = PauseState::ResumePending;
+        }
+    }
+    m_pausedMs += m_pauseClock.elapsed();
+    // po wznowieniu od razu klatka kluczowa
+    if (GstElement* vp = gst_bin_get_by_name(GST_BIN(m_recBin), "vp")) {
+        GstPad* sink = gst_element_get_static_pad(vp, "sink");
+        if (GstPad* encSrc = gst_pad_get_peer(sink)) {
+            gst_pad_send_event(encSrc, gst_video_event_new_upstream_force_key_unit(GST_CLOCK_TIME_NONE, TRUE, ++m_fkuCount));
+            gst_object_unref(encSrc);
+        }
+        gst_object_unref(sink);
+        gst_object_unref(vp);
+    }
+    setState(ChannelState::Recording);
+    emit notice(T("%1: recording resumed").arg(m_cfg.name));
 }
 
 // Split: wymus klatke kluczowa w enkoderze i kaz splitmuxsink zamknac plik na najblizszej klatce kluczowej.
@@ -349,6 +414,12 @@ void Channel::writeSidecar(bool clean, const QString& reason) const {
         if (p.endNs >= 0) o.insert(QStringLiteral("endMs"), double(p.endNs) / 1e6);
         parts.append(o);
     }
+    QJsonArray pauses;
+    {
+        std::lock_guard<std::mutex> lock(const_cast<std::mutex&>(m_pause.mutex));
+        for (const auto& [at, len] : m_pause.pauses)
+            pauses.append(QJsonObject{{QStringLiteral("atMs"), double(at) / 1e6}, {QStringLiteral("durationMs"), double(len) / 1e6}});
+    }
     const QJsonObject root{
         {QStringLiteral("schema"), QStringLiteral("isorec.recording")},
         {QStringLiteral("version"), 1},
@@ -367,6 +438,7 @@ void Channel::writeSidecar(bool clean, const QString& reason) const {
         {QStringLiteral("pipelineRunningTimeAtStartNs"), double(m_recBase.load())},
         {QStringLiteral("clean"), clean},
         {QStringLiteral("stopReason"), reason},
+        {QStringLiteral("pauses"), pauses},
         {QStringLiteral("parts"), parts}};
     QFile f(m_recSidecar);
     if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) f.write(QJsonDocument(root).toJson());
@@ -398,10 +470,10 @@ void Channel::finishRecording(bool clean, const QString& reason) {
     gst_object_unref(bin);
 
     pollRecording();
-    if (!m_parts.isEmpty() && m_parts.last().endNs < 0) m_parts.last().endNs = m_recClock.elapsed() * 1000000LL;
+    if (!m_parts.isEmpty() && m_parts.last().endNs < 0) m_parts.last().endNs = (m_recClock.elapsed() - m_pausedMs) * 1000000LL;
     writeSidecar(clean, reason);
     const QString file = m_recFile;
-    if (m_state == ChannelState::Recording || m_state == ChannelState::Finalizing) m_state = ChannelState::Preview;
+    if (isRecording()) m_state = ChannelState::Preview;
     emit changed();
     const QString name = m_parts.size() > 1 ? T("%1 parts").arg(m_parts.size()) : QFileInfo(file).fileName();
     emit notice(clean ? T("%1: recording saved — %2").arg(m_cfg.name, name)
@@ -433,16 +505,73 @@ void Channel::pollRecording() {
 
 // Watek streamingu. Zalozenie tej wersji: PTS == running-time (zrodla "live" z segmentem od zera);
 // wejscia z innym segmentem beda tu przeliczane przez gst_segment_to_running_time.
-GstPadProbeReturn Channel::onRecBuffer(GstPad*, GstPadProbeInfo* info, gpointer user) {
-    auto* self = static_cast<Channel*>(user);
+// Znacznik w pliku = running-time - poczatek nagrania - suma pauz; ta sama suma dla obrazu i dzwieku.
+GstPadProbeReturn Channel::recBuffer(GstPadProbeInfo* info, bool video) {
     GstBuffer* buf = GST_PAD_PROBE_INFO_BUFFER(info);
-    const gint64 base = self->m_recBase.load();
+    const gint64 base = m_recBase.load();
     if (!GST_BUFFER_PTS_IS_VALID(buf) || gint64(GST_BUFFER_PTS(buf)) < base) return GST_PAD_PROBE_DROP;
+    const gint64 rt = gint64(GST_BUFFER_PTS(buf));
+    const gint64 dur = GST_BUFFER_DURATION_IS_VALID(buf) ? gint64(GST_BUFFER_DURATION(buf)) : 0;
+    gint64 total = 0;
+    bool discont = false;
+    {
+        std::lock_guard<std::mutex> lock(m_pause.mutex);
+        PauseState& p = m_pause;
+        if (video) {
+            switch (p.phase) {
+            case PauseState::Run:
+                break;
+            case PauseState::PausePending:
+                if (rt >= p.reqRt) {            // pierwsza klatka po kliknieciu Pause - juz nie trafia do pliku
+                    p.startRt = rt;
+                    p.phase = PauseState::Paused;
+                    return GST_PAD_PROBE_DROP;
+                }
+                break;
+            case PauseState::Paused:
+                return GST_PAD_PROBE_DROP;
+            case PauseState::ResumePending:
+                if (rt < p.reqRt) return GST_PAD_PROBE_DROP;
+                // pierwsza klatka po wznowieniu trafia dokladnie w miejsce pierwszej odrzuconej
+                p.pauses.emplace_back(p.startRt - base - p.total, rt - p.startRt);
+                p.total += rt - p.startRt;
+                p.resumeRt = rt;
+                p.audioDiscont = true;
+                p.phase = PauseState::Run;
+                break;
+            }
+        } else {
+            // Dzwiek nigdy nie wychodzi poza granice wyznaczone przez obraz: w razie watpliwosci bufor jest odrzucany
+            // (krotka cisza w miejscu ciecia), bo nakladajace sie znaczniki zepsulyby plik.
+            switch (p.phase) {
+            case PauseState::Run:
+                if (rt < p.resumeRt) return GST_PAD_PROBE_DROP;
+                break;
+            case PauseState::PausePending:
+                if (rt < p.resumeRt || rt + dur > p.reqRt) return GST_PAD_PROBE_DROP;
+                break;
+            default:
+                return GST_PAD_PROBE_DROP;
+            }
+            discont = p.audioDiscont;
+            p.audioDiscont = false;
+        }
+        total = p.total;
+    }
     buf = gst_buffer_make_writable(buf);
-    GST_BUFFER_PTS(buf) -= base;
+    GST_BUFFER_PTS(buf) = GstClockTime(rt - base - total);
     GST_BUFFER_DTS(buf) = GST_CLOCK_TIME_NONE;     // dane surowe - DTS nada enkoder
+    if (discont) GST_BUFFER_FLAG_SET(buf, GST_BUFFER_FLAG_DISCONT);
     GST_PAD_PROBE_INFO_DATA(info) = buf;
     return GST_PAD_PROBE_OK;
+}
+
+GstPadProbeReturn Channel::onRecVideo(GstPad*, GstPadProbeInfo* info, gpointer user) {
+    return static_cast<Channel*>(user)->recBuffer(info, true);
+}
+
+GstPadProbeReturn Channel::onRecAudio(GstPad*, GstPadProbeInfo* info, gpointer user) {
+    return static_cast<Channel*>(user)->recBuffer(info, false);
 }
 
 // Watek streamingu: tu wolno tylko odpiac i wyslac EOS; zmiany stanu robi watek GUI po EOS z muxera.

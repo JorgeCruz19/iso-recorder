@@ -378,7 +378,7 @@ void MainWindow::refreshCounts() {
     if (err) lg << item("#e0242b", T("ERROR %1").arg(err));
     m_legend->setText(lg.join(QStringLiteral("&nbsp;&nbsp;&nbsp;")));
     bool selRec = false;
-    for (Channel* c : m_mgr->selected()) selRec = selRec || c->isRecording();
+    for (Channel* c : m_mgr->selected()) selRec = selRec || (c->isRecording() && c->state() != ChannelState::Paused);
     m_btnTransport[0]->setLit(selRec);
     m_hint->setText(m_mgr->canAdd() ? QString() : T("Limit of 16 channels reached — adding sources is disabled"));
 }
@@ -402,7 +402,7 @@ void MainWindow::refreshRecording() {
 void MainWindow::transportSelected(Transport t) {
     if (t == Transport::Stop) {      // ochrona przed przypadkowym zatrzymaniem wielu nagran
         int rec = 0;
-        for (Channel* c : m_mgr->selected()) rec += c->state() == ChannelState::Recording ? 1 : 0;
+        for (Channel* c : m_mgr->selected()) rec += c->state() == ChannelState::Recording || c->state() == ChannelState::Paused ? 1 : 0;
         if (rec >= 2 && QMessageBox::question(this, QStringLiteral("ISO Recorder"),
                                               T("Stop recording on %1 channels?").arg(rec)) != QMessageBox::Yes)
             return;
@@ -513,6 +513,7 @@ void MainWindow::keyPressEvent(QKeyEvent* e) {
         break;
     case Qt::Key_D: if (ctrl) m_mgr->duplicateChannels(m_mgr->selected()); break;
     case Qt::Key_R: if (ch && !ctrl) m_mgr->transport(ch, Transport::Rec); break;
+    case Qt::Key_P: if (ch && !ctrl) m_mgr->transport(ch, Transport::Pause); break;
     case Qt::Key_S: if (ch && !ctrl) m_mgr->transport(ch, Transport::Stop); break;
     case Qt::Key_X: if (ch && !ctrl) m_mgr->transport(ch, Transport::Split); break;
     case Qt::Key_Up: if (ctrl) m_mgr->moveActive(-1); break;

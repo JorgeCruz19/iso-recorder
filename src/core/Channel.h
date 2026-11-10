@@ -8,6 +8,9 @@
 #include <QTimer>
 #include <array>
 #include <atomic>
+#include <mutex>
+#include <utility>
+#include <vector>
 
 #include <gst/app/gstappsink.h>
 #include <gst/gst.h>
@@ -66,7 +69,10 @@ public:
     QString errorText() const { return m_error; }
     bool isSelected() const { return m_selected; }
     void setSelected(bool on);
-    bool isRecording() const { return m_state == ChannelState::Recording || m_state == ChannelState::Finalizing; }
+    // "Nagrywa" = ma otwarty plik: takze w pauzie i w trakcie zamykania pliku.
+    bool isRecording() const {
+        return m_state == ChannelState::Recording || m_state == ChannelState::Paused || m_state == ChannelState::Finalizing;
+    }
     bool canEdit() const { return !isRecording(); }
 
     const QImage& frame() const { return m_frame; }
@@ -82,9 +88,11 @@ public:
     // Nagrywanie
     bool startRecording(const QString& session, int index);
     void stopRecording();
+    void pauseRecording();           // plik zostaje otwarty, klatki z czasu pauzy nie trafiaja do pliku
+    void resumeRecording();          // dalszy ciag w tym samym pliku, bez przerwy w znacznikach czasu
     void split();                    // zamknij biezacy plik i zacznij nastepny (na klatce kluczowej)
     int recordPart() const { return int(m_parts.size()); }
-    qint64 recordMs() const { return isRecording() ? m_recClock.elapsed() : 0; }
+    qint64 recordMs() const;         // czas nagranego materialu (bez pauz)
     QString recordFile() const { return m_recFile; }
     qint64 recordBytes() const { return m_recBytes; }
     double recordMbps() const { return m_recMbps; }
@@ -102,7 +110,10 @@ signals:
 private:
     static GstFlowReturn onSample(GstAppSink* sink, gpointer user);
     static GstBusSyncReply onBus(GstBus* bus, GstMessage* msg, gpointer user);
-    static GstPadProbeReturn onRecBuffer(GstPad* pad, GstPadProbeInfo* info, gpointer user);
+    static GstPadProbeReturn onRecVideo(GstPad* pad, GstPadProbeInfo* info, gpointer user);
+    static GstPadProbeReturn onRecAudio(GstPad* pad, GstPadProbeInfo* info, gpointer user);
+    GstPadProbeReturn recBuffer(GstPadProbeInfo* info, bool video);
+    gint64 runningTimeNow() const;
     static GstPadProbeReturn onStopBlock(GstPad* pad, GstPadProbeInfo* info, gpointer user);
     void setState(ChannelState s, const QString& error = {});
     void restart();
@@ -122,6 +133,21 @@ private:
     GstElement* m_recBin = nullptr;                    // watek GUI
     std::atomic<GstElement*> m_recBinShared{nullptr};  // do porownan w watkach streamingu
     std::atomic<gint64> m_recBase{0};                  // running-time poczatku nagrania
+    // Pauza (instrukcja_koncowa.md, 3.1). Wszystkie czasy w running-time pipeline'u, jeden muteks dla obrazu i dzwieku.
+    // Granice pauzy wyznacza klatka wideo: pierwsza odrzucona (startRt) i pierwsza przepuszczona po wznowieniu (resumeRt).
+    struct PauseState {
+        enum Phase { Run, PausePending, Paused, ResumePending };
+        std::mutex mutex;
+        Phase phase = Run;
+        gint64 reqRt = 0;          // chwila klikniecia Pause / Resume
+        gint64 startRt = 0;        // pierwsza odrzucona klatka wideo
+        gint64 resumeRt = 0;       // pierwsza klatka wideo po ostatnim wznowieniu
+        gint64 total = 0;          // suma pauz - odejmowana od znacznikow obrazu i dzwieku
+        bool audioDiscont = false;
+        std::vector<std::pair<gint64, gint64>> pauses;   // (polozenie w pliku, dlugosc) w ns
+    } m_pause;
+    qint64 m_pausedMs = 0;          // watek GUI: suma zakonczonych pauz (do licznika czasu)
+    QElapsedTimer m_pauseClock;
     GstPad* m_teeVideo = nullptr;
     GstPad* m_teeAudio = nullptr;
     QString m_recFile;

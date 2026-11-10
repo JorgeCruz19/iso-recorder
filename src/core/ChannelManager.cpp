@@ -128,9 +128,15 @@ void ChannelManager::invertSelection() {
 
 void ChannelManager::transport(Channel* ch, Transport t) {
     switch (t) {
-    case Transport::Rec: ch->startRecording(sessionForFiles(), indexOf(ch) + 1); break;
+    case Transport::Rec:        // w pauzie REC wznawia nagranie
+        if (ch->state() == ChannelState::Paused) ch->resumeRecording();
+        else ch->startRecording(sessionForFiles(), indexOf(ch) + 1);
+        break;
     case Transport::Stop: ch->stopRecording(); break;
-    case Transport::Pause: emit notice(T("Pause will be available from version %1").arg(QLatin1String(Roadmap::pause))); break;
+    case Transport::Pause:      // przelacznik: pauza / wznowienie
+        if (ch->state() == ChannelState::Paused) ch->resumeRecording();
+        else ch->pauseRecording();
+        break;
     case Transport::Split: ch->split(); break;
     }
 }
@@ -139,7 +145,12 @@ void ChannelManager::transportSelected(Transport t) {
     const QList<Channel*> sel = selected();
     if (sel.isEmpty()) return;
     if (t == Transport::Pause) {
-        transport(sel.first(), t);      // jeden komunikat zamiast n
+        // Grupa zachowuje sie jak jeden przycisk: jesli cokolwiek nagrywa - pauza tych kanalow, w przeciwnym razie wznowienie.
+        bool anyRec = false;
+        for (Channel* c : sel) anyRec = anyRec || c->state() == ChannelState::Recording;
+        for (Channel* c : sel) {
+            if (anyRec) c->pauseRecording(); else c->resumeRecording();
+        }
         return;
     }
     for (Channel* c : sel) transport(c, t);
@@ -156,7 +167,8 @@ void ChannelManager::checkDisks() {
         if (v.free < (1LL << 30)) {
             bool any = false;
             for (Channel* c : m_channels)
-                if (c->state() == ChannelState::Recording && DiskMonitor::rootFor(c->outputDir()) == v.root) {
+                if ((c->state() == ChannelState::Recording || c->state() == ChannelState::Paused) &&
+                    DiskMonitor::rootFor(c->outputDir()) == v.root) {
                     c->stopRecording();
                     any = true;
                 }

@@ -2,6 +2,25 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 1.0
+
+Pauza:
+- PAUSE na kaflu, w oknie dużego podglądu, dla zaznaczonych i pod klawiszem `P` wstrzymuje nagranie; ponowne PAUSE
+  albo REC wznawia je w tym samym pliku. STOP w pauzie kończy plik w miejscu, w którym zaczęła się pauza.
+- W pliku nie ma śladu pauzy: znaczniki czasu obrazu są ciągłe co do klatki, obraz i dźwięk dostają to samo
+  przesunięcie, więc pauzy nie rozsynchronizowują ich nawet po wielu powtórzeniach. Po wznowieniu od razu klatka kluczowa.
+- W miejscu cięcia dźwięk może mieć lukę do ok. 60 ms (jest przycinany do granic wyznaczonych przez klatki obrazu).
+- Kafel w pauzie ma bursztynową ramkę, podświetlony przycisk II i zatrzymany licznik; licznik czasu pokazuje
+  długość materiału bez pauz. Auto-split po czasie też liczy tylko nagrany materiał.
+- Dla zaznaczonych PAUSE działa jak jeden przycisk: jeśli którykolwiek kanał nagrywa — wstrzymuje nagrywające,
+  w przeciwnym razie wznawia wstrzymane.
+- Plik opisu (.json) ma listę pauz: położenie w pliku i długość każdej.
+
+Test: `tests\rec_test.ps1 -PauseAt S -PauseFor P [-PauseCount N]` — czas materiału, ciągłość znaczników obrazu
+i dźwięku, wspólny koniec obrazu i dźwięku, liczba pauz w opisie.
+
+Jeszcze nie ma: wspólnego momentu startu i pauzy wielu kanałów (kanały reagują po kolei), zapisu i wczytywania list.
+
 ## 0.9
 
 Okno dużego podglądu:

@@ -1,10 +1,13 @@
 # Test nagrywania na generatorach testowych: N kanalow nagrywa S sekund (C cykli), potem ffprobe sprawdza kazdy plik.
 # Uzycie:  tests\rec_test.ps1 [-Channels 4] [-Seconds 10] [-Cycles 1] [-SplitEvery 0] [-AutoSplit 0] [-Container mkv|ts]
-#                             [-Exe build\IsoRecorder.exe]
+#                             [-PauseAt 0] [-PauseFor 0] [-PauseCount 1] [-Exe build\IsoRecorder.exe]
 # -SplitEvery S : reczny split wszystkich kanalow co S sekund;  -AutoSplit S : auto-split co S sekund.
+# -PauseAt S -PauseFor P [-PauseCount N] : N pauz po P sekund, kazda po S sekundach nagrywania (Seconds liczy tez pauzy).
+#   Sprawdzane: czas materialu = Seconds - N*P, brak przerw i cofniec w znacznikach obrazu i dzwieku,
+#   koniec obrazu i dzwieku w tym samym miejscu, liczba pauz w pliku opisu.
 # Kod wyjscia 0 = wszystko poprawne.
 param([int]$Channels = 4, [int]$Seconds = 10, [int]$Cycles = 1, [int]$SplitEvery = 0, [int]$AutoSplit = 0,
-      [string]$Container = 'mkv', [string]$Exe)
+      [string]$Container = 'mkv', [int]$PauseAt = 0, [int]$PauseFor = 0, [int]$PauseCount = 1, [string]$Exe)
 $ErrorActionPreference = 'Stop'
 $inv = [cultureinfo]::InvariantCulture
 $root = Split-Path $PSScriptRoot
@@ -22,6 +25,9 @@ New-Item -ItemType Directory $out | Out-Null
 $a = @('--demo', $Channels, '--lang', 'en', '--out', $out, '--rec-test', $Seconds, '--cycles', $Cycles, '--container', $Container)
 if ($SplitEvery -gt 0) { $a += @('--split-every', $SplitEvery) }
 if ($AutoSplit -gt 0) { $a += @('--auto-split', $AutoSplit) }
+$pauses = 0
+if ($PauseAt -gt 0 -and $PauseFor -gt 0) { $pauses = $PauseCount; $a += @('--pause-at', $PauseAt, '--pause-for', $PauseFor, '--pause-count', $PauseCount) }
+$content = $Seconds - $pauses * $PauseFor      # ile sekund materialu ma byc w pliku
 $p = Start-Process $Exe -ArgumentList $a -PassThru
 if (-not $p.WaitForExit(($Seconds + 6) * $Cycles * 1000 + 60000)) { $p.Kill(); throw 'Program nie zakonczyl sie w oczekiwanym czasie.' }
 
@@ -32,7 +38,7 @@ $expected = $Channels * $Cycles
 if ($sidecars.Count -ne $expected) { "BLAD: nagran (plikow .json) $($sidecars.Count), oczekiwano $expected"; $fail++ }
 foreach ($sc in $sidecars) {
     $info = Get-Content $sc.FullName -Raw -Encoding utf8 | ConvertFrom-Json
-    $frames = 0; $total = 0.0; $bad = @()
+    $frames = 0; $total = 0.0; $bad = @(); $avMax = 0.0
     if (-not $info.clean) { $bad += 'nagranie nie zakonczone poprawnie' }
     if ($split -and $info.parts.Count -lt 2) { $bad += 'brak podzialu na czesci' }
     if (-not $split -and $info.parts.Count -ne 1) { $bad += "czesci: $($info.parts.Count)" }
@@ -49,15 +55,28 @@ foreach ($sc in $sidecars) {
             ForEach-Object { [double]::Parse($_.Trim(','), $inv) } | Sort-Object
         $gap = 0.0; for ($i = 1; $i -lt $pts.Count; $i++) { $d = $pts[$i] - $pts[$i - 1]; if ($d -gt $gap) { $gap = $d } }
         $frames += $pts.Count; $total += $dur
+        # dzwiek: znaczniki w kolejnosci zapisu nie moga sie cofac; przerwa najwyzej ok. 3 klatek (ciecie w miejscu pauzy)
+        $apts = ffprobe -v error -select_streams a:0 -show_entries packet=pts_time -of csv=p=0 $f |
+            ForEach-Object { [double]::Parse($_.Trim(','), $inv) }
+        $agap = 0.0; $aback = 0
+        for ($i = 1; $i -lt $apts.Count; $i++) { $d = $apts[$i] - $apts[$i - 1]; if ($d -gt $agap) { $agap = $d }; if ($d -lt 0) { $aback++ } }
+        if ($aback) { $bad += "$($part.file): znaczniki dzwieku cofaja sie ($aback)" }
+        if ($agap -ge 0.15) { $bad += "$($part.file): przerwa w dzwieku $agap s" }
+        if ($pts.Count -and $apts.Count) {
+            $avEnd = [math]::Abs($pts[$pts.Count - 1] - $apts[$apts.Count - 1])
+            if ($avEnd -ge 0.1) { $bad += "$($part.file): koniec obrazu i dzwieku rozni sie o $avEnd s" }
+            if ($avEnd -gt $avMax) { $avMax = $avEnd }
+        }
         if ($codecs -ne 'h264+aac') { $bad += "$($part.file): kodeki $codecs" }
         if ($first -ne '1') { $bad += "$($part.file): pierwsza klatka nie jest kluczowa" }
         if ($gap -ge 0.061) { $bad += "$($part.file): przerwa PTS $gap s" }
     }
     # suma klatek wszystkich czesci = czas nagrania (kanaly startuja po kolei, stad tolerancja w gore)
-    $minFrames = ($Seconds - 0.5) * 25; $maxFrames = ($Seconds + 2.5) * 25
+    $minFrames = ($content - 0.5) * 25; $maxFrames = ($content + 2.5) * 25
+    if (@($info.pauses).Count -ne $pauses) { $bad += "pauz w opisie: $(@($info.pauses).Count), oczekiwano $pauses" }
     if ($frames -lt $minFrames -or $frames -gt $maxFrames) { $bad += "klatek $frames, oczekiwano $minFrames..$maxFrames" }
     if ($bad.Count) { $fail++ }
-    '{0}  {1}  czesci={2} klatek={3} czas={4:N2}s  {5}' -f $(if ($bad.Count) { 'BLAD' } else { 'ok  ' }), $info.channel, $info.parts.Count, $frames, $total, ($bad -join '; ')
+    '{0}  {1}  czesci={2} klatek={3} czas={4:N2}s pauz={5} A/V koniec={6:N3}s  {7}' -f $(if ($bad.Count) { 'BLAD' } else { 'ok  ' }), $info.channel, $info.parts.Count, $frames, $total, @($info.pauses).Count, $avMax, ($bad -join '; ')
 }
 Remove-Item $out -Recurse -Force
 "Wynik: $($sidecars.Count - $fail) / $expected poprawnych"

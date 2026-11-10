@@ -67,8 +67,8 @@ bool ChannelTile::buttonLit(int i) const { return transportLit(m_ch->state(), i)
 bool ChannelTile::transportEnabled(ChannelState s, int i) {
     switch (s) {
     case ChannelState::Preview: case ChannelState::Waiting: return i == 0;
-    case ChannelState::Recording: case ChannelState::Reconnecting: return i >= 2;   // STOP i SPLIT; pauza w kolejnej wersji
-    case ChannelState::Paused: return i != 3;
+    case ChannelState::Recording: case ChannelState::Reconnecting: return i >= 1;   // PAUSE, STOP, SPLIT
+    case ChannelState::Paused: return i != 3;         // REC i PAUSE wznawiaja, STOP konczy
     default: return false;
     }
 }
@@ -160,7 +160,7 @@ void ChannelTile::paintEvent(QPaintEvent*) {
         p.fillRect(rr, chip);
         p.setRenderHint(QPainter::Antialiasing);
         p.setPen(Qt::NoPen);
-        p.setBrush(Theme::red);
+        p.setBrush(st == ChannelState::Paused ? Theme::amber : Theme::red);
         p.drawEllipse(QRectF(rr.left() + 6, rr.top() + 5, 7, 7));
         p.setRenderHint(QPainter::Antialiasing, false);
         p.setPen(Qt::white);
