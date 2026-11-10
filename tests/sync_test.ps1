@@ -3,7 +3,7 @@
 #   - wspolna chwila startu musi byc identyczna we wszystkich kanalach,
 #   - pierwsza zapisana klatka kazdego kanalu musi lezec nie dalej niz 1 klatke po starcie,
 #   - ostatnie zapisane klatki kanalow nie moga sie roznic o wiecej niz 1 klatke,
-#   - liczba klatek w plikach (ffprobe) nie moze sie roznic o wiecej niz 1,
+#   - liczba klatek w plikach (ffprobe) nie moze sie roznic o wiecej niz 1 (z pauza: 2),
 #   - przy pauzie: polozenie i dlugosc pauzy w kanalach rozni sie najwyzej o 1 klatke.
 # Uzycie:  tests\sync_test.ps1 [-Channels 16] [-Seconds 10] [-PauseAt 0] [-PauseFor 0] [-Exe build\IsoRecorder.exe]
 # Kod wyjscia 0 = wszystko poprawne.
@@ -43,7 +43,9 @@ Check 'wspolna chwila startu identyczna we wszystkich kanalach' (@($rows.Start |
 $fm = $rows.FirstMs | Measure-Object -Minimum -Maximum
 Check 'pierwsza klatka w ciagu 1 klatki od startu' ($fm.Minimum -ge 0 -and $fm.Maximum -le $frame + 1) ("({0:N1}..{1:N1} ms po starcie)" -f $fm.Minimum, $fm.Maximum)
 Check 'ostatnie klatki kanalow w odleglosci do 1 klatki' ((Spread $rows.LastMs) -le $frame + 1) "(rozrzut $(Spread $rows.LastMs) ms)"
-Check 'liczba klatek w plikach rozni sie najwyzej o 1' ((Spread $rows.Frames) -le 1) "($(($rows.Frames | Measure-Object -Minimum).Minimum)..$(($rows.Frames | Measure-Object -Maximum).Maximum) klatek)"
+# kazda granica (start, pauza, wznowienie, stop) moze wypasc o klatke inaczej w roznych kanalach: bez pauzy 1, z pauza 2
+$frameTol = if ($PauseAt -gt 0 -and $PauseFor -gt 0) { 2 } else { 1 }
+Check "liczba klatek w plikach rozni sie najwyzej o $frameTol" ((Spread $rows.Frames) -le $frameTol) "($(($rows.Frames | Measure-Object -Minimum).Minimum)..$(($rows.Frames | Measure-Object -Maximum).Maximum) klatek)"
 if ($PauseAt -gt 0 -and $PauseFor -gt 0) {
     $withPause = @($rows | Where-Object { $null -ne $_.PauseAtMs })
     Check 'pauza zapisana w kazdym kanale' ($withPause.Count -eq $Channels) "($($withPause.Count) z $Channels)"

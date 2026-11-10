@@ -23,7 +23,7 @@ Channel::Channel(const ChannelConfig& cfg, QObject* parent) : QObject(parent), m
     connect(&m_finalizeTimeout, &QTimer::timeout, this, [this] { finishRecording(false, T("finalization timed out")); });
     m_stopPoll.setInterval(15);
     connect(&m_stopPoll, &QTimer::timeout, this, [this] {
-        if ((m_stopSeenVideo && m_stopSeenAudio) || m_stopWait.elapsed() > 600) closeBranch();
+        if ((m_stopSeenVideo && m_stopSeenAudio) || m_stopWait.elapsed() > m_stopWaitMs) closeBranch();
     });
 }
 
@@ -236,7 +236,21 @@ QString Channel::formatText() const {
     return QStringLiteral("%1×%2p%3").arg(m_cfg.width).arg(m_cfg.height).arg(m_cfg.fps);
 }
 
+// Adres z pola ustawien -> URI zrodla. SRT: sam port = ten komputer czeka na nadawce (listener).
+QString Channel::networkUri() const {
+    const QString u = m_cfg.in.uri.trimmed();
+    if (m_cfg.in.type == QLatin1String("srt")) return srtUri(u);
+    return u.contains(QLatin1String("://")) ? u : QStringLiteral("rtsp://") + u;
+}
+
 QString Channel::sourceText() const {
+    if (m_cfg.in.isNetwork()) {
+        QString a = networkUri();
+        a = a.mid(a.indexOf(QLatin1String("://")) + 3);
+        if (a.contains(QLatin1Char('@'))) a = a.mid(a.indexOf(QLatin1Char('@')) + 1);     // bez loginu i hasla
+        if (a.contains(QLatin1Char('?'))) a = a.left(a.indexOf(QLatin1Char('?')));
+        return (m_cfg.in.type == QLatin1String("srt") ? QStringLiteral("SRT ") : QStringLiteral("RTSP ")) + a;
+    }
     if (m_cfg.in.type == QLatin1String("screen")) return T("Screen %1").arg(m_cfg.in.screenIndex + 1);
     if (m_cfg.in.type == QLatin1String("camera")) return m_cfg.in.cameraName.isEmpty() ? T("Camera") : m_cfg.in.cameraName;
     return T("Test generator");
@@ -262,6 +276,15 @@ QString Channel::sourceDescription() const {
         return QLatin1Char('"') + s.replace(QLatin1Char('\\'), QStringLiteral("\\\\")).replace(QLatin1Char('"'), QStringLiteral("\\\"")) + QLatin1Char('"');
     };
     const QString size = QStringLiteral("width=%1,height=%2,pixel-aspect-ratio=1/1").arg(m_cfg.width).arg(m_cfg.height);
+    if (m_cfg.in.isNetwork()) {
+        // fallbacksrc sam dekoduje strumien, a przy zaniku podaje czarny obraz i cisze i laczy sie ponownie -
+        // dalsza czesc pipeline'u (takze nagrywanie) nie widzi przerwy.
+        return QStringLiteral("fallbacksrc name=fs uri=%1 timeout=2000000000 restart-timeout=3000000000 retry-timeout=86400000000000 "
+                              "enable-dummy=true immediate-fallback=true "
+                              "fs. ! queue ! videoconvertscale add-borders=true ! videorate ! video/x-raw,%2,framerate=%3/1 ! identity name=vguard ! tee name=tv "
+                              "fs. ! queue ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! identity name=aguard ")
+            .arg(quoted(networkUri()), size).arg(m_cfg.fps);
+    }
     QString video;
     if (m_cfg.in.type == QLatin1String("screen")) {
         video = QStringLiteral("d3d11screencapturesrc monitor-index=%1 show-cursor=true ! capsfilter caps=\"video/x-raw(memory:D3D11Memory),framerate=%2/1\" "
@@ -284,7 +307,8 @@ QString Channel::sourceDescription() const {
         audio = QStringLiteral("audiotestsrc is-live=true wave=%1 volume=%2")
                     .arg(silent ? 4 : m_cfg.audioWave).arg(QString::number(m_cfg.audioVolume, 'f', 3));
     }
-    return video + QStringLiteral(" ! tee name=tv ") + audio + QStringLiteral(" ! audio/x-raw,rate=48000,channels=2 ");
+    return video + QStringLiteral(" ! identity name=vguard ! tee name=tv ") + audio +
+           QStringLiteral(" ! audio/x-raw,rate=48000,channels=2 ! identity name=aguard ");
 }
 
 void Channel::startPreview() {
@@ -312,6 +336,19 @@ void Channel::startPreview() {
     // EOS galezi nagrywania nie moze czekac na EOS calego pipeline'u (podglad gra dalej) -
     // pipeline przekazuje go od razu jako komunikat "GstBinForwarded".
     g_object_set(m_pipeline, "message-forward", TRUE, nullptr);
+    // Oslona zrodla: dopiecie galezi nagrywania albo wyjscia do tee wysyla w gore zdarzenie RECONFIGURE. Format za zrodlem
+    // jest staly, wiec renegocjacja nic nie zmienia, a zrodla sieciowe (RTSP) potrafia przez nia zerwac strumien.
+    for (const char* guard : {"vguard", "aguard"}) {
+        if (GstElement* el = gst_bin_get_by_name(GST_BIN(m_pipeline), guard)) {
+            GstPad* src = gst_element_get_static_pad(el, "src");
+            gst_pad_add_probe(src, GST_PAD_PROBE_TYPE_EVENT_UPSTREAM,
+                [](GstPad*, GstPadProbeInfo* info, gpointer) -> GstPadProbeReturn {
+                    return GST_EVENT_TYPE(GST_PAD_PROBE_INFO_EVENT(info)) == GST_EVENT_RECONFIGURE ? GST_PAD_PROBE_DROP : GST_PAD_PROBE_OK;
+                }, nullptr, nullptr);
+            gst_object_unref(src);
+            gst_object_unref(el);
+        }
+    }
     // Jeden zegar dla wszystkich kanalow (nie zegar urzadzenia audio) - warunek wspolnego startu, pauzy i stopu grupy.
     GstClock* sys = gst_system_clock_obtain();
     gst_pipeline_use_clock(GST_PIPELINE(m_pipeline), sys);
@@ -333,6 +370,8 @@ void Channel::startPreview() {
         setState(ChannelState::Error, T("cannot start the preview"));
         return;
     }
+    m_signalLost = false;
+    m_signalSeen = false;
     setState(ChannelState::Preview);
     attachLive();
 }
@@ -449,6 +488,9 @@ bool Channel::startRecording(const QString& session, int index) {
     GstPad* vqSink = gst_element_get_static_pad(vq, "sink");
     GstPad* aqSink = gst_element_get_static_pad(aq, "sink");
     // Znaczniki czasu sa przesuwane tak, zeby plik zaczynal sie od zera - wspolna baza dla obrazu i dzwieku.
+    m_recHaveSeg[0] = m_recHaveSeg[1] = false;
+    gst_pad_add_probe(vqSink, GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM, &Channel::onRecVideoEvent, this, nullptr);
+    gst_pad_add_probe(aqSink, GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM, &Channel::onRecAudioEvent, this, nullptr);
     gst_pad_add_probe(vqSink, GST_PAD_PROBE_TYPE_BUFFER, &Channel::onRecVideo, this, nullptr);
     gst_pad_add_probe(aqSink, GST_PAD_PROBE_TYPE_BUFFER, &Channel::onRecAudio, this, nullptr);
     GstPad* ghostV = gst_ghost_pad_new("video_sink", vqSink);
@@ -472,6 +514,8 @@ bool Channel::startRecording(const QString& session, int index) {
     m_firstVideoRt = -1;
     m_lastVideoRt = -1;
     m_recStartClock = 0;
+    m_recLosses = 0;
+    m_recLostMs = 0;
     {
         std::lock_guard<std::mutex> lock(m_pause.mutex);
         m_pause.phase = PauseState::Run;
@@ -537,9 +581,20 @@ void Channel::stopRecording(quint64 clockNs) {
     if (m_state == ChannelState::Paused) m_pausedMs += m_pauseClock.elapsed();    // Stop w pauzie: plik konczy sie na poczatku pauzy
     setState(ChannelState::Finalizing);
     // Zrodla sprzetowe (zwlaszcza dzwiek z WASAPI) oddaja dane z opoznieniem: galaz zamykamy dopiero wtedy, gdy obraz
-    // i dzwiek doszly do chwili Stop (sondy odrzucaja wszystko od tej chwili), najpozniej po 600 ms.
+    // i dzwiek doszly do chwili Stop (sondy odrzucaja wszystko od tej chwili), najpozniej po 2 s + latencja zrodla (limit ma znaczenie tylko przy przeciazeniu).
     m_stopSeenVideo = false;
     m_stopSeenAudio = false;
+    // zrodla z buforem (RTSP: 2 s) oddaja klatki z opoznieniem rownym latencji pipeline'u - tyle dluzej czekamy
+    m_stopWaitMs = 2000;        // limit; zwykle obraz i dzwiek dochodza do chwili Stop w kilkadziesiat ms
+    GstQuery* q = gst_query_new_latency();
+    if (gst_element_query(m_pipeline, q)) {
+        GstClockTime minLat = 0;
+        gst_query_parse_latency(q, nullptr, &minLat, nullptr);
+        if (GST_CLOCK_TIME_IS_VALID(minLat)) m_stopWaitMs += qMin<qint64>(qint64(minLat / GST_MSECOND), 4000);
+    }
+    gst_query_unref(q);
+    // zrodla sieciowe nie zawsze zglaszaja swoj bufor w zapytaniu o latencje - dla nich czekamy co najmniej 3 s
+    if (m_cfg.in.isNetwork()) m_stopWaitMs = qMax<qint64>(m_stopWaitMs, 3000);
     m_stopWait.start();
     m_stopPoll.start();
 }
@@ -675,6 +730,8 @@ void Channel::writeSidecar(bool clean, const QString& reason) const {
         {QStringLiteral("clean"), clean},
         {QStringLiteral("stopReason"), reason},
         {QStringLiteral("pauses"), pauses},
+        {QStringLiteral("signalLosses"), m_recLosses},
+        {QStringLiteral("signalLostMs"), double(m_recLostMs + (m_signalLost && m_recLosses > 0 ? m_lostClock.elapsed() : 0))},
         {QStringLiteral("parts"), parts}};
     QFile f(m_recSidecar);
     if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) f.write(QJsonDocument(root).toJson());
@@ -718,6 +775,54 @@ void Channel::finishRecording(bool clean, const QString& reason) {
     emit recordingFinished(file, clean);
 }
 
+// Stan zrodla sieciowego. Do pierwszego sygnalu po starcie kanalu to "laczenie", potem kazda przerwa to zanik sygnalu.
+void Channel::pollSource() {
+    if (!m_pipeline || !m_cfg.in.isNetwork()) return;
+    GstElement* fs = gst_bin_get_by_name(GST_BIN(m_pipeline), "fs");
+    if (!fs) return;
+    // Miara zaniku: czy do pipeline'u idzie obraz zastepczy. Wlasciwosc "status" elementu fallbacksrc tego nie mowi
+    // (zrodlo czekajace na polaczenie tez jest "running"), wiec pytamy wewnetrzne przelaczniki: wejscie glowne ma
+    // priorytet 0, zastepcze - wyzszy.
+    bool lost = false;
+    int switches = 0;
+    GstIterator* it = gst_bin_iterate_recurse(GST_BIN(fs));
+    GValue item = G_VALUE_INIT;
+    while (gst_iterator_next(it, &item) == GST_ITERATOR_OK) {
+        GstElement* el = GST_ELEMENT(g_value_get_object(&item));
+        GstElementFactory* f = gst_element_get_factory(el);
+        if (f && g_strcmp0(GST_OBJECT_NAME(f), "fallbackswitch") == 0) {
+            ++switches;
+            GstPad* active = nullptr;
+            g_object_get(el, "active-pad", &active, nullptr);
+            guint prio = 1;
+            if (active) {
+                g_object_get(active, "priority", &prio, nullptr);
+                gst_object_unref(active);
+            }
+            lost = lost || prio > 0;
+        }
+        g_value_reset(&item);
+    }
+    g_value_unset(&item);
+    gst_iterator_free(it);
+    gst_object_unref(fs);
+    if (switches == 0) lost = true;     // zrodlo jeszcze sie nie zbudowalo
+    if (!lost) m_signalSeen = true;
+    if (lost == m_signalLost) return;
+    m_signalLost = lost;
+    if (lost) {
+        m_lostClock.start();
+        if (m_signalSeen) {
+            if (isRecording()) ++m_recLosses;
+            emit notice(T("%1: signal lost — reconnecting").arg(m_cfg.name));
+        }
+    } else {
+        if (isRecording() && m_recLosses > 0) m_recLostMs += m_lostClock.elapsed();
+        emit notice(T("%1: signal restored").arg(m_cfg.name));
+    }
+    emit changed();
+}
+
 void Channel::pollRecording() {
     if (m_recFile.isEmpty()) return;
     const qint64 size = m_closedBytes + QFileInfo(m_recFile).size();
@@ -740,14 +845,44 @@ void Channel::pollRecording() {
     if (isRecording()) emit changed();
 }
 
-// Watek streamingu. Zalozenie tej wersji: PTS == running-time (zrodla "live" z segmentem od zera);
-// wejscia z innym segmentem beda tu przeliczane przez gst_segment_to_running_time.
+// Watek streamingu. Zrodlo moze w kazdej chwili zaczac nowy segment (zrodla sieciowe robia to po ponownym polaczeniu),
+// wiec galaz zapisu ma wlasna os czasu: segment zrodla jest zapamietywany i zastepowany stalym segmentem od zera,
+// a znaczniki buforow sa przeliczane segmentem zrodla na running-time i zapisywane jako czas od poczatku nagrania.
+GstPadProbeReturn Channel::recEvent(GstPadProbeInfo* info, bool video) {
+    GstEvent* ev = GST_PAD_PROBE_INFO_EVENT(info);
+    if (GST_EVENT_TYPE(ev) != GST_EVENT_SEGMENT) return GST_PAD_PROBE_OK;
+    const GstSegment* s = nullptr;
+    gst_event_parse_segment(ev, &s);
+    const int i = video ? 0 : 1;
+    m_recHaveSeg[i] = s && s->format == GST_FORMAT_TIME;
+    if (m_recHaveSeg[i]) m_recSeg[i] = *s;
+    GstSegment clean;
+    gst_segment_init(&clean, GST_FORMAT_TIME);
+    GstEvent* replacement = gst_event_new_segment(&clean);
+    gst_event_set_seqnum(replacement, gst_event_get_seqnum(ev));
+    gst_event_unref(ev);
+    GST_PAD_PROBE_INFO_DATA(info) = replacement;
+    return GST_PAD_PROBE_OK;
+}
+
+GstPadProbeReturn Channel::onRecVideoEvent(GstPad*, GstPadProbeInfo* info, gpointer user) {
+    return static_cast<Channel*>(user)->recEvent(info, true);
+}
+
+GstPadProbeReturn Channel::onRecAudioEvent(GstPad*, GstPadProbeInfo* info, gpointer user) {
+    return static_cast<Channel*>(user)->recEvent(info, false);
+}
+
 // Znacznik w pliku = running-time - poczatek nagrania - suma pauz; ta sama suma dla obrazu i dzwieku.
 GstPadProbeReturn Channel::recBuffer(GstPadProbeInfo* info, bool video) {
     GstBuffer* buf = GST_PAD_PROBE_INFO_BUFFER(info);
     const gint64 base = m_recBase.load();
-    if (!GST_BUFFER_PTS_IS_VALID(buf) || gint64(GST_BUFFER_PTS(buf)) < base) return GST_PAD_PROBE_DROP;
-    const gint64 rt = gint64(GST_BUFFER_PTS(buf));
+    if (!GST_BUFFER_PTS_IS_VALID(buf)) return GST_PAD_PROBE_DROP;
+    const int si = video ? 0 : 1;
+    const GstClockTime rtc = m_recHaveSeg[si] ? gst_segment_to_running_time(&m_recSeg[si], GST_FORMAT_TIME, GST_BUFFER_PTS(buf))
+                                              : GST_BUFFER_PTS(buf);
+    if (!GST_CLOCK_TIME_IS_VALID(rtc) || gint64(rtc) < base) return GST_PAD_PROBE_DROP;
+    const gint64 rt = gint64(rtc);
     if (rt >= m_stopRt.load()) {                                 // po wspolnej chwili Stop
         (video ? m_stopSeenVideo : m_stopSeenAudio) = true;
         return GST_PAD_PROBE_DROP;

@@ -1,6 +1,6 @@
 ﻿cmake_minimum_required(VERSION 3.24)
-project(IsoRecorder VERSION 1.5.0 LANGUAGES CXX)
-set(APP_VERSION_SHORT "1.5")
+project(IsoRecorder VERSION 1.6.0 LANGUAGES CXX)
+set(APP_VERSION_SHORT "1.6")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -34,3 +34,15 @@ target_compile_definitions(IsoRecorder PRIVATE
     UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN
     APP_VERSION="${APP_VERSION_SHORT}")
 target_compile_options(IsoRecorder PRIVATE /W4 /permissive- /utf-8 /MP)
+
+# Narzedzie testowe: maly serwer RTSP (tests\net_test.ps1). Nie trafia do paczki.
+if(EXISTS "${GST_ROOT}/include/gstreamer-1.0/gst/rtsp-server/rtsp-server.h")
+    add_executable(rtsp_test_server tests/tools/rtsp_test_server.cpp)
+    target_include_directories(rtsp_test_server PRIVATE
+        "${GST_ROOT}/include/gstreamer-1.0"
+        "${GST_ROOT}/include/glib-2.0"
+        "${GST_ROOT}/lib/glib-2.0/include")
+    target_link_directories(rtsp_test_server PRIVATE "${GST_ROOT}/lib")
+    target_link_libraries(rtsp_test_server PRIVATE gstrtspserver-1.0 gstreamer-1.0 gobject-2.0 glib-2.0)
+    target_compile_options(rtsp_test_server PRIVATE /utf-8)
+endif()

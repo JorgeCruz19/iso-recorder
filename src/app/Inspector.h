@@ -36,6 +36,7 @@ private:
     QLineEdit* m_name;
     QComboBox* m_type;
     QComboBox* m_device;
+    QLineEdit* m_uri;
     void fillDevices(const QString& type);
     void commitInput();
     QComboBox* m_pattern;

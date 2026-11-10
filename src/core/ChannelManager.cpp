@@ -17,7 +17,10 @@
 ChannelManager::ChannelManager(QObject* parent) : QObject(parent) {
     m_poll.setInterval(1000);
     connect(&m_poll, &QTimer::timeout, this, [this] {
-        for (Channel* c : m_channels) c->pollRecording();
+        for (Channel* c : m_channels) {
+            c->pollSource();
+            c->pollRecording();
+        }
         checkDisks();
         emit statsChanged();
     });
@@ -232,6 +235,7 @@ QJsonObject channelToJson(const Channel* ch) {
         {QStringLiteral("name"), c.name},
         {QStringLiteral("selected"), ch->isSelected()},
         {QStringLiteral("input"), QJsonObject{{QStringLiteral("type"), c.in.type},
+                                              {QStringLiteral("uri"), c.in.uri},
                                               {QStringLiteral("screenIndex"), c.in.screenIndex},
                                               {QStringLiteral("cameraPath"), c.in.cameraPath},
                                               {QStringLiteral("cameraName"), c.in.cameraName},
@@ -265,7 +269,9 @@ ChannelConfig channelFromJson(const QJsonObject& j, int number) {
     if (c.name.isEmpty()) c.name = QStringLiteral("CH %1").arg(number);
     const QJsonObject in = j.value(QStringLiteral("input")).toObject();
     const QString it = in.value(QStringLiteral("type")).toString();
-    c.in.type = it == QLatin1String("screen") || it == QLatin1String("camera") ? it : QStringLiteral("test");
+    c.in.type = it == QLatin1String("screen") || it == QLatin1String("camera") || it == QLatin1String("srt") || it == QLatin1String("rtsp")
+                    ? it : QStringLiteral("test");
+    c.in.uri = in.value(QStringLiteral("uri")).toString();
     c.in.screenIndex = qBound(0, in.value(QStringLiteral("screenIndex")).toInt(), 15);
     c.in.cameraPath = in.value(QStringLiteral("cameraPath")).toString();
     c.in.cameraName = in.value(QStringLiteral("cameraName")).toString();

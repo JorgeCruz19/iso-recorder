@@ -42,7 +42,7 @@ protected:
             p.drawImage(vid, img);
         }
         const ChannelState st = m_ch->state();
-        if (st == ChannelState::Error || st == ChannelState::Idle || st == ChannelState::Reconnecting) {
+        if (st == ChannelState::Error || st == ChannelState::Idle || st == ChannelState::Reconnecting || m_ch->signalLost()) {
             p.fillRect(vid, QColor(0, 0, 0, 158));
             p.setPen(Qt::white);
             p.setFont(Theme::font(22, QFont::Bold, 1));

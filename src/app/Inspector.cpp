@@ -128,11 +128,11 @@ QWidget* Inspector::buildInputPage() {
     m_type->addItem(T("Test generator"), QStringLiteral("test"));
     m_type->addItem(T("Screen grab"), QStringLiteral("screen"));
     m_type->addItem(T("Camera (UVC, capture card)"), QStringLiteral("camera"));
+    m_type->addItem(QStringLiteral("SRT"), QStringLiteral("srt"));
+    m_type->addItem(QStringLiteral("RTSP"), QStringLiteral("rtsp"));
     const int firstFuture = m_type->count();
     const struct { QString name; const char* from; } types[] = {
         {QStringLiteral("HDMI — Blackmagic DeckLink"), Roadmap::ndiDecklink},
-        {QStringLiteral("SRT"), Roadmap::network},
-        {QStringLiteral("RTSP"), Roadmap::network},
         {QStringLiteral("NDI"), Roadmap::ndiDecklink},
         {QStringLiteral("WebRTC WHEP"), Roadmap::webrtc},
         {QStringLiteral("WebRTC WHIP"), Roadmap::webrtc}};
@@ -142,6 +142,8 @@ QWidget* Inspector::buildInputPage() {
     row(g, T("Input type"), m_type);
     m_device = new QComboBox;
     row(g, T("Device"), m_device);
+    m_uri = new QLineEdit;
+    row(g, T("Address"), m_uri);
     m_pattern = new QComboBox;
     const struct { const char* name; int id; } patterns[] = {
         {"SMPTE bars", 0}, {"SMPTE bars 75%", 13}, {"SMPTE bars 100%", 19}, {"Ball", 18}, {"Pinwheel", 21},
@@ -189,6 +191,7 @@ QWidget* Inspector::buildInputPage() {
     });
     connect(m_wave, &QComboBox::activated, this, &Inspector::commitInput);
     connect(m_device, &QComboBox::activated, this, &Inspector::commitInput);
+    connect(m_uri, &QLineEdit::editingFinished, this, &Inspector::commitInput);
     connect(m_type, &QComboBox::activated, this, [this](int i) {
         fillDevices(m_type->itemData(i).toString());
         commitInput();
@@ -362,6 +365,7 @@ void Inspector::commitInput() {
         in.cameraPath = dev.value(0);
         in.cameraName = dev.value(1);
     }
+    in.uri = m_uri->text().trimmed();
     const QStringList au = m_wave->currentData().toStringList();
     in.audioType = au.value(0, QStringLiteral("test"));
     in.audioDevice = au.value(1);
@@ -440,7 +444,15 @@ void Inspector::refresh() {
         if ((in.type == QLatin1String("screen") && id.toInt() == in.screenIndex) || (in.type == QLatin1String("camera") && id == in.cameraPath)) devIndex = i;
     }
     m_device->setCurrentIndex(devIndex);
-    m_device->setEnabled(in.type != QLatin1String("test"));
+    m_device->setEnabled(in.type == QLatin1String("screen") || in.type == QLatin1String("camera"));
+    if (!m_uri->hasFocus()) m_uri->setText(in.uri);
+    m_uri->setEnabled(in.isNetwork());
+    m_uri->setPlaceholderText(in.type == QLatin1String("srt") ? QStringLiteral("host:9000   |   :9000")
+                              : in.type == QLatin1String("rtsp") ? QStringLiteral("rtsp://host:554/stream") : QString());
+    m_uri->setToolTip(in.type == QLatin1String("srt")
+        ? T("host:9000 — this computer connects to the sender;  :9000 — this computer waits for the sender on port 9000")
+        : in.type == QLatin1String("rtsp") ? T("rtsp://host:554/stream — use rtspt:// to force TCP") : QString());
+    m_wave->setEnabled(!in.isNetwork());      // dzwiek pochodzi ze strumienia
     m_pattern->setEnabled(in.type == QLatin1String("test"));
     int auIndex = 0;
     for (int i = 0; i < m_wave->count(); ++i) {

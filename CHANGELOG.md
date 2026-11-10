@@ -2,6 +2,30 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 1.6
+
+Wejścia sieciowe (zakładka Input):
+- Input type: SRT albo RTSP, adres w polu Address. SRT: `host:9000` — program łączy się z nadajnikiem, `:9000` —
+  program czeka na nadajnik na porcie 9000. RTSP: `rtsp://host:554/stream` (`rtspt://` wymusza TCP).
+- Strumień jest dekodowany i wpisywany w format kanału jak każde inne źródło; dźwięk pochodzi ze strumienia.
+- Zanik sygnału nie przerywa pracy kanału ani nagrania: przez ok. 2–3 s stoi ostatnia klatka, potem idzie czarny
+  obraz i cisza, a program sam łączy się ponownie. Kafel pokazuje RECONNECTING, pasek stanu — komunikat o zaniku
+  i o powrocie sygnału. Nagranie pozostaje jednym, poprawnie zamkniętym plikiem.
+- Plik opisu (.json) podaje liczbę zaników sygnału w nagraniu i ich łączny czas.
+
+Nagrywanie:
+- Gałąź zapisu ma własną oś czasu, niezależną od segmentów źródła (źródło sieciowe po ponownym połączeniu zaczyna
+  nową) — bez tego po powrocie sygnału enkoder odrzucał klatki przez kilka sekund.
+- Stop czeka na zaległe klatki do 2 s (plus bufor źródła sieciowego), zamiast 0,6 s — przy chwilowym przeciążeniu
+  końcówka kanału mogła być krótsza.
+
+Test: `tests\net_test.ps1 -Type srt|rtsp [-NoBreak]` — lokalny nadajnik (ffmpeg albo `build\rtsp_test_server.exe`)
+jest w trakcie nagrania zatrzymywany i uruchamiany ponownie.
+
+Ograniczenia: RTSP ma ok. 2 s opóźnienia (bufor) i przy ponownym połączeniu zostawia w znacznikach czasu lukę
+ok. 1,9 s; SRT przechodzi zanik bez luki. Nie ma jeszcze: zapisu bez ponownego kodowania (passthrough — osobna
+pozycja planu, 1.7), SRT z hasłem, wyboru innej reakcji na zanik (pauza, nowa część), haseł RTSP poza adresem.
+
 ## 1.5
 
 Wejścia lokalne (zakładka Input):

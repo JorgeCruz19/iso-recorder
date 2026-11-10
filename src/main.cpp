@@ -44,6 +44,7 @@
 //   Zmienna ISOREC_PROFILE=nazwa: osobny profil ustawien i autozapisu (testy nie dotykaja prawdziwych ustawien).
 //   --container ts|mkv    kontener dla kanalow --demo
 //   --input screen [--audio loopback|device|none]  kanaly --demo biora obraz z ekranu (kolejne monitory) i dzwiek z WASAPI
+//   --input srt|rtsp --uri adres   kanaly --demo odbieraja strumien sieciowy (wszystkie ten sam adres)
 //   --live ndi|srt [port] wyjscie na zywo dla kanalow --demo: NDI o nazwie "ISO <kanal>" albo SRT na portach port+1, port+2...
 //   --auto-split S        auto-split co S sekund dla kanalow --demo
 //   --split-every S       w --rec-test: reczny split wszystkich kanalow co S sekund
@@ -193,6 +194,14 @@ int main(int argc, char* argv[]) {
             const int at = int(args.indexOf(QLatin1String(name)));
             return at >= 0 && at + 1 < args.size() ? args.at(at + 1) : QString();
         };
+        if (argAfter("--input") == QLatin1String("srt") || argAfter("--input") == QLatin1String("rtsp")) {
+            for (Channel* c : manager.channels()) {
+                InputConfig in = c->config().in;
+                in.type = argAfter("--input");
+                in.uri = argAfter("--uri");
+                c->setInput(in);
+            }
+        }
         if (argAfter("--input") == QLatin1String("screen") || !argAfter("--audio").isEmpty()) {
             int i = 0;
             for (Channel* c : manager.channels()) {

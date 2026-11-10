@@ -48,7 +48,9 @@ struct RecordPart {
 
 // Zrodlo obrazu i dzwieku kanalu.
 struct InputConfig {
-    QString type = QStringLiteral("test");        // "test" generator, "screen" ekran, "camera" kamera (Media Foundation)
+    QString type = QStringLiteral("test");        // "test" generator, "screen" ekran, "camera" kamera, "srt", "rtsp"
+    QString uri;                                  // srt / rtsp: adres strumienia
+    bool isNetwork() const { return type == QLatin1String("srt") || type == QLatin1String("rtsp"); }
     int screenIndex = 0;                          // ekran: numer monitora
     QString cameraPath;                           // kamera: sciezka urzadzenia
     QString cameraName;
@@ -134,6 +136,10 @@ public:
     QString encoderName() const { return m_encoderName; }
     bool encoderIsHardware() const { return m_encoderHw; }
     void pollRecording();    // co 1 s: rozmiar plikow, biezacy bitrate, zapelnienie kolejki zapisu
+    void pollSource();       // co 1 s: stan zrodla sieciowego (zanik i powrot sygnalu)
+    // Zrodlo sieciowe nie podaje sygnalu: kanal gra dalej (czarny obraz, cisza), nagranie trwa, zrodlo laczy sie ponownie.
+    bool signalLost() const { return m_signalLost; }
+    QString networkUri() const;
 
 signals:
     void frameChanged();
@@ -148,6 +154,9 @@ private:
     static GstBusSyncReply onBus(GstBus* bus, GstMessage* msg, gpointer user);
     static GstPadProbeReturn onRecVideo(GstPad* pad, GstPadProbeInfo* info, gpointer user);
     static GstPadProbeReturn onRecAudio(GstPad* pad, GstPadProbeInfo* info, gpointer user);
+    static GstPadProbeReturn onRecVideoEvent(GstPad* pad, GstPadProbeInfo* info, gpointer user);
+    static GstPadProbeReturn onRecAudioEvent(GstPad* pad, GstPadProbeInfo* info, gpointer user);
+    GstPadProbeReturn recEvent(GstPadProbeInfo* info, bool video);
     GstPadProbeReturn recBuffer(GstPadProbeInfo* info, bool video);
     gint64 runningTimeNow() const;
     gint64 toRunning(quint64 clockNs) const;     // czas zegara -> running-time tego pipeline'u
@@ -170,6 +179,11 @@ private:
     std::array<double, 2> m_level{0.0, 0.0};
     GstElement* m_pipeline = nullptr;
     bool m_largePreview = false;
+    bool m_signalLost = false;
+    bool m_signalSeen = false;              // zrodlo sieciowe podalo sygnal przynajmniej raz od startu kanalu
+    int m_recLosses = 0;                    // zaniki sygnalu w trakcie biezacego nagrania
+    qint64 m_recLostMs = 0;
+    QElapsedTimer m_lostClock;
     bool m_liveFailed = false;              // wyjscie na zywo zglosilo blad - wylaczone do zmiany ustawien
     std::atomic<int> m_gen{0};              // numer kolejnego pipeline'u (komunikaty ze starego sa ignorowane)
     GstElement* m_liveBin = nullptr;                    // watek GUI
@@ -187,10 +201,15 @@ private:
     std::atomic<gint64> m_firstVideoRt{-1};            // pierwsza i ostatnia klatka, ktora trafila do pliku
     std::atomic<gint64> m_lastVideoRt{-1};
     quint64 m_recStartClock = 0;                       // wspolna chwila startu (czas zegara)
+    // Segmenty zrodla na wejsciu galezi zapisu (osobno obraz i dzwiek). Czytane i pisane tylko w watku streamingu
+    // danego pada: zdarzenia i bufory jednego pada ida tym samym watkiem.
+    GstSegment m_recSeg[2];
+    bool m_recHaveSeg[2] = {false, false};
     std::atomic<bool> m_stopSeenVideo{false};          // obraz / dzwiek doszly juz do chwili Stop
     std::atomic<bool> m_stopSeenAudio{false};
     QTimer m_stopPoll;
     QElapsedTimer m_stopWait;
+    qint64 m_stopWaitMs = 600;
     void closeBranch();
     // Pauza (instrukcja_koncowa.md, 3.1). Wszystkie czasy w running-time pipeline'u, jeden muteks dla obrazu i dzwieku.
     // Granice pauzy wyznacza klatka wideo: pierwsza odrzucona (startRt) i pierwsza przepuszczona po wznowieniu (resumeRt).
