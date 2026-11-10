@@ -16,7 +16,8 @@ if (-not $gst) { $gst = "$env:LOCALAPPDATA\Programs\gstreamer\1.0\msvc_x86_64" }
 $gst = $gst.TrimEnd('\')
 if (-not (Test-Path "$gst\bin\gstreamer-1.0-0.dll")) { throw "Nie znaleziono GStreamera w $gst" }
 
-if (Test-Path $dist) { Remove-Item $dist -Recurse -Force }
+# Czyscimy zawartosc, nie sam katalog - bywa otwarty w Eksploratorze i wtedy nie da sie go usunac.
+if (Test-Path $dist) { Get-ChildItem $dist -Force | Remove-Item -Recurse -Force }
 New-Item -ItemType Directory -Force $dist, "$dist\gstreamer-1.0", "$dist\gio\modules" | Out-Null
 
 Copy-Item "$root\build\IsoRecorder.exe" $dist
