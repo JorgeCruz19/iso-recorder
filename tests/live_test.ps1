@@ -37,7 +37,7 @@ for ($i = 1; $i -le $Channels; $i++) {
         $log = Join-Path $out "ndi_$i.log"
         $env:GST_DEBUG = 'ndireceiver:5'; $env:GST_DEBUG_NO_COLOR = '1'
         $r = Start-Process "$gstBin\gst-launch-1.0.exe" -ArgumentList "ndisrc ndi-name=`"$name`" timeout=10000 ! fakesink" `
-            -PassThru -WindowStyle Hidden -RedirectStandardError $log
+            -PassThru -WindowStyle Hidden -RedirectStandardError $log -RedirectStandardOutput "$log.out"
         if (-not $r.WaitForExit(9000)) { $r.Kill() }
         $env:GST_DEBUG = $null; $env:GST_DEBUG_NO_COLOR = $null
         $v = @(Select-String -Path $log -Pattern 'Received video frame').Count
