@@ -2,6 +2,16 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 1.9
+
+Widok listy:
+- Miniatury są większe. Wysokość wiersza wynika z miejsca: 16 kanałów (maksimum) mieści się bez przewijania,
+  a przy mniejszej liczbie wiersze i miniatury rosną (przy 8 kanałach miniatura ma ok. 135×76 zamiast 64×36).
+- W nagłówku, nad polami zaznaczenia, jest pole „zaznacz wszystkie”: klik zaznacza wszystkie kanały, a gdy wszystkie
+  są zaznaczone — odznacza. Kreska w polu oznacza, że zaznaczona jest część.
+- W nagłówku, nad przyciskami wierszy, są przyciski REC / II / STOP / SPLIT działające na zaznaczone kanały
+  (te same reguły co w panelu Selected channels: wspólna chwila, pytanie przed zatrzymaniem kilku nagrań).
+
 ## 1.8
 
 Widok listy:

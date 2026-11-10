@@ -1,6 +1,7 @@
 #include "ChannelList.h"
 
 #include <QContextMenuEvent>
+#include <functional>
 #include <QInputDialog>
 #include <QLabel>
 #include <QMenu>
@@ -16,7 +17,7 @@
 namespace {
 const char* const kBtn[4] = {"REC", "II", "STOP", "SPLIT"};
 const int kBtnW[4] = {38, 30, 44, 46};
-const int HeaderH = 24;
+const int HeaderH = 34;
 
 QString stateText(const Channel* ch) {
     if (ch->signalLost() && ch->state() != ChannelState::Error) return T("RECONNECTING");
@@ -40,10 +41,23 @@ QColor stateColor(const Channel* ch) {
     }
 }
 
-// Naglowek kolumn - malowany tak samo liczonymi pozycjami co wiersze.
+QRect headerButtonRect(const ListColumns& c, int i, int h) {
+    int x = c.buttons;
+    for (int k = 0; k < i; ++k) x += kBtnW[k] + 3;
+    return QRect(x, (h - 22) / 2, kBtnW[i], 22);
+}
+
+// Naglowek kolumn - malowany tak samo liczonymi pozycjami co wiersze. Nad polami zaznaczenia ma pole
+// "zaznacz wszystkie", a nad przyciskami wierszy - te same przyciski dzialajace na zaznaczone kanaly.
 class HeaderRow : public QWidget {
 public:
-    using QWidget::QWidget;
+    HeaderRow(ChannelManager* mgr, QWidget* parent) : QWidget(parent), m_mgr(mgr) {
+        connect(mgr, &ChannelManager::selectionChanged, this, qOverload<>(&QWidget::update));
+        connect(mgr, &ChannelManager::listChanged, this, qOverload<>(&QWidget::update));
+        setMouseTracking(true);
+    }
+    int thumbW = 64;
+    std::function<void(Transport)> onTransport;
 
 protected:
     void paintEvent(QPaintEvent*) override {
@@ -51,12 +65,33 @@ protected:
         p.fillRect(rect(), QColor(0x26, 0x26, 0x26));
         p.setPen(QColor(0x15, 0x15, 0x15));
         p.drawLine(0, height() - 1, width(), height() - 1);
-        const ListColumns c = ListColumns::forWidth(width());
+        const ListColumns c = ListColumns::forWidth(width(), thumbW);
+        const int n = m_mgr->count(), sel = m_mgr->selectedCount();
+
+        // zaznacz wszystkie: pelne = wszystkie, kreska = czesc, puste = zaden
+        const QRect box(c.sel, (height() - 18) / 2, 18, 18);
+        p.setRenderHint(QPainter::Antialiasing);
+        const bool all = n > 0 && sel == n;
+        p.setOpacity(n > 0 ? 1.0 : 0.35);
+        p.setPen(QPen(all ? Qt::white : QColor(0xcf, 0xcf, 0xcf), 1.5));
+        p.setBrush(all ? QColor(Qt::white) : QColor(0, 0, 0, 150));
+        p.drawRect(QRectF(box).adjusted(0.5, 0.5, -0.5, -0.5));
+        if (all) {
+            p.setPen(QPen(Qt::black, 2.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+            const QPointF o = box.topLeft();
+            p.drawPolyline(QPolygonF() << o + QPointF(4, 9.5) << o + QPointF(7.5, 13) << o + QPointF(14, 5));
+        } else if (sel > 0) {
+            p.setPen(QPen(QColor(0xcf, 0xcf, 0xcf), 2.4, Qt::SolidLine, Qt::RoundCap));
+            p.drawLine(QPointF(box.left() + 4.5, box.center().y() + 0.5), QPointF(box.right() - 3.5, box.center().y() + 0.5));
+        }
+        p.setOpacity(1.0);
+        p.setRenderHint(QPainter::Antialiasing, false);
+
         p.setFont(Theme::font(10, QFont::Bold, 0.4));
         p.setPen(Theme::t3);
-        auto text = [&](int x, int x2, const QString& s) {
+        auto text = [&](int x, int x2, const QString& str) {
             p.drawText(QRect(x, 0, x2 - x - 6, height()), Qt::AlignVCenter | Qt::AlignLeft,
-                       p.fontMetrics().elidedText(s.toUpper(), Qt::ElideRight, x2 - x - 6));
+                       p.fontMetrics().elidedText(str.toUpper(), Qt::ElideRight, x2 - x - 6));
         };
         text(c.num, c.thumb, QStringLiteral("#"));
         text(c.name, c.source, T("Channel name"));
@@ -67,28 +102,75 @@ protected:
         text(c.rate, c.live, QStringLiteral("Mb/s"));
         text(c.live, c.meter, T("Live output"));
         text(c.meter, c.buttons, QStringLiteral("Audio"));
+
+        // przyciski dla zaznaczonych - wyglad jak w wierszach; REC swieci, gdy ktorys z zaznaczonych nagrywa
+        bool selRec = false;
+        for (const Channel* ch : m_mgr->selected()) selRec = selRec || ch->state() == ChannelState::Recording;
+        p.setRenderHint(QPainter::Antialiasing);
+        for (int i = 0; i < 4; ++i) {
+            p.setOpacity(sel > 0 ? 1.0 : 0.35);
+            QColor back(0x4a, 0x4a, 0x4a), border(0x12, 0x12, 0x12), fg(0xe6, 0xe6, 0xe6);
+            if (i == 0) fg = QColor(0xff, 0x6d, 0x70);
+            if (i == 0 && selRec) { back = Theme::red; border = QColor(0x8a, 0x14, 0x18); fg = Qt::white; }
+            const QRect r = headerButtonRect(c, i, height());
+            p.setPen(border);
+            p.setBrush(back);
+            p.drawRoundedRect(QRectF(r).adjusted(0.5, 0.5, -0.5, -0.5), 2, 2);
+            p.setPen(fg);
+            p.setFont(Theme::font(10, QFont::Bold, 0.5));
+            p.drawText(r, Qt::AlignCenter, QLatin1String(kBtn[i]));
+        }
+        p.setOpacity(1.0);
     }
+
+    void mousePressEvent(QMouseEvent* e) override {
+        if (e->button() != Qt::LeftButton) return;
+        const QPoint pt = e->position().toPoint();
+        const ListColumns c = ListColumns::forWidth(width(), thumbW);
+        if (pt.x() < c.num) {                   // zaznacz wszystkie / odznacz wszystkie
+            if (m_mgr->count() > 0 && m_mgr->selectedCount() == m_mgr->count()) m_mgr->selectNone();
+            else m_mgr->selectAll();
+            return;
+        }
+        for (int i = 0; i < 4; ++i)
+            if (headerButtonRect(c, i, height()).adjusted(0, -5, 0, 5).contains(pt)) {
+                if (m_mgr->selectedCount() > 0 && onTransport) onTransport(Transport(i));
+                return;
+            }
+    }
+
+    void mouseMoveEvent(QMouseEvent* e) override {
+        const QPoint pt = e->position().toPoint();
+        const ListColumns c = ListColumns::forWidth(width(), thumbW);
+        QString tip;
+        if (pt.x() < c.num) tip = m_mgr->count() > 0 && m_mgr->selectedCount() == m_mgr->count() ? T("NONE") : T("ALL");
+        else if (pt.x() >= c.buttons && pt.x() < c.close) tip = T("Selected channels (%1)").arg(m_mgr->selectedCount());
+        setToolTip(tip);
+    }
+
+private:
+    ChannelManager* m_mgr;
 };
 }  // namespace
 
 // Kolumny o stalej szerokosci stoja po bokach, nazwa i zrodlo dziela reszte (40% / 60%).
-ListColumns ListColumns::forWidth(int w) {
+ListColumns ListColumns::forWidth(int w, int thumbW) {
     ListColumns c{};
     c.sel = 10;
     c.num = 38;
     c.thumb = 66;
-    c.name = c.thumb + 64 + 12;
+    c.name = c.thumb + thumbW + 12;
     c.end = w;
     c.close = w - 28;
     c.buttons = c.close - (kBtnW[0] + kBtnW[1] + kBtnW[2] + kBtnW[3] + 3 * 3) - 8;
     c.meter = c.buttons - 110;
-    c.live = c.meter - 124;
+    c.live = c.meter - 116;
     c.rate = c.live - 56;
-    c.time = c.rate - 104;
-    c.state = c.time - 112;
-    c.format = c.state - 92;
+    c.time = c.rate - 92;
+    c.state = c.time - 104;
+    c.format = c.state - 88;
     const int flex = qMax(120, c.format - c.name);
-    c.source = c.name + flex * 2 / 5;
+    c.source = c.name + flex / 2;
     return c;
 }
 
@@ -101,7 +183,9 @@ ChannelList::ChannelList(ChannelManager* mgr, QWidget* parent) : QScrollArea(par
     m_inner = new QWidget;
     m_inner->setObjectName(QStringLiteral("listInner"));
     setWidget(m_inner);
-    m_header = new HeaderRow(m_inner);
+    auto* header = new HeaderRow(mgr, m_inner);
+    header->onTransport = [this](Transport t) { emit transportSelectedRequested(t); };
+    m_header = header;
     m_hint = new QLabel(T("No channels") + QStringLiteral("\n\n") + T("ADD SOURCE adds a channel (max. 16)"), m_inner);
     m_hint->setAlignment(Qt::AlignCenter);
     m_hint->setStyleSheet(QStringLiteral("color:#6e6e6e; background:transparent; font-size:14px;"));
@@ -132,11 +216,18 @@ void ChannelList::rebuild() {
 
 void ChannelList::relayout() {
     const QSize vp = viewport()->size();
-    const int h = HeaderH + int(m_rows.size()) * ChannelRow::RowH;
-    m_inner->resize(vp.width(), qMax(vp.height(), h));
+    const int avail = qMax(0, vp.height() - HeaderH);
+    const int n = int(m_rows.size());
+    // 16 kanalow ma sie zmiescic bez przewijania; mniej kanalow = wyzsze wiersze i wieksze miniatury
+    const int rowH = qBound(ChannelRow::MinRowH, avail / qMax(n, 1), ChannelRow::MaxRowH);
+    const int fit16 = qMax(ChannelRow::MinRowH, avail / ChannelManager::MaxChannels);
+    const int h = n > 0 ? qMax(rowH, qMin(fit16, ChannelRow::MaxRowH)) : rowH;
+    static_cast<HeaderRow*>(m_header)->thumbW = ChannelRow::thumbWidthFor(h);
+    m_inner->resize(vp.width(), qMax(vp.height(), HeaderH + n * h));
     m_header->setGeometry(0, 0, vp.width(), HeaderH);
-    m_hint->setGeometry(0, HeaderH, vp.width(), qMax(0, vp.height() - HeaderH));
-    for (int i = 0; i < m_rows.size(); ++i) m_rows[i]->setGeometry(0, HeaderH + i * ChannelRow::RowH, vp.width(), ChannelRow::RowH);
+    m_header->update();
+    m_hint->setGeometry(0, HeaderH, vp.width(), avail);
+    for (int i = 0; i < n; ++i) m_rows[i]->setGeometry(0, HeaderH + i * h, vp.width(), h);
 }
 
 // ---------------------------------------------------------------- wiersz
@@ -158,7 +249,7 @@ QRect ChannelRow::buttonRect(const ListColumns& c, int i) const {
 
 void ChannelRow::paintEvent(QPaintEvent*) {
     QPainter p(this);
-    const ListColumns c = ListColumns::forWidth(width());
+    const ListColumns c = ListColumns::forWidth(width(), thumbWidthFor(height()));
     const bool active = m_mgr->active() == m_ch;
     const bool selected = m_ch->isSelected();
     const ChannelState st = m_ch->state();
@@ -190,7 +281,8 @@ void ChannelRow::paintEvent(QPaintEvent*) {
     text(c.num, c.thumb, QStringLiteral("%1").arg(m_number, 2, 10, QLatin1Char('0')), active ? Theme::orange : Theme::t2, Theme::font(12, QFont::Bold));
 
     // miniatura 16:9 z ramka stanu
-    const QRect th(c.thumb, (height() - 36) / 2, 64, 36);
+    const int thH = height() - 8, thW = thumbWidthFor(height());
+    const QRect th(c.thumb, 4, thW, thH - 1);
     p.fillRect(th, Qt::black);
     if (!m_ch->frame().isNull()) {
         p.setRenderHint(QPainter::SmoothPixmapTransform);
@@ -258,7 +350,7 @@ void ChannelRow::paintEvent(QPaintEvent*) {
 void ChannelRow::mousePressEvent(QMouseEvent* e) {
     if (e->button() != Qt::LeftButton) return;
     const QPoint pt = e->position().toPoint();
-    const ListColumns c = ListColumns::forWidth(width());
+    const ListColumns c = ListColumns::forWidth(width(), thumbWidthFor(height()));
     if (pt.x() >= c.close) {
         if (ChannelTile::confirmRemove(this, {m_ch})) m_mgr->removeChannel(m_ch);
         return;
@@ -279,7 +371,7 @@ void ChannelRow::mousePressEvent(QMouseEvent* e) {
 void ChannelRow::mouseDoubleClickEvent(QMouseEvent* e) {
     if (e->button() != Qt::LeftButton) return;
     const int x = e->position().toPoint().x();
-    const ListColumns c = ListColumns::forWidth(width());
+    const ListColumns c = ListColumns::forWidth(width(), thumbWidthFor(height()));
     if (x >= c.thumb && x < c.name) {                 // miniatura = duzy podglad
         PreviewDialog::open(m_mgr, m_ch, m_number, window());
     } else if (x >= c.name && x < c.source) {         // nazwa = zmiana nazwy

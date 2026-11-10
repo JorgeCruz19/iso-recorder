@@ -92,6 +92,7 @@ MainWindow::MainWindow(ChannelManager* mgr, QWidget* parent) : QWidget(parent), 
     rv->addWidget(m_inspector, 1);
     rv->addWidget(buildControlPanel());
     m_list = new ChannelList(mgr);
+    connect(m_list, &ChannelList::transportSelectedRequested, this, &MainWindow::transportSelected);
     m_views = new QStackedWidget;
     m_views->addWidget(m_grid);
     m_views->addWidget(m_list);
