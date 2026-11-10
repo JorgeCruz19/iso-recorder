@@ -3,6 +3,7 @@
 #include <QWidget>
 
 class Channel;
+enum class ChannelState;
 class ChannelManager;
 
 // Kafel kanalu - jeden widget malowany w calosci QPainterem (bez widgetow potomnych).
@@ -26,6 +27,9 @@ protected:
 
 public:
     Channel* channel() const { return m_ch; }
+    // Czy przycisk transportu i (0 REC, 1 PAUSE, 2 STOP, 3 SPLIT) jest dostepny / podswietlony w danym stanie kanalu.
+    static bool transportEnabled(ChannelState s, int i);
+    static bool transportLit(ChannelState s, int i);
 
 signals:      // przeciaganie kafla = zmiana kolejnosci; obsluguje je siatka
     void dragStarted();

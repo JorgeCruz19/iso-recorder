@@ -61,8 +61,11 @@ ChannelTile::Rects ChannelTile::rects() const {
     return r;
 }
 
-bool ChannelTile::buttonEnabled(int i) const {
-    switch (m_ch->state()) {
+bool ChannelTile::buttonEnabled(int i) const { return transportEnabled(m_ch->state(), i); }
+bool ChannelTile::buttonLit(int i) const { return transportLit(m_ch->state(), i); }
+
+bool ChannelTile::transportEnabled(ChannelState s, int i) {
+    switch (s) {
     case ChannelState::Preview: case ChannelState::Waiting: return i == 0;
     case ChannelState::Recording: case ChannelState::Reconnecting: return i >= 2;   // STOP i SPLIT; pauza w kolejnej wersji
     case ChannelState::Paused: return i != 3;
@@ -70,8 +73,7 @@ bool ChannelTile::buttonEnabled(int i) const {
     }
 }
 
-bool ChannelTile::buttonLit(int i) const {
-    const ChannelState s = m_ch->state();
+bool ChannelTile::transportLit(ChannelState s, int i) {
     return (i == 0 && (s == ChannelState::Recording || s == ChannelState::Reconnecting || s == ChannelState::Finalizing)) ||
            (i == 1 && s == ChannelState::Paused);
 }
@@ -267,7 +269,7 @@ void ChannelTile::mouseDoubleClickEvent(QMouseEvent* e) {
     m_pressed = false;
     if (!r.label.contains(pt)) {        // dwuklik w obraz (poza polem zaznaczenia) = duzy podglad
         if (r.vid.contains(pt) && !r.selBox.adjusted(-5, -5, 5, 5).contains(pt) && e->button() == Qt::LeftButton)
-            PreviewDialog::open(m_ch, m_number, window());
+            PreviewDialog::open(m_mgr, m_ch, m_number, window());
         return;
     }
     bool ok = false;

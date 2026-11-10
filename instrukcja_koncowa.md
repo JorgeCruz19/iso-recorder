@@ -214,7 +214,7 @@ Jeden widget, całość malowana w `paintEvent` (`QPainter`), bez widgetów poto
 - **Kanały zaznaczone** (dowolnie wiele; cel przycisków Selected channels): białe, pełne pole wyboru 18 px z czarnym znakiem i jaśniejszy pasek pod kadrem.
 - **Nakładki**: pole zaznaczenia (lewy górny), format `1080p50` (dla proporcji innych niż 16:9: `1024×768p25`), czas nagrania z kropką stanu (prawy górny; przy zaplanowanym starcie „START 11:00”), miernik audio pionowy 2 słupki (prawa krawędź), etykieta `NN NAZWA` (dół, środek), komunikat pełnoekranowy (`RECONNECTING`, `NO SIGNAL`, `BŁĄD`) z przyciemnieniem i odbarwieniem obrazu.
 - **Pasek** 26 px: `REC` `II` `STOP` `SPLIT` (podświetlenie i wyszarzenie wg stanu), opis źródła, uchwyt `⋮⋮`, `✕`.
-- **Mysz**: klik w obraz = kanał aktywny (inspektor); klik w pole zaznaczenia = zaznaczenie; Ctrl+klik = przełącz zaznaczenie; Shift+klik = zakres; dwuklik w etykietę = zmiana nazwy; przeciąganie kafla (za obraz lub pasek, poza przyciskami) = zmiana kolejności — półprzezroczysta kopia idzie za kursorem, pomarańczowa kreska pokazuje miejsce wstawienia, upuszczenie poza siatką anuluje; dwuklik w obraz = okno dużego podglądu (ok. 80% ekranu: obraz, nazwa, stan, czas nagrania, mierniki audio; zamyka je Esc lub dwuklik).
+- **Mysz**: klik w obraz = kanał aktywny (inspektor); klik w pole zaznaczenia = zaznaczenie; Ctrl+klik = przełącz zaznaczenie; Shift+klik = zakres; dwuklik w etykietę = zmiana nazwy; przeciąganie kafla (za obraz lub pasek, poza przyciskami) = zmiana kolejności — półprzezroczysta kopia idzie za kursorem, pomarańczowa kreska pokazuje miejsce wstawienia, upuszczenie poza siatką anuluje; dwuklik w obraz = okno dużego podglądu (ok. 80% ekranu: obraz, nazwa, stan, czas nagrania, przyciski REC / PAUSE / STOP / SPLIT, mierniki audio; zamyka je Esc lub dwuklik).
 - **Klawiatura** (kanał aktywny): `R` Rec, `P` Pause/Resume, `S` Stop, `X` Split, `Del` usuń, `Ctrl+↑/↓` przesuń, strzałki = zmiana aktywnego; `Ctrl+A` zaznacz wszystkie; z `Shift` — to samo dla zaznaczonych (`Shift+R` itd.).
 
 ### 5.3 Inspektor
@@ -298,13 +298,14 @@ Każda wersja: działający program, commit, tag, push. Kryterium = to, co da si
 | **0.6** | Split ręczny i automatyczny (czas/rozmiar), numeracja części, plik opisu JSON, MPEG‑TS; monitor wolumenów, okno Disks i test prędkości zapisu (5.6, 5.7) | **wydana** — `tests\rec_test.ps1 -SplitEvery/-AutoSplit/-Container` |
 | **0.7** | Zmiana kolejności kanałów przeciąganiem kafla (znacznik miejsca wstawienia, anulowanie poza siatką) | **wydana** — `--drag-test A B` |
 | **0.8** | Duży podgląd kanału po dwukliku w obraz: okno ok. 80% ekranu, nazwa, stan, czas nagrania, mierniki audio; podgląd 1280×720 na czas otwarcia | **wydana** — `--shot-big K plik.png` |
-| **0.9** | Pauza wg 3.1 | test z 3.1 |
-| **1.0** | Sesja i listy (5.5): zapis/wczytanie, autosave, ostatnie pliki; operacje grupowe ze wspólnym `T` | 16 × testsrc startuje w ±1 klatce; lista wraca identyczna po wczytaniu |
-| **1.1** | Inspektor Input/Output w pełni edytowalny; wejścia lokalne: Screen grab (DXGI/WGC), UVC/MF, WASAPI (urządzenie, loopback) | nagranie ekranu z dźwiękiem systemowym |
-| **1.2** | SRT, RTSP, passthrough, `fallbacksrc` + polityka zaniku sygnału, stan RECONNECTING | SRT/RTSP z lokalnego `ffmpeg`/MediaMTX; zerwanie i powrót strumienia bez utraty pliku |
-| **1.3** | NDI (discovery), DeckLink; kodeki H.265/AV1/ProRes/DNxHR wg dostępności; MOV/MP4 robust | NDI z NDI Tools; DeckLink — niesprawdzone na sprzęcie |
-| **1.4** | Scheduler (reguły, catch‑up, DST), blokada uśpienia, logi rotowane, widok Lista, folder zapasowy | testy jednostkowe schedulera; kontrolowany Stop przy braku miejsca |
-| **1.5** | WHEP, WHIP, magazyn poświadczeń, odzyskiwanie po awarii, instalator Inno Setup | instalacja na czystym Windows; test 24 h |
+| **0.9** | Przyciski REC / PAUSE / STOP / SPLIT w oknie dużego podglądu | **wydana** — `--shot-big K plik.png --big-rec` |
+| **1.0** | Pauza wg 3.1 | test z 3.1 |
+| **1.1** | Sesja i listy (5.5): zapis/wczytanie, autosave, ostatnie pliki; operacje grupowe ze wspólnym `T` | 16 × testsrc startuje w ±1 klatce; lista wraca identyczna po wczytaniu |
+| **1.2** | Inspektor Input/Output w pełni edytowalny; wejścia lokalne: Screen grab (DXGI/WGC), UVC/MF, WASAPI (urządzenie, loopback) | nagranie ekranu z dźwiękiem systemowym |
+| **1.3** | SRT, RTSP, passthrough, `fallbacksrc` + polityka zaniku sygnału, stan RECONNECTING | SRT/RTSP z lokalnego `ffmpeg`/MediaMTX; zerwanie i powrót strumienia bez utraty pliku |
+| **1.4** | NDI (discovery), DeckLink; kodeki H.265/AV1/ProRes/DNxHR wg dostępności; MOV/MP4 robust | NDI z NDI Tools; DeckLink — niesprawdzone na sprzęcie |
+| **1.5** | Scheduler (reguły, catch‑up, DST), blokada uśpienia, logi rotowane, widok Lista, folder zapasowy | testy jednostkowe schedulera; kontrolowany Stop przy braku miejsca |
+| **1.6** | WHEP, WHIP, magazyn poświadczeń, odzyskiwanie po awarii, instalator Inno Setup | instalacja na czystym Windows; test 24 h |
 
 Każda runda poprawek po uwagach właściciela dostaje własny numer, więc pozycje poniżej bieżącej wersji przesuwają się o jedną. Numery wersji, od których zapowiadane funkcje będą dostępne, są w kodzie w jednym miejscu: `Roadmap` w `src/core/Lang.h`.
 
@@ -333,5 +334,5 @@ iso-recorder/
 
 ## 8. Otwarte pytania do właściciela projektu
 
-1. Docelowy sprzęt nagrywający (GPU, karty HDMI) — od tego zależy, czy 1.3 (DeckLink) i profil 16 kanałów da się w ogóle potwierdzić.
-2. Czy WHIP jako serwer w aplikacji jest wymagany, czy wystarczy WHEP + SRT/RTSP (wtedy 1.5 jest wyraźnie prostsze).
+1. Docelowy sprzęt nagrywający (GPU, karty HDMI) — od tego zależy, czy 1.4 (DeckLink) i profil 16 kanałów da się w ogóle potwierdzić.
+2. Czy WHIP jako serwer w aplikacji jest wymagany, czy wystarczy WHEP + SRT/RTSP (wtedy 1.6 jest wyraźnie prostsze).

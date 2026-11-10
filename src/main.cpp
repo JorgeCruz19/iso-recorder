@@ -17,6 +17,7 @@
 #include "app/MainWindow.h"
 #include "app/PreviewDialog.h"
 #include "app/Theme.h"
+#include "app/Widgets.h"
 #include "core/ChannelManager.h"
 #include "core/DiskTest.h"
 #include "core/EnvCheck.h"
@@ -35,7 +36,8 @@
 //   --split-every S       w --rec-test: reczny split wszystkich kanalow co S sekund
 //   --drag-test A B [plik] przeciagniecie kafla A na miejsce kafla B (numery od 1) zdarzeniami myszy;
 //                         kolejnosc kanalow na stdout, opcjonalny zrzut okna w trakcie przeciagania
-//   --shot-big N plik.png zrzut okna duzego podgladu kanalu N (od 1), otwartego dwuklikiem w kafel
+//   --shot-big N plik.png zrzut okna duzego podgladu kanalu N (od 1), otwartego dwuklikiem w kafel;
+//                         z --big-rec: przed zrzutem klikniecie REC w oknie, po zrzucie STOP (stan kanalu na stdout)
 //   --disk-test folder [S] test predkosci zapisu (domyslnie 10 s), wynik na stdout
 // Paczka samodzielna: gdy obok EXE lezy katalog gstreamer-1.0\, GStreamer bierze wtyczki tylko stamtad
 // (instalacja systemowa jest ignorowana), a rejestr wtyczek trafia do %LOCALAPPDATA%\IsoRecorder.
@@ -209,15 +211,33 @@ int main(int argc, char* argv[]) {
                                   Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
                     QApplication::sendEvent(t, &e);
                 }
-                QTimer::singleShot(2500, &manager, [&w, path] {
+                const bool rec = QApplication::arguments().contains(QStringLiteral("--big-rec"));
+                auto press = [&w](int i) {
+                    PreviewDialog* d = w->findChild<PreviewDialog*>();
+                    const QList<KeyButton*> b = d ? d->findChildren<KeyButton*>() : QList<KeyButton*>();
+                    if (i < b.size()) b.at(i)->click();
+                };
+                auto report = [&manager, n](const char* when) {
+                    if (n < 0 || n >= manager.count()) return;
+                    const QByteArray line = QStringLiteral("%1: state=%2\n").arg(QLatin1String(when)).arg(int(manager.channels().at(n)->state())).toUtf8();
+                    fwrite(line.constData(), 1, size_t(line.size()), stdout);
+                };
+                if (rec) QTimer::singleShot(500, &manager, [press] { press(0); });
+                QTimer::singleShot(rec ? 4500 : 2500, &manager, [&w, path, rec, press, report] {
                     PreviewDialog* dlg = w->findChild<PreviewDialog*>();
+                    if (rec) report("after REC");
                     const QByteArray line = dlg ? QStringLiteral("%1x%2\n").arg(dlg->width()).arg(dlg->height()).toUtf8()
                                                 : QByteArray("no dialog\n");
                     fwrite(line.constData(), 1, size_t(line.size()), stdout);
                     fflush(stdout);
                     if (dlg) dlg->grab().save(path);
-                    if (dlg) dlg->close();
-                    QTimer::singleShot(1500, w.get(), [] { QApplication::quit(); });
+                    if (rec) press(2);
+                    QTimer::singleShot(rec ? 2500 : 300, w.get(), [&w, rec, report] {
+                        if (rec) report("after STOP");
+                        fflush(stdout);
+                        if (PreviewDialog* d = w->findChild<PreviewDialog*>()) d->close();
+                        QTimer::singleShot(1200, w.get(), [] { QApplication::quit(); });
+                    });
                 });
             });
         }

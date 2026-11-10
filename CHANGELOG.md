@@ -2,6 +2,16 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 0.9
+
+Okno dużego podglądu:
+- Pod obrazem są przyciski REC / PAUSE / STOP / SPLIT dla tego kanału, obok mierniki audio.
+- Przyciski są dostępne i podświetlane według tych samych reguł co na kaflu (PAUSE zadziała od wersji z pauzą).
+
+Test: `IsoRecorder.exe --demo N --shot-big K zrzut.png --big-rec` klika REC i STOP w oknie.
+
+Plan: pauza przechodzi do 1.0, sesja i listy do 1.1, dalsze pozycje o jedną wersję.
+
 ## 0.8
 
 Duży podgląd:

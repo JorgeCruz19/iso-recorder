@@ -1,13 +1,17 @@
 #include "PreviewDialog.h"
 
 #include <QGuiApplication>
+#include <QHBoxLayout>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QScreen>
 #include <QVBoxLayout>
 
+#include "ChannelTile.h"
 #include "Theme.h"
 #include "Widgets.h"
 #include "core/Channel.h"
+#include "core/ChannelManager.h"
 #include "core/Lang.h"
 
 namespace {
@@ -108,16 +112,17 @@ QPointer<PreviewDialog> g_open;
 
 }  // namespace
 
-void PreviewDialog::open(Channel* ch, int number, QWidget* parent) {
+void PreviewDialog::open(ChannelManager* mgr, Channel* ch, int number, QWidget* parent) {
     if (g_open) g_open->close();
     if (!ch) return;
-    g_open = new PreviewDialog(ch, number, parent);
+    g_open = new PreviewDialog(mgr, ch, number, parent);
     g_open->show();
     g_open->raise();
     g_open->activateWindow();
 }
 
-PreviewDialog::PreviewDialog(Channel* ch, int number, QWidget* parent) : QDialog(parent), m_ch(ch), m_number(number) {
+PreviewDialog::PreviewDialog(ChannelManager* mgr, Channel* ch, int number, QWidget* parent)
+    : QDialog(parent), m_ch(ch), m_number(number) {
     setAttribute(Qt::WA_DeleteOnClose);
     setWindowFlag(Qt::WindowContextHelpButtonHint, false);
     setStyleSheet(QStringLiteral("QDialog { background:#0b0b0b; }"));
@@ -126,9 +131,29 @@ PreviewDialog::PreviewDialog(Channel* ch, int number, QWidget* parent) : QDialog
     v->setContentsMargins(0, 0, 0, 0);
     v->setSpacing(0);
     v->addWidget(new BigView(ch, number, this), 1);
-    auto* meters = new MeterPane(this);
+    // pasek pod obrazem: przyciski transportu tego kanalu, obok mierniki audio
+    auto* bar = new QWidget(this);
+    bar->setAttribute(Qt::WA_StyledBackground);
+    bar->setObjectName(QStringLiteral("bigBar"));
+    bar->setStyleSheet(QStringLiteral("#bigBar { background:#2a2a2a; }"));
+    auto* h = new QHBoxLayout(bar);
+    h->setContentsMargins(12, 8, 0, 8);
+    h->setSpacing(6);
+    const struct { const char* text; KeyButton::Glyph g; } tr[4] = {
+        {"REC", KeyButton::Dot}, {"PAUSE", KeyButton::PauseBars}, {"STOP", KeyButton::Square}, {"SPLIT", KeyButton::Cut}};
+    for (int i = 0; i < 4; ++i) {
+        m_btn[i] = new KeyButton(QLatin1String(tr[i].text), tr[i].g, false, bar);
+        m_btn[i]->setFixedWidth(104);
+        connect(m_btn[i], &QAbstractButton::clicked, this, [this, mgr, i] {
+            if (m_ch) mgr->transport(m_ch, Transport(i));
+        });
+        h->addWidget(m_btn[i]);
+    }
+    m_btn[0]->setRed(true);
+    auto* meters = new MeterPane(bar);
     meters->setChannel(ch);
-    v->addWidget(meters);
+    h->addWidget(meters, 1);
+    v->addWidget(bar);
 
     // ok. 80% ekranu, na ktorym jest okno programu
     QScreen* scr = parent && parent->screen() ? parent->screen() : QGuiApplication::primaryScreen();
@@ -136,9 +161,9 @@ PreviewDialog::PreviewDialog(Channel* ch, int number, QWidget* parent) : QDialog
     resize(area.width() * 8 / 10, area.height() * 8 / 10);
     move(area.center() - QPoint(width() / 2, height() / 2));
 
-    connect(ch, &Channel::changed, this, &PreviewDialog::refreshTitle);
+    connect(ch, &Channel::changed, this, &PreviewDialog::refresh);
     connect(ch, &QObject::destroyed, this, &QWidget::close);      // kanal usuniety - okno znika
-    refreshTitle();
+    refresh();
     ch->setLargePreview(true);
 }
 
@@ -146,11 +171,17 @@ PreviewDialog::~PreviewDialog() {
     if (m_ch) m_ch->setLargePreview(false);
 }
 
-void PreviewDialog::refreshTitle() {
+void PreviewDialog::refresh() {
     if (!m_ch) return;
+    for (int i = 0; i < 4; ++i) {
+        m_btn[i]->setEnabled(ChannelTile::transportEnabled(m_ch->state(), i));
+        m_btn[i]->setLit(ChannelTile::transportLit(m_ch->state(), i));
+    }
     setWindowTitle(QStringLiteral("%1  %2 — ISO Recorder").arg(m_number, 2, 10, QLatin1Char('0')).arg(m_ch->config().name));
 }
 
-void PreviewDialog::mouseDoubleClickEvent(QMouseEvent*) {
+void PreviewDialog::mouseDoubleClickEvent(QMouseEvent* e) {
+    // dwuklik w pasek z przyciskami i miernikami nie zamyka okna
+    if (const QWidget* bar = findChild<QWidget*>(QStringLiteral("bigBar")); bar && bar->geometry().contains(e->position().toPoint())) return;
     close();
 }

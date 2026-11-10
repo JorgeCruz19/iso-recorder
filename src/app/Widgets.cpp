@@ -30,7 +30,7 @@ void KeyButton::setCompact() {
 void KeyButton::paintEvent(QPaintEvent*) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
-    if (!isEnabled()) p.setOpacity(0.35);
+    if (!isEnabled() && !(m_lit && m_red)) p.setOpacity(0.35);   // podswietlony REC jest wskaznikiem - zawsze w pelni widoczny
 
     const QRectF r = QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5);
     QPainterPath path;
