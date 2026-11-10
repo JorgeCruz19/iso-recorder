@@ -2,6 +2,19 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 0.7
+
+Kolejność kanałów:
+- Kafel można przeciągnąć myszą w inne miejsce siatki. Za kursorem idzie półprzezroczysta kopia kafla,
+  pomarańczowa kreska pokazuje miejsce wstawienia. Upuszczenie poza siatką niczego nie zmienia.
+- Przeciągać można za obraz albo za pasek kafla (poza przyciskami); zwykłe kliknięcie działa jak dotąd.
+- Przyciski MOVE UP / MOVE DOWN zostają. Zmiana kolejności nie przerywa podglądu ani nagrywania.
+
+Test: `IsoRecorder.exe --demo N --drag-test A B [zrzut.png]` przeciąga kafel A na miejsce kafla B
+zdarzeniami myszy i wypisuje kolejność kanałów.
+
+Plan: pauza przechodzi do 0.8, sesja i listy do 0.9, dalsze pozycje o jedną wersję.
+
 ## 0.6
 
 Split:
@@ -19,7 +32,7 @@ Dyski:
 - Ostrzeżenie, gdy zostaje mniej niż 30 minut lub 10% miejsca; poniżej 1 GB nagrania na tym dysku są zatrzymywane
   z poprawnym zamknięciem plików. Ostrzeżenie przy folderze na dysku FAT32 i gdy zapis nie nadąża.
 
-Test: `testsec_test.ps1` z opcjami `-SplitEvery`, `-AutoSplit`, `-Container`.
+Test: `tests\rec_test.ps1` z opcjami `-SplitEvery`, `-AutoSplit`, `-Container`.
 
 Jeszcze nie ma: pauzy, wspólnego momentu startu wielu kanałów, zapisu i wczytywania list.
 

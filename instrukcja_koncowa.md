@@ -80,7 +80,7 @@ Test akceptacyjny (od wersji z pauzą): Rec 10 s → Pause 5 s → Resume → 10
 - **Auto-split** (zakładka Output): co 1–60 min (`max-size-time` + `send-keyframe-requests`) albo co 1/2/4 GB (`max-size-bytes`).
 - **Części**: `{part}` rośnie od 001; numer bieżącej części widać na kaflu obok czasu. Każda część MKV zaczyna się od zera (`matroskamux offset-to-zero`), w MPEG‑TS znaczniki są ciągłe między częściami.
 - **Kontenery**: MKV (domyślny) i MPEG‑TS (`mpegtsmux`). MOV/MP4 w etapie z kodekami.
-- **Plik opisu** `<nazwa bez numeru części>.json` (schemat `isorec.recording`), zapisywany po zakończeniu nagrania: sesja, kanał, źródło, format, enkoder, bitrate, czas startu i końca w UTC, running‑time pipeline'u w chwili startu, lista części z `startMs`/`endMs` na osi nagrania i rozmiarem, znacznik `clean` i powód zatrzymania. Służy do synchronizacji w montażu i jest podstawą testu `testsec_test.ps1`.
+- **Plik opisu** `<nazwa bez numeru części>.json` (schemat `isorec.recording`), zapisywany po zakończeniu nagrania: sesja, kanał, źródło, format, enkoder, bitrate, czas startu i końca w UTC, running‑time pipeline'u w chwili startu, lista części z `startMs`/`endMs` na osi nagrania i rozmiarem, znacznik `clean` i powód zatrzymania. Służy do synchronizacji w montażu i jest podstawą testu `tests\rec_test.ps1`.
 - **Dysk nie nadąża**: gdy kolejka zapisu kanału jest zapełniona ponad połowę przez 5 s, program wypisuje ostrzeżenie (raz na nagranie).
 
 ### 3.2 Stop, split i `splitmuxsink`
@@ -214,7 +214,7 @@ Jeden widget, całość malowana w `paintEvent` (`QPainter`), bez widgetów poto
 - **Kanały zaznaczone** (dowolnie wiele; cel przycisków Selected channels): białe, pełne pole wyboru 18 px z czarnym znakiem i jaśniejszy pasek pod kadrem.
 - **Nakładki**: pole zaznaczenia (lewy górny), format `1080p50` (dla proporcji innych niż 16:9: `1024×768p25`), czas nagrania z kropką stanu (prawy górny; przy zaplanowanym starcie „START 11:00”), miernik audio pionowy 2 słupki (prawa krawędź), etykieta `NN NAZWA` (dół, środek), komunikat pełnoekranowy (`RECONNECTING`, `NO SIGNAL`, `BŁĄD`) z przyciemnieniem i odbarwieniem obrazu.
 - **Pasek** 26 px: `REC` `II` `STOP` `SPLIT` (podświetlenie i wyszarzenie wg stanu), opis źródła, uchwyt `⋮⋮`, `✕`.
-- **Mysz**: klik w obraz = kanał aktywny (inspektor); klik w pole zaznaczenia = zaznaczenie; Ctrl+klik = przełącz zaznaczenie; Shift+klik = zakres; dwuklik w etykietę = zmiana nazwy; przeciąganie za `⋮⋮` = zmiana kolejności; dwuklik w obraz = powiększenie kanału na całą siatkę.
+- **Mysz**: klik w obraz = kanał aktywny (inspektor); klik w pole zaznaczenia = zaznaczenie; Ctrl+klik = przełącz zaznaczenie; Shift+klik = zakres; dwuklik w etykietę = zmiana nazwy; przeciąganie kafla (za obraz lub pasek, poza przyciskami) = zmiana kolejności — półprzezroczysta kopia idzie za kursorem, pomarańczowa kreska pokazuje miejsce wstawienia, upuszczenie poza siatką anuluje; dwuklik w obraz = powiększenie kanału na całą siatkę.
 - **Klawiatura** (kanał aktywny): `R` Rec, `P` Pause/Resume, `S` Stop, `X` Split, `Del` usuń, `Ctrl+↑/↓` przesuń, strzałki = zmiana aktywnego; `Ctrl+A` zaznacz wszystkie; z `Shift` — to samo dla zaznaczonych (`Shift+R` itd.).
 
 ### 5.3 Inspektor
@@ -295,14 +295,15 @@ Każda wersja: działający program, commit, tag, push. Kryterium = to, co da si
 | **0.3** | Kadr zawsze 16:9 (inne proporcje wpisane z pasami), wyraźne oznaczenie kanału aktywnego i zaznaczonych, wybór formatu generatora testowego | **wydana** |
 | **0.4** | Panel sterowania przeniesiony pod inspektor; blok wideo o proporcjach wyliczonych pod siatkę 4×4 kafli 16:9 z równymi marginesami | **wydana** |
 | **0.5** | Nagrywanie: Rec/Stop → MKV (H.264 + AAC), enkoder z próbą, szablon nazw, folder per kanał, zakładka Output, finalizacja z limitem czasu, zamknięcie czeka na pliki; DUPLICATE i REMOVE dla zaznaczonych, menu kontekstowe, legenda w pasku stanu | **wydana** — `tests\rec_test.ps1` |
-| **0.6** | Split ręczny i automatyczny (czas/rozmiar), numeracja części, plik opisu JSON, MPEG‑TS; monitor wolumenów, okno Disks i test prędkości zapisu (5.6, 5.7) | **wydana** — `testsec_test.ps1 -SplitEvery/-AutoSplit/-Container` |
-| **0.7** | Pauza wg 3.1 | test z 3.1 |
-| **0.8** | Sesja i listy (5.5): zapis/wczytanie, autosave, ostatnie pliki; operacje grupowe ze wspólnym `T`; przenoszenie przeciąganiem | 16 × testsrc startuje w ±1 klatce; lista wraca identyczna po wczytaniu |
-| **0.9** | Inspektor Input/Output w pełni edytowalny; wejścia lokalne: Screen grab (DXGI/WGC), UVC/MF, WASAPI (urządzenie, loopback) | nagranie ekranu z dźwiękiem systemowym |
-| **1.0** | SRT, RTSP, passthrough, `fallbacksrc` + polityka zaniku sygnału, stan RECONNECTING | SRT/RTSP z lokalnego `ffmpeg`/MediaMTX; zerwanie i powrót strumienia bez utraty pliku |
-| **1.1** | NDI (discovery), DeckLink; kodeki H.265/AV1/ProRes/DNxHR wg dostępności; MOV/MP4 robust | NDI z NDI Tools; DeckLink — niesprawdzone na sprzęcie |
-| **1.2** | Scheduler (reguły, catch‑up, DST), blokada uśpienia, logi rotowane, widok Lista, folder zapasowy | testy jednostkowe schedulera; kontrolowany Stop przy braku miejsca |
-| **1.3** | WHEP, WHIP, magazyn poświadczeń, odzyskiwanie po awarii, instalator Inno Setup | instalacja na czystym Windows; test 24 h |
+| **0.6** | Split ręczny i automatyczny (czas/rozmiar), numeracja części, plik opisu JSON, MPEG‑TS; monitor wolumenów, okno Disks i test prędkości zapisu (5.6, 5.7) | **wydana** — `tests\rec_test.ps1 -SplitEvery/-AutoSplit/-Container` |
+| **0.7** | Zmiana kolejności kanałów przeciąganiem kafla (znacznik miejsca wstawienia, anulowanie poza siatką) | **wydana** — `--drag-test A B` |
+| **0.8** | Pauza wg 3.1 | test z 3.1 |
+| **0.9** | Sesja i listy (5.5): zapis/wczytanie, autosave, ostatnie pliki; operacje grupowe ze wspólnym `T` | 16 × testsrc startuje w ±1 klatce; lista wraca identyczna po wczytaniu |
+| **1.0** | Inspektor Input/Output w pełni edytowalny; wejścia lokalne: Screen grab (DXGI/WGC), UVC/MF, WASAPI (urządzenie, loopback) | nagranie ekranu z dźwiękiem systemowym |
+| **1.1** | SRT, RTSP, passthrough, `fallbacksrc` + polityka zaniku sygnału, stan RECONNECTING | SRT/RTSP z lokalnego `ffmpeg`/MediaMTX; zerwanie i powrót strumienia bez utraty pliku |
+| **1.2** | NDI (discovery), DeckLink; kodeki H.265/AV1/ProRes/DNxHR wg dostępności; MOV/MP4 robust | NDI z NDI Tools; DeckLink — niesprawdzone na sprzęcie |
+| **1.3** | Scheduler (reguły, catch‑up, DST), blokada uśpienia, logi rotowane, widok Lista, folder zapasowy | testy jednostkowe schedulera; kontrolowany Stop przy braku miejsca |
+| **1.4** | WHEP, WHIP, magazyn poświadczeń, odzyskiwanie po awarii, instalator Inno Setup | instalacja na czystym Windows; test 24 h |
 
 Każda runda poprawek po uwagach właściciela dostaje własny numer, więc pozycje poniżej bieżącej wersji przesuwają się o jedną. Numery wersji, od których zapowiadane funkcje będą dostępne, są w kodzie w jednym miejscu: `Roadmap` w `src/core/Lang.h`.
 
@@ -331,5 +332,5 @@ iso-recorder/
 
 ## 8. Otwarte pytania do właściciela projektu
 
-1. Docelowy sprzęt nagrywający (GPU, karty HDMI) — od tego zależy, czy 0.8 (DeckLink) i profil 16 kanałów da się w ogóle potwierdzić.
-2. Czy WHIP jako serwer w aplikacji jest wymagany, czy wystarczy WHEP + SRT/RTSP (wtedy 1.0 jest wyraźnie prostsze).
+1. Docelowy sprzęt nagrywający (GPU, karty HDMI) — od tego zależy, czy 1.2 (DeckLink) i profil 16 kanałów da się w ogóle potwierdzić.
+2. Czy WHIP jako serwer w aplikacji jest wymagany, czy wystarczy WHEP + SRT/RTSP (wtedy 1.4 jest wyraźnie prostsze).

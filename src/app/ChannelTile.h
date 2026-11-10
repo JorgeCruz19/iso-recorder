@@ -19,8 +19,18 @@ public:
 protected:
     void paintEvent(QPaintEvent*) override;
     void mousePressEvent(QMouseEvent*) override;
+    void mouseMoveEvent(QMouseEvent*) override;
+    void mouseReleaseEvent(QMouseEvent*) override;
     void mouseDoubleClickEvent(QMouseEvent*) override;
     void contextMenuEvent(QContextMenuEvent*) override;
+
+public:
+    Channel* channel() const { return m_ch; }
+
+signals:      // przeciaganie kafla = zmiana kolejnosci; obsluguje je siatka
+    void dragStarted();
+    void dragMoved(const QPoint& globalPos);
+    void dragFinished(const QPoint& globalPos);
 
 public:
     // Pytanie przed usunieciem: zawsze dla wielu kanalow, dla jednego tylko gdy nagrywa.
@@ -40,4 +50,7 @@ private:
     ChannelManager* m_mgr;
     Channel* m_ch;
     int m_number;
+    QPoint m_pressPos;
+    bool m_pressed = false;
+    bool m_dragging = false;
 };

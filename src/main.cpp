@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QMouseEvent>
 #include <QSettings>
 #include <QTimer>
 
@@ -10,6 +11,7 @@
 #include <gst/gst.h>
 #include <windows.h>
 
+#include "app/ChannelTile.h"
 #include "app/DisksDialog.h"
 #include "app/Inspector.h"
 #include "app/MainWindow.h"
@@ -30,6 +32,8 @@
 //   --container ts|mkv    kontener dla kanalow --demo
 //   --auto-split S        auto-split co S sekund dla kanalow --demo
 //   --split-every S       w --rec-test: reczny split wszystkich kanalow co S sekund
+//   --drag-test A B [plik] przeciagniecie kafla A na miejsce kafla B (numery od 1) zdarzeniami myszy;
+//                         kolejnosc kanalow na stdout, opcjonalny zrzut okna w trakcie przeciagania
 //   --disk-test folder [S] test predkosci zapisu (domyslnie 10 s), wynik na stdout
 // Paczka samodzielna: gdy obok EXE lezy katalog gstreamer-1.0\, GStreamer bierze wtyczki tylko stamtad
 // (instalacja systemowa jest ignorowana), a rejestr wtyczek trafia do %LOCALAPPDATA%\IsoRecorder.
@@ -190,6 +194,41 @@ int main(int argc, char* argv[]) {
             dlg->show();
             const QString path = argAfter("--shot-disks");
             QTimer::singleShot(2500, dlg, [dlg, path] { dlg->grab().save(path); QApplication::quit(); });
+        }
+        const int dragAt = int(args.indexOf(QStringLiteral("--drag-test")));
+        if (dragAt >= 0 && dragAt + 2 < args.size()) {
+            const int a = args.at(dragAt + 1).toInt() - 1, b = args.at(dragAt + 2).toInt() - 1;
+            const QString shot = dragAt + 3 < args.size() && !args.at(dragAt + 3).startsWith(QLatin1String("--")) ? args.at(dragAt + 3) : QString();
+            QTimer::singleShot(2500, &manager, [&w, &manager, a, b, shot] {
+                auto tileOf = [&](int i) -> ChannelTile* {
+                    if (i < 0 || i >= manager.count()) return nullptr;
+                    for (ChannelTile* t : w->findChildren<ChannelTile*>())
+                        if (t->channel() == manager.channels().at(i) && t->isVisible()) return t;
+                    return nullptr;
+                };
+                ChannelTile* src = tileOf(a);
+                ChannelTile* dst = tileOf(b);
+                if (src && dst) {
+                    auto send = [src](QEvent::Type type, const QPoint& global, Qt::MouseButton btn, Qt::MouseButtons btns) {
+                        QMouseEvent e(type, QPointF(src->mapFromGlobal(global)), QPointF(global), btn, btns, Qt::NoModifier);
+                        QApplication::sendEvent(src, &e);
+                    };
+                    const QPoint from = src->mapToGlobal(src->rect().center());
+                    // cel: prawa cwiartka kafla B przy ruchu do przodu listy, lewa przy ruchu do tylu
+                    const QPoint to = dst->mapToGlobal(QPoint(b > a ? dst->width() * 3 / 4 : dst->width() / 4, dst->height() / 2));
+                    send(QEvent::MouseButtonPress, from, Qt::LeftButton, Qt::LeftButton);
+                    send(QEvent::MouseMove, from + QPoint(30, 10), Qt::NoButton, Qt::LeftButton);
+                    send(QEvent::MouseMove, to, Qt::NoButton, Qt::LeftButton);
+                    if (!shot.isEmpty()) w->grab().save(shot);
+                    send(QEvent::MouseButtonRelease, to, Qt::LeftButton, Qt::NoButton);
+                }
+                QStringList names;
+                for (Channel* c : manager.channels()) names << c->config().name;
+                const QByteArray line = (names.join(QStringLiteral(", ")) + QLatin1Char('\n')).toUtf8();
+                fwrite(line.constData(), 1, size_t(line.size()), stdout);
+                fflush(stdout);
+                QTimer::singleShot(300, &manager, [] { QApplication::quit(); });
+            });
         }
         const int tabAt = int(args.indexOf(QStringLiteral("--tab")));       // 0 Input, 1 Output, 2 Scheduler
         if (tabAt >= 0 && tabAt + 1 < args.size()) w->inspector()->setTab(args.at(tabAt + 1).toInt());

@@ -100,6 +100,14 @@ void ChannelManager::moveActive(int delta) {
     emit listChanged();
 }
 
+void ChannelManager::moveChannel(int from, int gap) {
+    if (from < 0 || from >= count() || gap < 0 || gap > count()) return;
+    const int to = gap > from ? gap - 1 : gap;
+    if (to == from) return;
+    m_channels.move(from, to);      // pipeline nie jest restartowany
+    emit listChanged();
+}
+
 void ChannelManager::setActive(Channel* ch) {
     if (ch == m_active) return;
     m_active = ch;

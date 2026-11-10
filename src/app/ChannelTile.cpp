@@ -1,5 +1,6 @@
 #include "ChannelTile.h"
 
+#include <QApplication>
 #include <QContextMenuEvent>
 #include <QInputDialog>
 #include <QMenu>
@@ -234,7 +235,29 @@ void ChannelTile::mousePressEvent(QMouseEvent* e) {
         m_ch->setSelected(!m_ch->isSelected());
         return;
     }
+    m_pressPos = pt;        // od tego miejsca mozna zaczac przeciaganie kafla
+    m_pressed = true;
     m_mgr->setActive(m_ch);
+}
+
+void ChannelTile::mouseMoveEvent(QMouseEvent* e) {
+    if (!m_pressed || !(e->buttons() & Qt::LeftButton)) return;
+    if (!m_dragging) {
+        if ((e->position().toPoint() - m_pressPos).manhattanLength() < QApplication::startDragDistance()) return;
+        m_dragging = true;
+        setCursor(Qt::ClosedHandCursor);
+        emit dragStarted();
+    }
+    emit dragMoved(e->globalPosition().toPoint());
+}
+
+void ChannelTile::mouseReleaseEvent(QMouseEvent* e) {
+    if (e->button() != Qt::LeftButton) return;
+    const bool was = m_dragging;
+    m_pressed = m_dragging = false;
+    if (!was) return;
+    unsetCursor();
+    emit dragFinished(e->globalPosition().toPoint());      // po tym sygnale kafel moze juz nie istniec
 }
 
 void ChannelTile::mouseDoubleClickEvent(QMouseEvent* e) {
