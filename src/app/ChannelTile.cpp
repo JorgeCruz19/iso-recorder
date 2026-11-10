@@ -1,6 +1,9 @@
 #include "ChannelTile.h"
 
+#include <QContextMenuEvent>
 #include <QInputDialog>
+#include <QMenu>
+#include <QMessageBox>
 #include <QMouseEvent>
 #include <QPainter>
 
@@ -59,7 +62,7 @@ ChannelTile::Rects ChannelTile::rects() const {
 bool ChannelTile::buttonEnabled(int i) const {
     switch (m_ch->state()) {
     case ChannelState::Preview: case ChannelState::Waiting: return i == 0;
-    case ChannelState::Recording: case ChannelState::Reconnecting: return true;
+    case ChannelState::Recording: case ChannelState::Reconnecting: return i == 2;   // pauza i split w kolejnych wersjach
     case ChannelState::Paused: return i != 3;
     default: return false;
     }
@@ -67,7 +70,7 @@ bool ChannelTile::buttonEnabled(int i) const {
 
 bool ChannelTile::buttonLit(int i) const {
     const ChannelState s = m_ch->state();
-    return (i == 0 && (s == ChannelState::Recording || s == ChannelState::Reconnecting)) ||
+    return (i == 0 && (s == ChannelState::Recording || s == ChannelState::Reconnecting || s == ChannelState::Finalizing)) ||
            (i == 1 && s == ChannelState::Paused);
 }
 
@@ -110,7 +113,8 @@ void ChannelTile::paintEvent(QPaintEvent*) {
     // --- ramka stanu (wewnatrz kadru) ---
     QColor frame = Theme::idle;
     int fw = 2;
-    if (st == ChannelState::Recording || st == ChannelState::Reconnecting || st == ChannelState::Error) { frame = Theme::red; fw = 3; }
+    if (st == ChannelState::Recording || st == ChannelState::Reconnecting || st == ChannelState::Error ||
+        st == ChannelState::Finalizing) { frame = Theme::red; fw = 3; }
     else if (st == ChannelState::Paused) { frame = Theme::amber; fw = 3; }
     else if (st == ChannelState::Preview) { frame = Theme::green; fw = 3; }
     p.setPen(QPen(frame, fw, Qt::SolidLine, Qt::SquareCap, Qt::MiterJoin));
@@ -138,6 +142,24 @@ void ChannelTile::paintEvent(QPaintEvent*) {
     p.fillRect(fr, chip);
     p.setPen(Qt::white);
     p.drawText(fr, Qt::AlignCenter, fmt);
+    // czas nagrania z kropka stanu (prawy gorny rog)
+    if (m_ch->isRecording()) {
+        const qint64 sec = m_ch->recordMs() / 1000;
+        const QString t = st == ChannelState::Finalizing ? T("SAVING")
+            : QStringLiteral("%1:%2:%3").arg(sec / 3600, 2, 10, QLatin1Char('0')).arg(sec / 60 % 60, 2, 10, QLatin1Char('0'))
+                                         .arg(sec % 60, 2, 10, QLatin1Char('0'));
+        p.setFont(Theme::font(11, QFont::Bold));
+        const int tw = p.fontMetrics().horizontalAdvance(t);
+        const QRect rr(r.vid.right() - 8 - (tw + 24), r.vid.top() + 8, tw + 24, 17);
+        p.fillRect(rr, chip);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(Qt::NoPen);
+        p.setBrush(Theme::red);
+        p.drawEllipse(QRectF(rr.left() + 6, rr.top() + 5, 7, 7));
+        p.setRenderHint(QPainter::Antialiasing, false);
+        p.setPen(Qt::white);
+        p.drawText(rr.adjusted(18, 0, -6, 0), Qt::AlignVCenter | Qt::AlignLeft, t);
+    }
     // miernik audio
     const QRectF am(r.vid.right() - 8 - 11, r.vid.top() + 30, 12, r.vid.height() - 30 - 8);
     if (am.height() > 10) {
@@ -164,7 +186,7 @@ void ChannelTile::paintEvent(QPaintEvent*) {
     p.setRenderHint(QPainter::Antialiasing);
     for (int i = 0; i < 4; ++i) {
         const bool en = buttonEnabled(i), lit = buttonLit(i);
-        p.setOpacity(en ? 1.0 : 0.35);
+        p.setOpacity(en || lit ? 1.0 : 0.35);
         QColor back(0x3a, 0x3a, 0x3a), border(0x1b, 0x1b, 0x1b), text(0xcf, 0xcf, 0xcf);
         if (i == 0) text = QColor(0xff, 0x6d, 0x70);
         if (lit && i == 0) { back = Theme::red; border = QColor(0x8a, 0x14, 0x18); text = Qt::white; }
@@ -196,7 +218,10 @@ void ChannelTile::mousePressEvent(QMouseEvent* e) {
     if (e->button() != Qt::LeftButton) return;
     const QPoint pt = e->position().toPoint();
     const Rects r = rects();
-    if (r.close.contains(pt)) { m_mgr->removeChannel(m_ch); return; }   // kafel jest usuwany przez deleteLater
+    if (r.close.contains(pt)) {      // kafel jest usuwany przez deleteLater
+        if (confirmRemove(this, {m_ch})) m_mgr->removeChannel(m_ch);
+        return;
+    }
     for (int i = 0; i < 4; ++i) {
         if (r.btn[i].contains(pt)) {
             if (buttonEnabled(i)) m_mgr->transport(m_ch, Transport(i));
@@ -216,4 +241,31 @@ void ChannelTile::mouseDoubleClickEvent(QMouseEvent* e) {
     const QString name = QInputDialog::getText(this, T("Channel name"), T("Name:"),
                                                QLineEdit::Normal, m_ch->config().name, &ok);
     if (ok) m_ch->setName(name);
+}
+
+bool ChannelTile::confirmRemove(QWidget* parent, const QList<Channel*>& list) {
+    if (list.isEmpty()) return false;
+    bool recording = false;
+    for (Channel* c : list) recording = recording || c->isRecording();
+    if (list.size() == 1 && !recording) return true;
+    QString text = list.size() == 1 ? T("Remove channel %1?").arg(list.first()->config().name)
+                                    : T("Remove selected channels (%1)?").arg(list.size());
+    if (recording) text += QStringLiteral("\n\n") + T("Recordings in progress will be finished and saved first.");
+    return QMessageBox::question(parent, QStringLiteral("ISO Recorder"), text) == QMessageBox::Yes;
+}
+
+// Menu kontekstowe: na kaflu zaznaczonym dziala na wszystkie zaznaczone, na niezaznaczonym - tylko na ten kanal.
+void ChannelTile::contextMenuEvent(QContextMenuEvent* e) {
+    const QList<Channel*> sel = m_mgr->selected();
+    const QList<Channel*> targets = m_ch->isSelected() && sel.size() > 1 ? sel : QList<Channel*>{m_ch};
+    const bool many = targets.size() > 1;
+    ChannelManager* mgr = m_mgr;      // kafel moze zniknac, zanim akcja sie skonczy
+    QWidget* top = window();
+    QMenu menu(this);
+    QAction* dup = menu.addAction(many ? T("Duplicate selected (%1)").arg(targets.size()) : T("Duplicate"));
+    dup->setEnabled(mgr->canAdd());
+    QAction* rem = menu.addAction(many ? T("Remove selected (%1)").arg(targets.size()) : T("Remove"));
+    QAction* chosen = menu.exec(e->globalPos());
+    if (chosen == dup) mgr->duplicateChannels(targets);
+    else if (chosen == rem && confirmRemove(top, targets)) mgr->removeChannels(targets);
 }

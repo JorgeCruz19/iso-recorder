@@ -2,6 +2,8 @@
 
 #include <QButtonGroup>
 #include <QComboBox>
+#include <QDir>
+#include <QFileDialog>
 #include <QGridLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -15,6 +17,8 @@
 #include "Widgets.h"
 #include "core/ChannelManager.h"
 #include "core/Lang.h"
+#include "media/EncoderFactory.h"
+#include "util/FileNameTemplate.h"
 
 namespace {
 QLabel* section(const QString& text, bool collapsed = false) {
@@ -85,10 +89,8 @@ Inspector::Inspector(ChannelManager* mgr, QWidget* parent) : QWidget(parent), m_
     connect(group, &QButtonGroup::idClicked, m_stack, &QStackedWidget::setCurrentIndex);
     v->addLayout(tabs);
 
-    m_stack->addWidget(buildInputPage());
-    m_stack->addWidget(placeholder(
-        T("Folder, name template, container, codecs and auto-split will arrive in version %1 together with recording.")
-            .arg(QLatin1String(Roadmap::recording))));
+    m_stack->addWidget(m_inputPage = buildInputPage());
+    m_stack->addWidget(buildOutputPage());
     m_stack->addWidget(placeholder(T("Start, stop and split scheduling will arrive in version %1.").arg(QLatin1String(Roadmap::scheduler))));
     // Prawa kolumna jest waska i dzieli wysokosc z panelem sterowania - tresc zakladek przewija sie.
     auto* scroll = new QScrollArea;
@@ -101,6 +103,12 @@ Inspector::Inspector(ChannelManager* mgr, QWidget* parent) : QWidget(parent), m_
     connect(mgr, &ChannelManager::activeChanged, this, &Inspector::bind);
     connect(mgr, &ChannelManager::listChanged, this, &Inspector::bind);
     bind();
+}
+
+void Inspector::setTab(int index) {
+    if (index < 0 || index > 2) return;
+    m_tabs[index]->setChecked(true);
+    m_stack->setCurrentIndex(index);
 }
 
 QWidget* Inspector::buildInputPage() {
@@ -149,7 +157,6 @@ QWidget* Inspector::buildInputPage() {
     m_wave->addItem(T("Silence"), 4);
     row(g, T("Audio signal"), m_wave);
 
-    v->addWidget(section(T("Output — from version %1").arg(QLatin1String(Roadmap::recording)), true));
     v->addWidget(section(T("Scheduler — from version %1").arg(QLatin1String(Roadmap::scheduler)), true));
     v->addStretch(1);
 
@@ -169,6 +176,107 @@ QWidget* Inspector::buildInputPage() {
     return page;
 }
 
+QWidget* Inspector::buildOutputPage() {
+    auto* page = new QWidget;
+    auto* v = new QVBoxLayout(page);
+    v->setContentsMargins(0, 0, 0, 0);
+    v->setSpacing(0);
+    m_lock = new QLabel(T("Settings are locked while recording"));
+    m_lock->setObjectName(QStringLiteral("lock"));
+    v->addWidget(m_lock);
+    m_outputForm = new QWidget;
+    auto* fv = new QVBoxLayout(m_outputForm);
+    fv->setContentsMargins(0, 0, 0, 0);
+    fv->setSpacing(0);
+    v->addWidget(m_outputForm);
+
+    fv->addWidget(section(T("Destination")));
+    QGridLayout* g = form(fv);
+    auto* dirRow = new QWidget;
+    auto* dh = new QHBoxLayout(dirRow);
+    dh->setContentsMargins(0, 0, 0, 0);
+    dh->setSpacing(4);
+    m_outDir = new QLineEdit;
+    m_outDir->setPlaceholderText(QDir::toNativeSeparators(Channel::defaultOutputDir()));
+    auto* browse = new QPushButton(QStringLiteral("…"));
+    browse->setObjectName(QStringLiteral("ibtn"));
+    browse->setFixedWidth(30);
+    dh->addWidget(m_outDir, 1);
+    dh->addWidget(browse);
+    row(g, T("Folder"), dirRow);
+    m_outTemplate = new QLineEdit;
+    m_outTemplate->setPlaceholderText(QLatin1String(FileNameTemplate::kDefault));
+    m_outTemplate->setToolTip(QStringLiteral("{session} {channel} {source} {index:02} {date} {time} {part:03}"));
+    row(g, T("Name template"), m_outTemplate);
+    row(g, T("Container"), new QLabel(QStringLiteral("MKV (Matroska)")));
+
+    fv->addWidget(section(T("Video")));
+    g = form(fv);
+    m_outEncoder = new QComboBox;
+    m_outEncoder->addItem(T("Auto (hardware first)"), QStringLiteral("auto"));
+    for (const QString& e : EncoderFactory::installed())
+        m_outEncoder->addItem(QStringLiteral("H.264 — ") + EncoderFactory::displayName(e), e);
+    row(g, T("Encoder"), m_outEncoder);
+    m_outVideoRate = new QComboBox;
+    for (int mb : {2, 4, 6, 8, 12, 20, 35, 50}) m_outVideoRate->addItem(QStringLiteral("%1 Mb/s").arg(mb), mb * 1000);
+    row(g, T("Bitrate"), m_outVideoRate);
+
+    fv->addWidget(section(QStringLiteral("Audio")));
+    g = form(fv);
+    m_outAudioRate = new QComboBox;
+    for (int kb : {128, 192, 256, 320}) m_outAudioRate->addItem(QStringLiteral("AAC  %1 kb/s").arg(kb), kb);
+    row(g, T("Bitrate"), m_outAudioRate);
+
+    auto* bar = new QHBoxLayout;
+    bar->setContentsMargins(12, 6, 12, 10);
+    m_applySelected = new QPushButton(T("Apply to selected channels"));
+    m_applySelected->setObjectName(QStringLiteral("ibtn"));
+    bar->addWidget(m_applySelected);
+    fv->addLayout(bar);
+    v->addStretch(1);
+
+    connect(m_outDir, &QLineEdit::editingFinished, this, &Inspector::commitOutput);
+    connect(m_outTemplate, &QLineEdit::editingFinished, this, &Inspector::commitOutput);
+    for (QComboBox* c : {m_outEncoder, m_outVideoRate, m_outAudioRate})
+        connect(c, &QComboBox::activated, this, &Inspector::commitOutput);
+    connect(browse, &QPushButton::clicked, this, [this] {
+        Channel* ch = m_mgr->active();
+        if (!ch) return;
+        const QString dir = QFileDialog::getExistingDirectory(this, T("Choose recording folder"), ch->outputDir());
+        if (dir.isEmpty()) return;
+        m_outDir->setText(QDir::toNativeSeparators(dir));
+        commitOutput();
+    });
+    // Te same ustawienia zapisu dla wielu kanalow: kopiuje Output kanalu aktywnego na zaznaczone (poza nagrywajacymi).
+    connect(m_applySelected, &QPushButton::clicked, this, [this] {
+        Channel* src = m_mgr->active();
+        if (!src) return;
+        int n = 0;
+        for (Channel* c : m_mgr->selected()) {
+            if (c == src || !c->canEdit()) continue;
+            c->setOutput(src->config().out);
+            ++n;
+        }
+        emit m_mgr->notice(T("Output settings copied to %1 channels").arg(n));
+    });
+    connect(m_mgr, &ChannelManager::selectionChanged, this, [this] {
+        m_applySelected->setEnabled(m_mgr->active() && m_mgr->selectedCount() > 0);
+    });
+    return page;
+}
+
+void Inspector::commitOutput() {
+    Channel* ch = m_mgr->active();
+    if (!ch || !ch->canEdit()) return;
+    OutputConfig out = ch->config().out;
+    out.dir = QDir::fromNativeSeparators(m_outDir->text().trimmed());
+    out.nameTemplate = m_outTemplate->text().trimmed();
+    out.encoder = m_outEncoder->currentData().toString();
+    out.videoKbps = m_outVideoRate->currentData().toInt();
+    out.audioKbps = m_outAudioRate->currentData().toInt();
+    ch->setOutput(out);
+}
+
 void Inspector::bind() {
     Channel* ch = m_mgr->active();
     const int number = ch ? m_mgr->indexOf(ch) + 1 : 0;
@@ -185,6 +293,7 @@ void Inspector::refresh() {
     if (!ch) {
         m_title->setText(T("Inspector"));
         m_name->clear();
+        m_lock->hide();
         return;
     }
     m_title->setText(QStringLiteral("%1&nbsp;&nbsp;<span style='color:#6e6e6e;font-weight:400'>%2</span>")
@@ -192,6 +301,17 @@ void Inspector::refresh() {
                                                   .arg(m_mgr->indexOf(ch) + 1, 2, 10, QLatin1Char('0'))
                                                   .arg(ch->config().name.toHtmlEscaped())));
     if (!m_name->hasFocus()) m_name->setText(ch->config().name);
+    // Input i Output sa zablokowane podczas nagrywania
+    const bool editable = ch->canEdit();
+    m_inputPage->setEnabled(editable);
+    m_outputForm->setEnabled(editable);
+    m_lock->setVisible(!editable);
+    const OutputConfig& out = ch->config().out;
+    if (!m_outDir->hasFocus()) m_outDir->setText(QDir::toNativeSeparators(out.dir));
+    if (!m_outTemplate->hasFocus()) m_outTemplate->setText(out.nameTemplate);
+    m_outEncoder->setCurrentIndex(qMax(0, m_outEncoder->findData(out.encoder)));
+    m_outVideoRate->setCurrentIndex(qMax(0, m_outVideoRate->findData(out.videoKbps)));
+    m_outAudioRate->setCurrentIndex(qMax(0, m_outAudioRate->findData(out.audioKbps)));
     m_pattern->setCurrentIndex(qMax(0, m_pattern->findData(ch->config().pattern)));
     m_wave->setCurrentIndex(qMax(0, m_wave->findData(ch->config().audioWave)));
     m_format->setCurrentIndex(qMax(0, m_format->findData(QSize(ch->config().width, ch->config().height))));

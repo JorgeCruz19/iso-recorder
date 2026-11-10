@@ -62,6 +62,18 @@ Tryb passthrough: Pause = `split` + wstrzymanie zapisu do następnej klatki kluc
 
 Test akceptacyjny (od wersji z pauzą): Rec 10 s → Pause 5 s → Resume → 10 s → Stop; `ffprobe`: czas ≈ 20 s (±2 klatki), PTS wideo ściśle rosnące bez luki > 1,5 klatki, różnica początku/końca A i V < 40 ms.
 
+### 3.1a Nagrywanie — stan po wersji 0.5
+
+- Gałąź zapisu (`queue → konwersja → enkoder → h264parse` oraz `queue → audioconvert → avenc_aac → aacparse` → `splitmuxsink` z `matroskamux`) jest dopinana do działającego pipeline'u przy Rec i odpinana po Stop; podgląd nie przerywa.
+- `splitmuxsink`: muxer podawany właściwością `muxer` **przed** zażądaniem padów (`muxer-factory` działa tylko przy `async-finalize=true`), `async-finalize=false`, `start-index=1`.
+- Znaczniki czasu: probe na wejściu obu kolejek odejmuje wspólną bazę (running‑time w chwili Rec) i odrzuca bufory sprzed niej — plik zaczyna się od zera, obraz i dźwięk mają tę samą bazę. To ten sam mechanizm, na którym oprze się pauza (3.1) i start grupowy (3.4). Założenie tej wersji: PTS = running‑time (prawda dla źródeł testowych; dla prawdziwych wejść dojdzie przeliczenie przez segment).
+- Stop: blokada wyjść `tee` → odpięcie → EOS do gałęzi → oczekiwanie na EOS z gałęzi przekazany przez `message-forward` pipeline'u (`GstBinForwarded`) → dopiero wtedy zdjęcie gałęzi. Limit czasu 10 s, po nim wymuszone zamknięcie i komunikat.
+- Błąd wewnątrz gałęzi zapisu kończy tylko nagranie; podgląd kanału działa dalej.
+- Zamknięcie okna w trakcie nagrywania najpierw finalizuje wszystkie pliki.
+- Enkoder: próba mini‑pipeline'u na rozdzielczość i klatkaż, wynik w pamięci podręcznej; kolejność NVENC → Quick Sync → AMF → Media Foundation → OpenH264. GOP = 1 s.
+- **Znane ograniczenie**: Rec dla wielu kanałów startuje je po kolei (ok. 60 ms na kanał, przy 16 kanałach ok. 1 s różnicy między pierwszym a ostatnim). Wspólny moment startu `T` jest w planie razem z operacjami grupowymi.
+- Wyniki na maszynie deweloperskiej (Quick Sync, 720p25, 8 Mb/s): 16 kanałów równocześnie bez zgubionych klatek; 50 cykli Rec/Stop na 2 kanałach — 100 plików poprawnych, liczba uchwytów i pamięć bez wzrostu. Test powtarzalny: `tests\rec_test.ps1`.
+
 ### 3.2 Stop, split i `splitmuxsink`
 
 - **`async-finalize=false`** (oryginał w 5.4 podaje `true`). Przy `true` plik zamyka się w tle i komunikat EOS nie oznacza, że plik jest gotowy; dla MKV/TS finalizacja i tak trwa milisekundy. `true` rozważyć dopiero dla MP4 z dużym `moov`.
@@ -148,12 +160,11 @@ Wszystkie funkcje z rozdz. 1.1 `instrukcja.md` pozostają w zakresie. Zmienia si
 │                                               ├───────────────────────────────────────┤
 │                                               │ PANEL STEROWANIA (4 grupy w pionie)   │
 │                                               │  Selected channels: REC PAUSE STOP SPLIT
-│                                               │  Selection: SELECT ALL · NONE · INVERT│
+│                                               │  Selection: ALL NONE INVERT DUPLICATE REMOVE (małe)
 │                                               │  Active channel: MOVE UP · MOVE DOWN  │
 │                                               │  Channel list (n / 16): ADD · LOAD · SAVE
-│                                               │  legenda stanów                       │
 ├───────────────────────────────────────────────┴───────────────────────────────────────┤
-└ PASEK STANU 22 px: Autosave · ostatnie zdarzenia · komunikat po prawej
+└ PASEK STANU 22 px: Autosave · ostatnie zdarzenia · komunikat · legenda stanów (REC / PAUSED / PREVIEW / WAITING)
 ```
 
 **Proporcje bloku wideo.** Blok wideo zajmuje całą wysokość między nagłówkiem a paskiem stanu. Jego szerokość jest **wyliczana z wysokości** tak, żeby 4 × 4 kafle (kadr 16:9 + pasek 26 px + margines 4 px) wypełniły go dokładnie, z równymi marginesami ze wszystkich stron i między kaflami:
@@ -204,9 +215,16 @@ Zakładki Input / Output / Scheduler dotyczą **kanału aktywnego** (nie zaznacz
 ### 5.4 Panel sterowania i pasek stanu
 
 - Przyciski grupowe działają na **zaznaczonych**; gdy nic nie jest zaznaczone — nieaktywne. `REC` świeci, gdy nagrywa co najmniej jeden zaznaczony.
-- `SELECT ALL` / `SELECT NONE` / `INVERT` zmieniają zaznaczenie (skróty: `Ctrl+A`, `Ctrl+Shift+A`, `Ctrl+I`).
+- Skróty zaznaczenia: `Ctrl+A` wszystkie, `Ctrl+Shift+A` żaden, `Ctrl+I` odwróć.
 - `MOVE UP` / `MOVE DOWN` przesuwają kanał aktywny i dlatego stoją w osobnej grupie „Active channel”.
-- Licznik `n / 16` stoi w wierszu tytułu grupy Channel list; legenda (REC, PAUSED, PREVIEW, WAITING, ERROR tylko gdy > 0) w ostatnim wierszu panelu.
+- Licznik `n / 16` stoi w wierszu tytułu grupy Channel list. Legenda stanów (REC, PAUSED, PREVIEW, WAITING, ERROR tylko gdy > 0) jest w pasku stanu, po prawej — razem z autozapisem i komunikatami.
+- **Zarządzanie zaznaczonymi** odbywa się w wierszu Selection: `ALL`, `NONE`, `INVERT` zmieniają zaznaczenie, `DUPLICATE` i `REMOVE` działają na zaznaczonych. Przyciski tego wiersza są mniejsze (26 px) niż transport.
+  - `REMOVE` zawsze pyta o potwierdzenie przy wielu kanałach; kanał nagrywający jest najpierw zatrzymywany i finalizowany, dopiero potem usuwany.
+  - `DUPLICATE` wstawia kopię (z ustawieniami Input i Output) zaraz za oryginałem, do limitu 16.
+  - To samo jest w menu pod prawym przyciskiem na kaflu: na kaflu zaznaczonym działa na wszystkie zaznaczone, na niezaznaczonym — na ten jeden.
+  - Skróty: `Shift+Del` usuń zaznaczone, `Ctrl+D` duplikuj zaznaczone, `Del` usuń kanał aktywny, `R` / `S` Rec / Stop kanału aktywnego.
+  - Kopiowanie ustawień zapisu na wiele kanałów: przycisk „Apply to selected channels” w zakładce Output (kopiuje Output kanału aktywnego na zaznaczone).
+- Stop dla zaznaczonych pyta o potwierdzenie, gdy zatrzymuje co najmniej 2 nagrania.
 - Przyciski w wierszu dzielą szerokość kolumny po równo (nie węziej niż napis).
 - Koszt układu: przy wysokości 900 px na treść zakładek inspektora zostaje ok. 150 px, dlatego jest przewijana; przy 1080 px — ok. 330 px.
 - Pasek stanu: czas ostatniego autozapisu, dwa ostatnie zdarzenia z dziennika, komunikat kontekstowy po prawej.
@@ -263,7 +281,7 @@ Każda wersja: działający program, commit, tag, push. Kryterium = to, co da si
 | **0.2** | Języki (EN domyślnie + PL, DE, ES, IT, FR), nowy podział panelu sterowania, SELECT NONE i INVERT, paczka samodzielna `dist\` | **wydana** |
 | **0.3** | Kadr zawsze 16:9 (inne proporcje wpisane z pasami), wyraźne oznaczenie kanału aktywnego i zaznaczonych, wybór formatu generatora testowego | **wydana** |
 | **0.4** | Panel sterowania przeniesiony pod inspektor; blok wideo o proporcjach wyliczonych pod siatkę 4×4 kafli 16:9 z równymi marginesami | **wydana** |
-| **0.5** | `RecordBin`: Rec/Stop → MKV, enkoder z próbą mini‑pipeline'u, AAC, szablon nazw, folder docelowy per kanał, finalizacja z timeoutem, zamknięcie aplikacji czeka na finalizację | `ffprobe`: plik poprawny, pierwsza klatka kluczowa; 50 × Rec/Stop bez wzrostu uchwytów |
+| **0.5** | Nagrywanie: Rec/Stop → MKV (H.264 + AAC), enkoder z próbą, szablon nazw, folder per kanał, zakładka Output, finalizacja z limitem czasu, zamknięcie czeka na pliki; DUPLICATE i REMOVE dla zaznaczonych, menu kontekstowe, legenda w pasku stanu | **wydana** — `tests\rec_test.ps1` |
 | **0.6** | Split ręczny i automatyczny (czas/rozmiar), numeracja części, sidecar JSON, MPEG‑TS; monitor wolumenów i test prędkości zapisu (5.6, 5.7) | suma długości części = czas nagrania ±1 klatka, brak luk PTS; test dysku daje powtarzalny wynik |
 | **0.7** | Pauza wg 3.1 | test z 3.1 |
 | **0.8** | Sesja i listy (5.5): zapis/wczytanie, autosave, ostatnie pliki; operacje grupowe ze wspólnym `T`; przenoszenie przeciąganiem | 16 × testsrc startuje w ±1 klatce; lista wraca identyczna po wczytaniu |

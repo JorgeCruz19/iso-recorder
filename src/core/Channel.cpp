@@ -1,12 +1,21 @@
 #include "Channel.h"
 
 #include "Lang.h"
+#include "media/EncoderFactory.h"
+#include "util/FileNameTemplate.h"
 
+#include <QDir>
+#include <QFileInfo>
+#include <QStandardPaths>
 #include <gst/video/video.h>
 
 #include <algorithm>
 
-Channel::Channel(const ChannelConfig& cfg, QObject* parent) : QObject(parent), m_cfg(cfg) {}
+Channel::Channel(const ChannelConfig& cfg, QObject* parent) : QObject(parent), m_cfg(cfg) {
+    m_finalizeTimeout.setSingleShot(true);
+    m_finalizeTimeout.setInterval(10000);
+    connect(&m_finalizeTimeout, &QTimer::timeout, this, [this] { finishRecording(false, T("finalization timed out")); });
+}
 
 Channel::~Channel() { stopPreview(); }
 
@@ -17,22 +26,32 @@ void Channel::setName(const QString& name) {
 }
 
 void Channel::setPattern(int pattern) {
-    if (pattern == m_cfg.pattern) return;
+    if (pattern == m_cfg.pattern || !canEdit()) return;
     m_cfg.pattern = pattern;
     restart();
 }
 
 void Channel::setAudioWave(int wave) {
-    if (wave == m_cfg.audioWave) return;
+    if (wave == m_cfg.audioWave || !canEdit()) return;
     m_cfg.audioWave = wave;
     restart();
 }
 
 void Channel::setFormat(int width, int height) {
-    if (width == m_cfg.width && height == m_cfg.height) return;
+    if ((width == m_cfg.width && height == m_cfg.height) || !canEdit()) return;
     m_cfg.width = width;
     m_cfg.height = height;
     restart();
+}
+
+void Channel::setOutput(const OutputConfig& out) {
+    if (!canEdit()) return;
+    m_cfg.out = out;
+    emit changed();
+}
+
+QString Channel::defaultOutputDir() {
+    return QDir(QStandardPaths::writableLocation(QStandardPaths::MoviesLocation)).filePath(QStringLiteral("ISO Recorder"));
 }
 
 void Channel::setSelected(bool on) {
@@ -65,7 +84,7 @@ void Channel::restart() {
 
 void Channel::startPreview() {
     if (m_pipeline) return;
-    // tee "tv"/"ta" sa punktami zaczepienia galezi nagrywania (od wersji 0.2).
+    // tee "tv"/"ta" sa punktami zaczepienia galezi nagrywania.
     const QString desc = QStringLiteral(
         "videotestsrc is-live=true pattern=%1 ! video/x-raw,width=%2,height=%3,framerate=%4/1,pixel-aspect-ratio=1/1 ! tee name=tv "
         "tv. ! queue leaky=downstream max-size-buffers=2 ! videorate drop-only=true max-rate=15 "
@@ -87,6 +106,9 @@ void Channel::startPreview() {
         setState(ChannelState::Error, text);
         return;
     }
+    // EOS galezi nagrywania nie moze czekac na EOS calego pipeline'u (podglad gra dalej) -
+    // pipeline przekazuje go od razu jako komunikat "GstBinForwarded".
+    g_object_set(m_pipeline, "message-forward", TRUE, nullptr);
 
     GstElement* sink = gst_bin_get_by_name(GST_BIN(m_pipeline), "preview");
     GstAppSinkCallbacks cb{};
@@ -108,6 +130,7 @@ void Channel::startPreview() {
 
 void Channel::stopPreview() {
     if (!m_pipeline) return;
+    if (m_recBin) finishRecording(false, T("channel stopped"));   // wymuszone zamkniecie, bez czekania na EOS
     // NULL zatrzymuje watki streamingu synchronicznie - po tym zaden callback juz nie wejdzie.
     gst_element_set_state(m_pipeline, GST_STATE_NULL);
     GstBus* bus = gst_element_get_bus(m_pipeline);
@@ -118,6 +141,198 @@ void Channel::stopPreview() {
     m_level = {0.0, 0.0};
     m_state = ChannelState::Idle;
 }
+
+// ---------------------------------------------------------------- nagrywanie
+
+bool Channel::startRecording(const QString& session, int index) {
+    if (m_state != ChannelState::Preview || m_recBin || !m_pipeline) return false;
+
+    const EncoderFactory::Choice enc =
+        EncoderFactory::pick(m_cfg.out.encoder, m_cfg.width, m_cfg.height, m_cfg.fps, m_cfg.out.videoKbps);
+    if (enc.name.isEmpty()) {
+        emit notice(T("%1: no working H.264 encoder found").arg(m_cfg.name));
+        return false;
+    }
+    if (m_cfg.out.encoder != QLatin1String("auto") && m_cfg.out.encoder != enc.name)
+        emit notice(T("%1: encoder %2 is not available, using %3")
+                        .arg(m_cfg.name, EncoderFactory::displayName(m_cfg.out.encoder), EncoderFactory::displayName(enc.name)));
+
+    const QString dir = outputDir();
+    if (!QDir().mkpath(dir) || !QFileInfo(dir).isWritable()) {
+        emit notice(T("%1: cannot write to folder %2").arg(m_cfg.name, QDir::toNativeSeparators(dir)));
+        return false;
+    }
+    FileNameTemplate::Vars vars{session, m_cfg.name, sourceText(), index, QDateTime::currentDateTime()};
+    QString pattern = FileNameTemplate::expand(m_cfg.out.nameTemplate, vars);
+    for (int n = 2; QFileInfo::exists(QDir(dir).filePath(FileNameTemplate::withPart(pattern, 1) + QStringLiteral(".mkv"))); ++n)
+        pattern = FileNameTemplate::expand(m_cfg.out.nameTemplate, vars) + QStringLiteral("_%1").arg(n);   // kolizja nazw
+    const QString location = QDir(dir).filePath(pattern + QStringLiteral(".mkv"));
+
+    // Kolejki galezi nagrywania nigdy nie gubia danych (leaky tylko w podgladzie).
+    const QString desc = QStringLiteral(
+        "queue name=vq max-size-time=3000000000 max-size-buffers=0 max-size-bytes=0 ! %1 ! h264parse name=vp "
+        "queue name=aq max-size-time=3000000000 max-size-buffers=0 max-size-bytes=0 ! audioconvert ! audioresample "
+        "! avenc_aac bitrate=%2 ! aacparse name=ap")
+        .arg(enc.launch).arg(m_cfg.out.audioKbps * 1000);
+    GError* err = nullptr;
+    GstElement* bin = gst_parse_bin_from_description(desc.toUtf8().constData(), FALSE, &err);
+    if (!bin || err) {
+        emit notice(QStringLiteral("%1: %2").arg(m_cfg.name, err ? QString::fromUtf8(err->message) : T("cannot build the pipeline")));
+        g_clear_error(&err);
+        if (bin) gst_object_unref(bin);
+        return false;
+    }
+    // splitmuxsink: muxer trzeba podac PRZED zadaniem padow; async-finalize=false -> EOS oznacza gotowy plik.
+    GstElement* mux = gst_element_factory_make("splitmuxsink", "mux");
+    GstElement* mkv = gst_element_factory_make("matroskamux", nullptr);
+    if (!mux || !mkv) {
+        emit notice(T("%1: cannot build the pipeline").arg(m_cfg.name));
+        if (mux) gst_object_unref(mux);
+        if (mkv) gst_object_unref(mkv);
+        gst_object_unref(bin);
+        return false;
+    }
+    g_object_set(mux, "muxer", mkv, "async-finalize", FALSE, "start-index", 1,
+                 "location", location.toUtf8().constData(), nullptr);
+    gst_bin_add(GST_BIN(bin), mux);
+    GstElement* vp = gst_bin_get_by_name(GST_BIN(bin), "vp");
+    GstElement* ap = gst_bin_get_by_name(GST_BIN(bin), "ap");
+    GstElement* vq = gst_bin_get_by_name(GST_BIN(bin), "vq");
+    GstElement* aq = gst_bin_get_by_name(GST_BIN(bin), "aq");
+    const bool linked = gst_element_link_pads(vp, "src", mux, "video") && gst_element_link_pads(ap, "src", mux, "audio_%u");
+    GstPad* vqSink = gst_element_get_static_pad(vq, "sink");
+    GstPad* aqSink = gst_element_get_static_pad(aq, "sink");
+    // Znaczniki czasu sa przesuwane tak, zeby plik zaczynal sie od zera - wspolna baza dla obrazu i dzwieku.
+    gst_pad_add_probe(vqSink, GST_PAD_PROBE_TYPE_BUFFER, &Channel::onRecBuffer, this, nullptr);
+    gst_pad_add_probe(aqSink, GST_PAD_PROBE_TYPE_BUFFER, &Channel::onRecBuffer, this, nullptr);
+    GstPad* ghostV = gst_ghost_pad_new("video_sink", vqSink);
+    GstPad* ghostA = gst_ghost_pad_new("audio_sink", aqSink);
+    gst_element_add_pad(bin, ghostV);
+    gst_element_add_pad(bin, ghostA);
+    gst_object_unref(vqSink);
+    gst_object_unref(aqSink);
+    gst_object_unref(vp);
+    gst_object_unref(ap);
+    gst_object_unref(vq);
+    gst_object_unref(aq);
+    if (!linked) {
+        emit notice(T("%1: cannot build the pipeline").arg(m_cfg.name));
+        gst_object_unref(bin);
+        return false;
+    }
+
+    GstClock* clock = gst_element_get_clock(m_pipeline);
+    m_recBase = clock ? gint64(gst_clock_get_time(clock) - gst_element_get_base_time(m_pipeline)) : 0;
+    if (clock) gst_object_unref(clock);
+
+    gst_object_ref(bin);                       // wlasna referencja na czas nagrania
+    gst_bin_add(GST_BIN(m_pipeline), bin);
+    m_recBin = bin;
+    m_recBinShared = bin;
+    gst_element_sync_state_with_parent(bin);   // najpierw stan, potem podpiecie do tee
+
+    GstElement* tv = gst_bin_get_by_name(GST_BIN(m_pipeline), "tv");
+    GstElement* ta = gst_bin_get_by_name(GST_BIN(m_pipeline), "ta");
+    m_teeVideo = gst_element_request_pad_simple(tv, "src_%u");
+    m_teeAudio = gst_element_request_pad_simple(ta, "src_%u");
+    const bool ok = m_teeVideo && m_teeAudio && gst_pad_link(m_teeVideo, ghostV) == GST_PAD_LINK_OK &&
+                    gst_pad_link(m_teeAudio, ghostA) == GST_PAD_LINK_OK;
+    gst_object_unref(tv);
+    gst_object_unref(ta);
+    if (!ok) {
+        finishRecording(false, T("cannot build the pipeline"));
+        return false;
+    }
+
+    m_recFile = QDir(dir).filePath(FileNameTemplate::withPart(pattern, 1) + QStringLiteral(".mkv"));
+    m_encoderName = enc.name;
+    m_encoderHw = enc.hardware;
+    m_recBytes = m_recBytesPrev = 0;
+    m_recMbps = 0;
+    m_recClock.start();
+    setState(ChannelState::Recording);
+    emit notice(T("%1: recording started (%2)").arg(m_cfg.name, EncoderFactory::displayName(enc.name)));
+    return true;
+}
+
+// Stop: zablokuj wyjscia tee, odepnij galaz, wyslij do niej EOS i poczekaj na EOS z muxera (plik sfinalizowany).
+void Channel::stopRecording() {
+    if (m_state != ChannelState::Recording || !m_recBin) return;
+    setState(ChannelState::Finalizing);
+    gst_pad_add_probe(m_teeVideo, GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM, &Channel::onStopBlock, this, nullptr);
+    gst_pad_add_probe(m_teeAudio, GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM, &Channel::onStopBlock, this, nullptr);
+    m_finalizeTimeout.start();
+}
+
+void Channel::finishRecording(bool clean, const QString& reason) {
+    if (!m_recBin) return;
+    m_finalizeTimeout.stop();
+    GstElement* bin = m_recBin;
+    m_recBin = nullptr;
+    m_recBinShared = nullptr;
+
+    GstElement* tv = gst_bin_get_by_name(GST_BIN(m_pipeline), "tv");
+    GstElement* ta = gst_bin_get_by_name(GST_BIN(m_pipeline), "ta");
+    for (auto [tee, pad] : {std::pair{tv, &m_teeVideo}, std::pair{ta, &m_teeAudio}}) {
+        if (*pad) {
+            if (GstPad* peer = gst_pad_get_peer(*pad)) {   // jeszcze podpiety (wymuszone zamkniecie)
+                gst_pad_unlink(*pad, peer);
+                gst_object_unref(peer);
+            }
+            gst_element_release_request_pad(tee, *pad);
+            gst_object_unref(*pad);
+            *pad = nullptr;
+        }
+        gst_object_unref(tee);
+    }
+    gst_element_set_state(bin, GST_STATE_NULL);
+    gst_bin_remove(GST_BIN(m_pipeline), bin);
+    gst_object_unref(bin);
+
+    pollRecording();
+    const QString file = m_recFile;
+    if (m_state == ChannelState::Recording || m_state == ChannelState::Finalizing) m_state = ChannelState::Preview;
+    emit changed();
+    const QString name = QFileInfo(file).fileName();
+    emit notice(clean ? T("%1: recording saved — %2").arg(m_cfg.name, name)
+                      : T("%1: recording interrupted (%2) — %3").arg(m_cfg.name, reason, name));
+    emit recordingFinished(file, clean);
+}
+
+void Channel::pollRecording() {
+    if (m_recFile.isEmpty()) return;
+    const qint64 size = QFileInfo(m_recFile).size();
+    m_recMbps = isRecording() ? std::max<qint64>(0, size - m_recBytesPrev) * 8 / 1e6 : 0.0;
+    m_recBytesPrev = size;
+    m_recBytes = size;
+    if (isRecording()) emit changed();
+}
+
+// Watek streamingu. Zalozenie tej wersji: PTS == running-time (zrodla "live" z segmentem od zera);
+// wejscia z innym segmentem beda tu przeliczane przez gst_segment_to_running_time.
+GstPadProbeReturn Channel::onRecBuffer(GstPad*, GstPadProbeInfo* info, gpointer user) {
+    auto* self = static_cast<Channel*>(user);
+    GstBuffer* buf = GST_PAD_PROBE_INFO_BUFFER(info);
+    const gint64 base = self->m_recBase.load();
+    if (!GST_BUFFER_PTS_IS_VALID(buf) || gint64(GST_BUFFER_PTS(buf)) < base) return GST_PAD_PROBE_DROP;
+    buf = gst_buffer_make_writable(buf);
+    GST_BUFFER_PTS(buf) -= base;
+    GST_BUFFER_DTS(buf) = GST_CLOCK_TIME_NONE;     // dane surowe - DTS nada enkoder
+    GST_PAD_PROBE_INFO_DATA(info) = buf;
+    return GST_PAD_PROBE_OK;
+}
+
+// Watek streamingu: tu wolno tylko odpiac i wyslac EOS; zmiany stanu robi watek GUI po EOS z muxera.
+GstPadProbeReturn Channel::onStopBlock(GstPad* pad, GstPadProbeInfo*, gpointer) {
+    if (GstPad* peer = gst_pad_get_peer(pad)) {
+        gst_pad_unlink(pad, peer);
+        gst_pad_send_event(peer, gst_event_new_eos());
+        gst_object_unref(peer);
+    }
+    return GST_PAD_PROBE_REMOVE;
+}
+
+// ---------------------------------------------------------------- podglad i szyna
 
 // Watek streamingu GStreamera: kopiujemy klatke i oddajemy ja do watku GUI.
 GstFlowReturn Channel::onSample(GstAppSink* sink, gpointer user) {
@@ -143,7 +358,7 @@ GstFlowReturn Channel::onSample(GstAppSink* sink, gpointer user) {
 }
 
 // Watek streamingu: komunikat jest parsowany tutaj, do GUI idzie tylko wynik.
-// GST_BUS_DROP oznacza, ze nigdzie w aplikacji nie wolno uzywac gst_bus_pop.
+// GST_BUS_DROP oznacza, ze nigdzie w aplikacji nie wolno uzywac gst_bus_pop na tej szynie.
 GstBusSyncReply Channel::onBus(GstBus*, GstMessage* msg, gpointer user) {
     auto* self = static_cast<Channel*>(user);
     switch (GST_MESSAGE_TYPE(msg)) {
@@ -164,6 +379,23 @@ GstBusSyncReply Channel::onBus(GstBus*, GstMessage* msg, gpointer user) {
                 }
                 emit self->levelsChanged();
             }, Qt::QueuedConnection);
+        } else if (st && gst_structure_has_name(st, "GstBinForwarded")) {
+            // EOS z galezi nagrywania = muxer zamknal plik
+            GstMessage* fwd = nullptr;
+            gst_structure_get(st, "message", GST_TYPE_MESSAGE, &fwd, nullptr);
+            if (fwd) {
+                GstElement* rec = self->m_recBinShared.load();
+                if (GST_MESSAGE_TYPE(fwd) == GST_MESSAGE_EOS && rec && GST_MESSAGE_SRC(fwd) == GST_OBJECT(rec))
+                    QMetaObject::invokeMethod(self, [self, rec] {
+                        if (self->m_recBin == rec) self->finishRecording(true);
+                    }, Qt::QueuedConnection);
+                gst_message_unref(fwd);
+            }
+        } else if (st && gst_structure_has_name(st, "splitmuxsink-fragment-opened")) {
+            if (const gchar* loc = gst_structure_get_string(st, "location")) {
+                const QString file = QDir::fromNativeSeparators(QString::fromUtf8(loc));
+                QMetaObject::invokeMethod(self, [self, file] { self->m_recFile = file; }, Qt::QueuedConnection);
+            }
         }
         break;
     }
@@ -174,9 +406,17 @@ GstBusSyncReply Channel::onBus(GstBus*, GstMessage* msg, gpointer user) {
         const QString text = err ? QString::fromUtf8(err->message) : T("pipeline error");
         g_clear_error(&err);
         g_free(dbg);
-        QMetaObject::invokeMethod(self, [self, text] {
-            self->stopPreview();
-            self->setState(ChannelState::Error, text);
+        // Blad wewnatrz galezi nagrywania konczy tylko nagranie - podglad kanalu zostaje.
+        GstElement* rec = self->m_recBinShared.load();
+        const bool inRecording = rec && GST_MESSAGE_SRC(msg) &&
+                                 gst_object_has_as_ancestor(GST_MESSAGE_SRC(msg), GST_OBJECT(rec));
+        QMetaObject::invokeMethod(self, [self, text, inRecording] {
+            if (inRecording) {
+                self->finishRecording(false, text);
+            } else {
+                self->stopPreview();
+                self->setState(ChannelState::Error, text);
+            }
         }, Qt::QueuedConnection);
         break;
     }

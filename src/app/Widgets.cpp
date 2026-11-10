@@ -20,6 +20,13 @@ KeyButton::KeyButton(const QString& text, Glyph glyph, bool wide, QWidget* paren
     setCursor(Qt::PointingHandCursor);
 }
 
+void KeyButton::setCompact() {
+    m_compact = true;
+    m_width = QFontMetrics(Theme::font(9, QFont::Bold, 0.4)).horizontalAdvance(text()) + 12;
+    setFixedHeight(26);
+    updateGeometry();
+}
+
 void KeyButton::paintEvent(QPaintEvent*) {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
@@ -79,7 +86,7 @@ void KeyButton::paintEvent(QPaintEvent*) {
     case None: break;
     }
     p.setPen(fg);
-    p.setFont(Theme::font(10, QFont::Bold, 0.7));
+    p.setFont(m_compact ? Theme::font(9, QFont::Bold, 0.4) : Theme::font(10, QFont::Bold, 0.7));
     const QRect tr = hasGlyph ? QRect(0, 20, width(), 15) : rect();
     p.drawText(tr, Qt::AlignCenter, text());
 }

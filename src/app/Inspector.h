@@ -16,11 +16,14 @@ class Inspector : public QWidget {
     Q_OBJECT
 public:
     explicit Inspector(ChannelManager* mgr, QWidget* parent = nullptr);
+    void setTab(int index);
 
 private:
     void bind();
     void refresh();
     QWidget* buildInputPage();
+    QWidget* buildOutputPage();
+    void commitOutput();
     QMetaObject::Connection m_conn;
 
     ChannelManager* m_mgr;
@@ -34,4 +37,13 @@ private:
     QComboBox* m_pattern;
     QComboBox* m_wave;
     QComboBox* m_format;
+    QWidget* m_inputPage = nullptr;
+    QWidget* m_outputForm = nullptr;
+    QLabel* m_lock = nullptr;
+    QLineEdit* m_outDir;
+    QLineEdit* m_outTemplate;
+    QComboBox* m_outEncoder;
+    QComboBox* m_outVideoRate;
+    QComboBox* m_outAudioRate;
+    QPushButton* m_applySelected;
 };

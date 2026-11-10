@@ -4,6 +4,7 @@
 
 class ChannelGrid;
 class ChannelManager;
+enum class Transport;
 class Inspector;
 class KeyButton;
 class QLabel;
@@ -15,12 +16,15 @@ class MainWindow : public QWidget {
 public:
     explicit MainWindow(ChannelManager* mgr, QWidget* parent = nullptr);
 
+    Inspector* inspector() const { return m_inspector; }
+
 signals:
     void languageRequested(const QString& code);
 
 protected:
     void resizeEvent(QResizeEvent*) override;
     void keyPressEvent(QKeyEvent*) override;
+    void closeEvent(QCloseEvent*) override;
 
 private:
     QWidget* buildHeader();
@@ -28,6 +32,9 @@ private:
     QWidget* buildStatus();
     void refreshCounts();
     void refreshActive();
+    void refreshRecording();
+    void transportSelected(Transport t);
+    void removeSelected();
     void tickSecond();
     void notice(const QString& text);
     void showDiagnostics();
@@ -48,10 +55,13 @@ private:
     QLabel* m_diskFree;
     QProgressBar* m_diskBar;
     QLabel* m_cpu;
+    QLabel* m_write;
+    QLabel* m_hwEnc;
+    bool m_closing = false;
 
     QLabel* m_selCap;
     KeyButton* m_btnTransport[4]{};
-    KeyButton* m_btnSelect[3]{};
+    KeyButton* m_btnSelect[5]{};
     KeyButton* m_btnAdd;
     KeyButton* m_btnUp;
     KeyButton* m_btnDown;

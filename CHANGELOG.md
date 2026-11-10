@@ -2,6 +2,28 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 0.5
+
+Nagrywanie:
+- Rec / Stop na kaflu i dla zaznaczonych: zapis do MKV (H.264 + AAC), jeden plik na kanał, podgląd działa bez przerwy.
+- Enkoder wybierany automatycznie po próbie rzeczywistego kodowania (NVENC → Quick Sync → AMF → Media Foundation → OpenH264)
+  albo wskazany w ustawieniach; gdy wskazany nie działa, program bierze następny i informuje o tym.
+- Zakładka Output: folder (osobny dla każdego kanału), szablon nazwy, enkoder, bitrate obrazu i dźwięku,
+  „Apply to selected channels”. Input i Output są zablokowane podczas nagrywania.
+- Nazwy plików z szablonu `{session}_{index:02}_{channel}_{date}_{time}_{part:03}`; domyślny folder: Wideo\ISO Recorder.
+- Stop finalizuje plik (limit 10 s); zamknięcie programu i usunięcie kanału w trakcie nagrywania najpierw kończą zapis.
+- Na kaflu: czerwona ramka, licznik czasu, stan SAVING; w nagłówku: czas nagrania kanału aktywnego, REC,
+  łączny strumień zapisu, liczba sesji enkoderów sprzętowych.
+- Test: `tests\rec_test.ps1` (ffprobe: czas, start od zera, klatka kluczowa na początku, ciągłość PTS).
+
+Interfejs:
+- Wiersz Selection ma mniejsze przyciski i dwie nowe akcje na zaznaczonych: DUPLICATE i REMOVE.
+- Menu pod prawym przyciskiem na kaflu (Duplicate / Remove); skróty Shift+Del, Ctrl+D, R, S.
+- Legenda stanów (REC / PAUSED / PREVIEW / WAITING) przeniesiona do paska stanu.
+
+Jeszcze nie ma: pauzy i splitu (przyciski pokazują komunikat), wspólnego momentu startu wielu kanałów
+(kanały startują po kolei, ok. 60 ms odstępu), monitora wielu dysków i testu prędkości zapisu.
+
 ## 0.4
 
 - Panel sterowania przeniesiony spod siatki do prawej kolumny, pod inspektor (cztery grupy jedna pod drugą).
@@ -9,7 +31,7 @@ Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
   wypełniło go dokładnie, z równymi marginesami; prawa kolumna dostaje resztę szerokości (384–560 px).
 - Większe kafle: przy 1600×900 kadr ma ok. 289×163 px zamiast 247×139.
 - Treść zakładek inspektora jest przewijana; licznik kanałów stoi w tytule grupy Channel list.
-- Plan wersji przesunięty o jedną: nagrywanie od 0.5.
+- Plan wersji przesunięty o jedną.
 
 ## 0.3
 

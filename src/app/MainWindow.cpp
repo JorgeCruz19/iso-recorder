@@ -5,6 +5,7 @@
 #include <QDateTime>
 #include <QDialog>
 #include <QHBoxLayout>
+#include <QCloseEvent>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QMenu>
@@ -21,6 +22,7 @@
 #include <dwmapi.h>
 
 #include "ChannelGrid.h"
+#include "ChannelTile.h"
 #include "Inspector.h"
 #include "Theme.h"
 #include "Widgets.h"
@@ -90,6 +92,9 @@ MainWindow::MainWindow(ChannelManager* mgr, QWidget* parent) : QWidget(parent), 
     connect(mgr, &ChannelManager::activeChanged, this, &MainWindow::refreshActive);
     connect(mgr, &ChannelManager::listChanged, this, &MainWindow::refreshActive);
     connect(mgr, &ChannelManager::notice, this, &MainWindow::notice);
+    connect(mgr, &ChannelManager::statsChanged, this, &MainWindow::refreshRecording);
+    connect(mgr, &ChannelManager::selectionChanged, this, &MainWindow::refreshRecording);
+    connect(mgr, &ChannelManager::activeChanged, this, &MainWindow::refreshRecording);
 
     auto* second = new QTimer(this);
     connect(second, &QTimer::timeout, this, &MainWindow::tickSecond);
@@ -98,6 +103,11 @@ MainWindow::MainWindow(ChannelManager* mgr, QWidget* parent) : QWidget(parent), 
     connect(frame, &QTimer::timeout, this, [this] {
         const QTime t = QTime::currentTime();
         m_rtc->setText(t.toString(QStringLiteral("HH:mm:ss")) + QStringLiteral(":%1").arg(t.msec() / 40, 2, 10, QLatin1Char('0')));
+        // czas nagrania kanalu aktywnego, z klatkami
+        const Channel* ch = m_mgr->active();
+        const qint64 ms = ch ? ch->recordMs() : 0;
+        m_recTime->setText(QStringLiteral("%1:%2:%3:%4").arg(ms / 3600000, 2, 10, QLatin1Char('0')).arg(ms / 60000 % 60, 2, 10, QLatin1Char('0'))
+                               .arg(ms / 1000 % 60, 2, 10, QLatin1Char('0')).arg(ms % 1000 / 40, 2, 10, QLatin1Char('0')));
     });
     frame->start(40);
 
@@ -171,7 +181,7 @@ QWidget* MainWindow::buildHeader() {
     hs->setSpacing(16);
     QLabel* dummy = nullptr;
     const struct { const char* name; const char* value; QLabel** out; } stats[] = {
-        {"Write", "0 Mb/s", &dummy}, {"CPU", "—", &m_cpu}, {"GPU", "—", &dummy}, {"HW enc.", "0", &dummy}, {"Drop", "0", &dummy}};
+        {"Write", "0 Mb/s", &m_write}, {"CPU", "—", &m_cpu}, {"GPU", "—", &dummy}, {"HW enc.", "0", &m_hwEnc}, {"Drop", "0", &dummy}};
     for (const auto& s : stats) {
         auto* vv = new QVBoxLayout;
         vv->setSpacing(2);
@@ -264,20 +274,24 @@ QWidget* MainWindow::buildControlPanel() {
         {"REC", KeyButton::Dot}, {"PAUSE", KeyButton::PauseBars}, {"STOP", KeyButton::Square}, {"SPLIT", KeyButton::Cut}};
     for (int i = 0; i < 4; ++i) {
         m_btnTransport[i] = new KeyButton(QLatin1String(tr[i].text), tr[i].g, false);
-        connect(m_btnTransport[i], &KeyButton::clicked, this, [this, i] { m_mgr->transportSelected(Transport(i)); });
+        connect(m_btnTransport[i], &KeyButton::clicked, this, [this, i] { transportSelected(Transport(i)); });
     }
     m_btnTransport[0]->setRed(true);
     group(m_selCap = cap(T("Selected channels (%1)").arg(0)),
           {m_btnTransport[0], m_btnTransport[1], m_btnTransport[2], m_btnTransport[3]});
 
-    // Zaznaczenie: dotyczy pol wyboru na kaflach
-    m_btnSelect[0] = new KeyButton(T("SELECT ALL"), KeyButton::None, true);
-    m_btnSelect[1] = new KeyButton(T("SELECT NONE"), KeyButton::None, true);
-    m_btnSelect[2] = new KeyButton(T("INVERT"), KeyButton::None, true);
+    // Zaznaczenie i akcje na zaznaczonych - male przyciski w jednym wierszu
+    const char* const selNames[5] = {"ALL", "NONE", "INVERT", "DUPLICATE", "REMOVE"};
+    for (int i = 0; i < 5; ++i) {
+        m_btnSelect[i] = new KeyButton(T(selNames[i]), KeyButton::None, false);
+        m_btnSelect[i]->setCompact();
+    }
     connect(m_btnSelect[0], &KeyButton::clicked, m_mgr, &ChannelManager::selectAll);
     connect(m_btnSelect[1], &KeyButton::clicked, m_mgr, &ChannelManager::selectNone);
     connect(m_btnSelect[2], &KeyButton::clicked, m_mgr, &ChannelManager::invertSelection);
-    group(cap(T("Selection")), {m_btnSelect[0], m_btnSelect[1], m_btnSelect[2]});
+    connect(m_btnSelect[3], &KeyButton::clicked, this, [this] { m_mgr->duplicateChannels(m_mgr->selected()); });
+    connect(m_btnSelect[4], &KeyButton::clicked, this, &MainWindow::removeSelected);
+    group(cap(T("Selection")), {m_btnSelect[0], m_btnSelect[1], m_btnSelect[2], m_btnSelect[3], m_btnSelect[4]});
 
     // Kanal aktywny (pomaranczowa ramka, pokazany w inspektorze)
     m_btnUp = new KeyButton(T("MOVE UP"), KeyButton::Up, false);
@@ -299,11 +313,6 @@ QWidget* MainWindow::buildControlPanel() {
     m_count->setTextFormat(Qt::RichText);
     group(cap(T("Channel list")), {m_btnAdd, load, save}, m_count);
 
-    m_legend = label(QString(), "legend");
-    m_legend->setTextFormat(Qt::RichText);
-    m_legend->setAlignment(Qt::AlignCenter);
-    m_legend->setFixedHeight(24);
-    v->addWidget(m_legend);
     return panel;
 }
 
@@ -320,6 +329,9 @@ QWidget* MainWindow::buildStatus() {
     h->addWidget(autosave);
     h->addWidget(m_events = new QLabel, 1);
     h->addWidget(m_hint = new QLabel);
+    // stany kanalow: REC / PAUSED / PREVIEW / WAITING (+ ERROR)
+    h->addWidget(m_legend = new QLabel);
+    m_legend->setTextFormat(Qt::RichText);
     return st;
 }
 
@@ -336,13 +348,15 @@ void MainWindow::refreshCounts() {
     m_btnSelect[0]->setEnabled(n > 0 && sel < n);
     m_btnSelect[1]->setEnabled(sel > 0);
     m_btnSelect[2]->setEnabled(n > 0);
+    m_btnSelect[3]->setEnabled(sel > 0 && m_mgr->canAdd());
+    m_btnSelect[4]->setEnabled(sel > 0);
     m_btnAdd->setEnabled(m_mgr->canAdd());
     m_count->setText(QStringLiteral("%1<span style='color:#6e6e6e'> / %2</span>").arg(n).arg(ChannelManager::MaxChannels));
 
     int rec = 0, pau = 0, prv = 0, wait = 0, err = 0;
     for (Channel* c : m_mgr->channels()) {
         switch (c->state()) {
-        case ChannelState::Recording: case ChannelState::Reconnecting: ++rec; break;
+        case ChannelState::Recording: case ChannelState::Reconnecting: case ChannelState::Finalizing: ++rec; break;
         case ChannelState::Paused: ++pau; break;
         case ChannelState::Preview: ++prv; break;
         case ChannelState::Waiting: ++wait; break;
@@ -357,8 +371,56 @@ void MainWindow::refreshCounts() {
                    item("#1fae52", QStringLiteral("PREVIEW %1").arg(prv)), item("#555555", T("WAITING %1").arg(wait))};
     if (err) lg << item("#e0242b", T("ERROR %1").arg(err));
     m_legend->setText(lg.join(QStringLiteral("&nbsp;&nbsp;&nbsp;")));
-    m_btnTransport[0]->setLit(rec > 0);
+    bool selRec = false;
+    for (Channel* c : m_mgr->selected()) selRec = selRec || c->isRecording();
+    m_btnTransport[0]->setLit(selRec);
     m_hint->setText(m_mgr->canAdd() ? QString() : T("Limit of 16 channels reached — adding sources is disabled"));
+}
+
+// Naglowek: REC przy kanale aktywnym, laczny strumien zapisu, liczba sesji enkoderow sprzetowych.
+void MainWindow::refreshRecording() {
+    const Channel* active = m_mgr->active();
+    m_recBadge->setVisible(active && active->state() == ChannelState::Recording);
+    double mbps = 0;
+    int hw = 0;
+    for (const Channel* c : m_mgr->channels()) {
+        if (!c->isRecording()) continue;
+        mbps += c->recordMbps();
+        hw += c->encoderIsHardware() ? 1 : 0;
+    }
+    m_write->setText(QStringLiteral("%1 Mb/s").arg(qRound(mbps)));
+    m_hwEnc->setText(QString::number(hw));
+    if (m_closing && m_mgr->recordingCount() == 0) close();
+}
+
+void MainWindow::transportSelected(Transport t) {
+    if (t == Transport::Stop) {      // ochrona przed przypadkowym zatrzymaniem wielu nagran
+        int rec = 0;
+        for (Channel* c : m_mgr->selected()) rec += c->state() == ChannelState::Recording ? 1 : 0;
+        if (rec >= 2 && QMessageBox::question(this, QStringLiteral("ISO Recorder"),
+                                              T("Stop recording on %1 channels?").arg(rec)) != QMessageBox::Yes)
+            return;
+    }
+    m_mgr->transportSelected(t);
+}
+
+void MainWindow::removeSelected() {
+    const QList<Channel*> sel = m_mgr->selected();
+    if (ChannelTile::confirmRemove(this, sel)) m_mgr->removeChannels(sel);
+}
+
+// Zamkniecie okna w trakcie nagrywania: najpierw finalizacja wszystkich plikow, dopiero potem wyjscie.
+void MainWindow::closeEvent(QCloseEvent* e) {
+    if (m_mgr->recordingCount() == 0) {
+        e->accept();
+        return;
+    }
+    e->ignore();
+    if (!m_closing) {
+        m_closing = true;
+        notice(T("Finishing recordings before exit…"));
+        m_mgr->stopAllRecording();
+    }
 }
 
 void MainWindow::refreshActive() {
@@ -415,7 +477,13 @@ void MainWindow::keyPressEvent(QKeyEvent* e) {
     switch (e->key()) {
     case Qt::Key_A: if (ctrl && shift) m_mgr->selectNone(); else if (ctrl) m_mgr->selectAll(); break;
     case Qt::Key_I: if (ctrl) m_mgr->invertSelection(); break;
-    case Qt::Key_Delete: if (ch) m_mgr->removeChannel(ch); break;
+    case Qt::Key_Delete:
+        if (shift) removeSelected();
+        else if (ch && ChannelTile::confirmRemove(this, {ch})) m_mgr->removeChannel(ch);
+        break;
+    case Qt::Key_D: if (ctrl) m_mgr->duplicateChannels(m_mgr->selected()); break;
+    case Qt::Key_R: if (ch && !ctrl) m_mgr->transport(ch, Transport::Rec); break;
+    case Qt::Key_S: if (ch && !ctrl) m_mgr->transport(ch, Transport::Stop); break;
     case Qt::Key_Up: if (ctrl) m_mgr->moveActive(-1); break;
     case Qt::Key_Down: if (ctrl) m_mgr->moveActive(1); break;
     case Qt::Key_Left: if (i > 0) m_mgr->setActive(m_mgr->channels().at(i - 1)); break;

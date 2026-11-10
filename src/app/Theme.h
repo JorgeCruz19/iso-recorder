@@ -54,7 +54,6 @@ QLabel#stat { font-size:15px; font-weight:600; }
 QLabel#dim { color:#9d9d9d; }
 QLabel#recBadge { background:#e0242b; color:#fff; font-weight:700; font-size:11px; padding:3px 8px; border-radius:2px; }
 QLabel#countN { font-size:13px; font-weight:700; color:#f0f0f0; }
-QLabel#legend { font-size:11px; color:#9d9d9d; background:#262626; }
 QProgressBar { background:#111; border:1px solid #0c0c0c; max-height:5px; min-height:5px; }
 QProgressBar::chunk { background:#8a8a8a; }
 QPushButton#vb { background:#333; border:1px solid #151515; color:#9d9d9d; font-size:11px; font-weight:600;
@@ -75,6 +74,12 @@ QPushButton#vb::menu-indicator { image:none; }
                           font-weight:600; color:#9d9d9d; padding:0 12px; min-height:26px; max-height:26px; }
 #inspector QLabel#fl { color:#9d9d9d; font-size:11px; }
 #inspector QLabel#note { color:#6e6e6e; padding:14px 12px; }
+#inspector QLabel#lock { color:#f2a516; padding:6px 12px; font-size:11px; }
+#inspector QPushButton#ibtn { background:#3a3a3a; border:1px solid #151515; border-radius:2px; color:#d6d6d6;
+                              font-size:11px; font-weight:600; min-height:22px; padding:0 10px; }
+#inspector QPushButton#ibtn:pressed { background:#303030; }
+#inspector QPushButton#ibtn:disabled { color:#6e6e6e; }
+#inspector QComboBox:disabled, #inspector QLineEdit:disabled { color:#6e6e6e; }
 #inspector QComboBox, #inspector QLineEdit { background:#1a1a1a; border:1px solid #3a3a3a; border-radius:2px;
                                              padding:0 8px; min-height:21px; font-size:11px; }
 #inspector QComboBox::drop-down { border:0; width:18px; }
@@ -83,7 +88,7 @@ QPushButton#vb::menu-indicator { image:none; }
 #inspector QComboBox QAbstractItemView { background:#1a1a1a; border:1px solid #3a3a3a;
                                          selection-background-color:#4a4a4a; }
 #status { background:#161616; border-top:1px solid #000; }
-#status QLabel { background:transparent; color:#6e6e6e; font-size:11px; }
+#status QLabel { background:transparent; color:#9d9d9d; font-size:11px; }
 QMenu { background:#262626; border:1px solid #151515; padding:4px 0; }
 QMenu::item { padding:5px 22px; background:transparent; }
 QMenu::item:selected { background:#4a4a4a; }

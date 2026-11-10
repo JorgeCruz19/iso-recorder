@@ -1,4 +1,5 @@
 #pragma once
+#include <QList>
 #include <QWidget>
 
 class Channel;
@@ -19,6 +20,13 @@ protected:
     void paintEvent(QPaintEvent*) override;
     void mousePressEvent(QMouseEvent*) override;
     void mouseDoubleClickEvent(QMouseEvent*) override;
+    void contextMenuEvent(QContextMenuEvent*) override;
+
+public:
+    // Pytanie przed usunieciem: zawsze dla wielu kanalow, dla jednego tylko gdy nagrywa.
+    static bool confirmRemove(QWidget* parent, const QList<Channel*>& list);
+
+protected:
 
 private:
     struct Rects {

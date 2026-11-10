@@ -12,8 +12,9 @@ public:
     enum Glyph { None, Dot, PauseBars, Square, Cut, Up, Down };
     KeyButton(const QString& text, Glyph glyph, bool wide, QWidget* parent = nullptr);
     void setRed(bool on) { m_red = on; update(); }
+    void setCompact();          // maly przycisk (wiersz Selection)
     void setLit(bool on) { if (m_lit != on) { m_lit = on; update(); } }
-    QSize sizeHint() const override { return {m_width, 38}; }
+    QSize sizeHint() const override { return {m_width, m_compact ? 26 : 38}; }
     QSize minimumSizeHint() const override { return sizeHint(); }
 
 protected:
@@ -23,6 +24,7 @@ private:
     Glyph m_glyph;
     bool m_wide;
     int m_width = 72;
+    bool m_compact = false;
     bool m_red = false;
     bool m_lit = false;
 };
