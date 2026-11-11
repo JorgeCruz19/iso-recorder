@@ -31,6 +31,12 @@ $scanner = Get-ChildItem $gst -Recurse -Filter 'gst-plugin-scanner.exe' | Select
 if ($scanner) { Copy-Item $scanner.FullName $dist }
 if (Test-Path "$gst\lib\gio\modules") { Copy-Item "$gst\lib\gio\modules\*.dll" "$dist\gio\modules" }
 
+# Paczka ma zawierac tylko skladniki na licencjach LGPL / BSD / MIT. Wtyczki GPL z instalacji GStreamera nie sa programowi
+# potrzebne (enkodery: NVENC, Quick Sync, AMF, Media Foundation, OpenH264), wiec nie trafiaja do paczki.
+$gpl = 'gsta52dec.dll', 'gstdtsdec.dll', 'gstdvdread.dll', 'gstresindvd.dll', 'gstx264.dll', 'gstx265.dll'
+foreach ($f in $gpl) { Remove-Item "$dist\gstreamer-1.0\$f" -ErrorAction SilentlyContinue }
+foreach ($f in 'x264-*.dll', 'x265.dll', 'dca-*.dll', 'dvdread-*.dll', 'dvdnav-*.dll', 'a52-*.dll') { Remove-Item "$dist\$f" -ErrorAction SilentlyContinue }
+
 $version = (Select-String -Path "$root\CMakeLists.txt" -Pattern 'APP_VERSION_SHORT "([^"]+)"').Matches[0].Groups[1].Value
 Set-Content "$dist\WERSJA.txt" "ISO Recorder $version`r`nZbudowano: $(Get-Date -Format 'yyyy-MM-dd HH:mm')" -Encoding utf8
 $size = (Get-ChildItem $dist -Recurse -File | Measure-Object Length -Sum).Sum

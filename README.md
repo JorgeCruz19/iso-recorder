@@ -1,92 +1,95 @@
 # ISO Recorder
 
-Program dla Windows do równoczesnego nagrywania od 1 do 16 kanałów wideo z dźwiękiem — każdy kanał do własnego pliku
-(„ISO recording”). Przydaje się przy realizacji wielokamerowej, rejestracji konferencji i streamów oraz wszędzie tam,
-gdzie materiał z każdego źródła ma zostać w całości do późniejszego montażu.
+A Windows application that records 1 to 16 video channels with audio at the same time — each channel to its own file
+("ISO recording"). It is meant for multi-camera production, conference and stream capture, and any job where the
+material from every source must be kept in full for later editing.
 
-![ISO Recorder — 12 kanałów w trakcie nagrywania](docs/zrzut_2.0.png)
+![ISO Recorder — 12 channels recording](docs/zrzut_2.0.png)
 
-## Co potrafi
+## Features
 
-**Źródła**
-- ekran lub pojedyncze okno programu,
-- kamera USB / karta przechwytująca widoczna w systemie jako kamera,
-- strumienie sieciowe SRT i RTSP,
-- dźwięk systemowy, mikrofon lub wejście liniowe,
-- generator testowy (obraz i ton) do prób.
+**Sources**
+- a whole screen or a single application window,
+- a USB camera / capture card that shows up in Windows as a camera,
+- SRT and RTSP network streams,
+- system sound, a microphone or a line input,
+- a test generator (picture and tone) for rehearsals.
 
-**Nagrywanie**
-- H.264 + AAC do plików MKV albo MPEG‑TS; enkoder sprzętowy wybierany automatycznie
-  (NVIDIA NVENC, Intel Quick Sync, AMD AMF), z zapasowym programowym,
-- pauza i wznowienie w tym samym pliku, bez śladu w osi czasu,
-- podział na części ręcznie albo automatycznie (co N minut / co N GB),
-- REC, PAUSE i STOP dla grupy kanałów w tej samej chwili — pliki mają wspólny punkt zero,
-- plik opisu `.json` obok każdego nagrania (czasy, części, pauzy, zaniki sygnału) do synchronizacji w montażu.
+**Recording**
+- H.264 + AAC to MKV or MPEG‑TS; the hardware encoder is picked automatically
+  (NVIDIA NVENC, Intel Quick Sync, AMD AMF), with a software fallback,
+- pause and resume within the same file, leaving no trace on the timeline,
+- splitting into parts by hand or automatically (every N minutes / every N GB),
+- REC, PAUSE and STOP for a group of channels at the same instant — the files share a common zero point,
+- a `.json` sidecar next to every recording (times, parts, pauses, signal losses) for syncing in the edit.
 
-**Wyjście na żywo**
-- każdy kanał może równolegle do nagrania wychodzić na NDI albo SRT; można to włączać i wyłączać w trakcie nagrywania.
+**Live output**
+- every channel can go out to NDI or SRT in parallel with its recording; this can be switched on and off while recording.
 
-**Odporność**
-- zanik sygnału sieciowego nie przerywa nagrania; do wyboru: nagrywaj dalej, pauza albo nowa część pliku,
-- źródło, które padło, jest uruchamiane ponownie automatycznie, a przerwane nagrywanie wznawia się w nowym pliku,
-- nadzór wolnego miejsca na każdym dysku z osobna i test prędkości zapisu,
-- autozapis listy kanałów i przywracanie po awarii,
-- log zdarzeń w pliku.
+**Resilience**
+- a lost network signal does not stop the recording; choose between keep recording, pause, or a new file part,
+- a source that failed is restarted automatically and an interrupted recording resumes in a new file,
+- free-space monitoring per disk and a write-speed test,
+- channel list autosave and recovery after a crash,
+- an event log written to a file.
 
-**Interfejs**
-- widok kafli (2×2, 3×3, 4×4) i widok listy, duży podgląd kanału, mierniki dźwięku,
-- listy kanałów zapisywane do pliku i wczytywane,
-- języki: angielski, polski, niemiecki, hiszpański, włoski, francuski.
+**Interface**
+- tile view (2×2, 3×3, 4×4) and list view, a large channel preview, audio meters,
+- channel lists saved to and loaded from files,
+- languages: English, Polish, German, Spanish, Italian, French.
 
-## Wymagania
+## Requirements
 
-- Windows 10 (wersja 1903 lub nowsza) albo Windows 11, 64 bity,
-- karta graficzna z enkoderem H.264 (zalecane); bez niej działa wolniejszy enkoder programowy,
-- dla wyjścia NDI: zainstalowane NDI Tools lub NDI Runtime.
+- Windows 10 (version 1903 or later) or Windows 11, 64-bit,
+- a graphics card with an H.264 encoder (recommended); without one a slower software encoder is used,
+- for NDI output: NDI Tools or the NDI Runtime installed.
 
-Wydajność zależy od enkodera. Na komputerze testowym (6 wątków, Intel Quick Sync) 8 kanałów 720p25 zajmuje
-ok. 2,3 rdzenia procesora, a 16 kanałów to granica możliwości.
+Performance depends on the encoder. On the test machine (6 threads, Intel Quick Sync) 8 channels of 720p25 take about
+2.3 CPU cores, and 16 channels is the limit.
 
-## Instalacja
+## Installation
 
-1. Pobierz `IsoRecorder-<wersja>-win64.zip` z zakładki **Releases**.
-2. Rozpakuj w dowolnym miejscu.
-3. Uruchom `IsoRecorder.exe`. Niczego nie trzeba instalować — Qt i GStreamer są w paczce.
+1. Download `IsoRecorder-<version>-win64.zip` from **Releases**.
+2. Unpack it anywhere.
+3. Run `IsoRecorder.exe`. Nothing needs to be installed — Qt and GStreamer are included.
 
-Gdyby program nie chciał wystartować z ostatnio używaną listą kanałów, przytrzymaj **Shift** przy uruchamianiu —
-otworzy się z pustą listą.
+If the program will not start with the last used channel list, hold **Shift** while launching it — it opens with an
+empty list.
 
-## Pierwsze kroki
+## Getting started
 
-1. **ADD SOURCE** dodaje kanał. W zakładce **Input** wybierz typ źródła i urządzenie albo adres.
-2. W zakładce **Output** ustaw folder nagrań, kontener i bitrate; tam też jest wyjście na żywo (**Live output**).
-3. **REC** na kaflu nagrywa jeden kanał; zaznacz kilka kanałów i użyj panelu **Selected channels**, żeby ruszyły razem.
-4. **SAVE** zapisuje listę kanałów do pliku — przy następnym uruchomieniu program otworzy ją sam.
+1. **ADD SOURCE** adds a channel. On the **Input** tab choose the source type and the device or address.
+2. On the **Output** tab set the recording folder, container and bitrate; **Live output** is there too.
+3. **REC** on a tile records one channel; select several channels and use the **Selected channels** panel to start
+   them together.
+4. **SAVE** stores the channel list in a file — the program opens it by itself next time.
 
-Skróty: `R` nagrywaj, `P` pauza, `S` stop, `X` podział, `Ctrl+A` zaznacz wszystkie, `Ctrl+S` zapisz listę,
-strzałki — zmiana kanału aktywnego. Dwuklik w obraz otwiera duży podgląd.
+Shortcuts: `R` record, `P` pause, `S` stop, `X` split, `Ctrl+A` select all, `Ctrl+S` save the list, arrow keys change
+the active channel. Double-click a picture for the large preview.
 
-## Budowanie ze źródeł
+## Building from source
 
-Potrzebne: Visual Studio Build Tools (C++ i CMake), Qt 6 w `C:\Qt\<wersja>\msvc*_64`,
-GStreamer 1.28 MSVC x64 (pakiety runtime i development).
+You need: Visual Studio Build Tools (C++ and CMake), Qt 6 in `C:\Qt\<version>\msvc*_64`, and GStreamer 1.28 MSVC x64
+(runtime and development packages).
 
 ```powershell
-scripts\build.ps1      # buduje do build\
-scripts\run.ps1        # uruchamia z wlasciwymi sciezkami
-scripts\package.ps1    # sklada samodzielna paczke w dist\IsoRecorder\
+scripts\build.ps1      # builds into build\
+scripts\run.ps1        # runs with the right paths
+scripts\package.ps1    # assembles a standalone package in dist\IsoRecorder\
 ```
 
-Testy (PowerShell, wymagają `ffprobe`) są w katalogu `tests\`; opis w [AGENTS.md](AGENTS.md).
+The tests (PowerShell, they need `ffprobe`) live in `tests\`; they are described in [AGENTS.md](AGENTS.md).
 
-## Dokumentacja
+## Documentation
 
-- [CHANGELOG.md](CHANGELOG.md) — historia wersji,
-- [instrukcja_koncowa.md](instrukcja_koncowa.md) — specyfikacja i opis mechanizmów,
-- [AGENTS.md](AGENTS.md) — stan projektu, zasady pracy i plan dalszych etapów.
+The project documents are written in Polish:
 
-## Autorzy
+- [CHANGELOG.md](CHANGELOG.md) — version history,
+- [instrukcja_koncowa.md](instrukcja_koncowa.md) — specification and how the mechanisms work,
+- [AGENTS.md](AGENTS.md) — project state, working rules and the roadmap.
+
+## Authors
 
 Studio Krause + Claude Fable 5.2
 
-Program korzysta z bibliotek [Qt](https://www.qt.io/) i [GStreamer](https://gstreamer.freedesktop.org/) (LGPL).
+The program uses the [Qt](https://www.qt.io/) and [GStreamer](https://gstreamer.freedesktop.org/) libraries (LGPL).

@@ -151,8 +151,8 @@ QWidget* Inspector::buildInputPage() {
     m_type->addItem(QStringLiteral("RTSP"), QStringLiteral("rtsp"));
     const int firstFuture = m_type->count();
     const struct { QString name; const char* from; } types[] = {
-        {QStringLiteral("HDMI — Blackmagic DeckLink"), Roadmap::ndiDecklink},
-        {QStringLiteral("NDI"), Roadmap::ndiDecklink},
+        {QStringLiteral("NDI"), Roadmap::ndi},
+        {QStringLiteral("HDMI — Blackmagic DeckLink"), Roadmap::decklink},
         {QStringLiteral("WebRTC WHEP"), Roadmap::webrtc},
         {QStringLiteral("WebRTC WHIP"), Roadmap::webrtc}};
     for (const auto& t : types) m_type->addItem(t.name + QStringLiteral("  ") + T("(from %1)").arg(QLatin1String(t.from)));

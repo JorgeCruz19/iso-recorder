@@ -2,6 +2,15 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 2.1
+
+- Program otwiera się zmaksymalizowany.
+- README jest w całości po angielsku.
+- Paczka nie zawiera już wtyczek GStreamera na licencji GPL (x264, x265, a52, dts, dvdread, resindvd) — program
+  ich nie używa, a bez nich paczkę można rozpowszechniać na warunkach LGPL.
+- Plan: zapis strumienia bez ponownego kodowania („passthrough”) wypada z planu — przekazanie sygnału dalej realizuje
+  wyjście na żywo (NDI, SRT). Następne etapy: wejście NDI (2.2), scheduler (2.3).
+
 ## 2.0
 
 Pierwsze wydanie publikowane jako Release.

@@ -1,6 +1,6 @@
 # ISO Recorder — stan projektu i instrukcje dla kolejnego modelu
 
-Ten plik jest punktem wejścia. Przeczytaj go w całości, zanim cokolwiek zmienisz. Stan na 2026‑11‑11, wersja **2.0** (pierwsza opublikowana jako Release na GitHubie).
+Ten plik jest punktem wejścia. Przeczytaj go w całości, zanim cokolwiek zmienisz. Stan na 2026‑11‑11, wersja **2.1**. Wydania od 2.0 są publikowane jako Release na GitHubie.
 
 ## 1. Co to jest
 
@@ -18,11 +18,12 @@ z tłumaczeniami PL, DE, ES, IT, FR.
 | `instrukcja_koncowa.md` | **obowiązująca** specyfikacja; nadpisuje `instrukcja.md`. Rozdz. 3 — mechanizmy (pauza, split, wejścia, wyjścia, segmenty), rozdz. 5 — interfejs, rozdz. 6 — plan wersji |
 | `instrukcja.md` | pierwotna specyfikacja (tło, pełna lista funkcji docelowych) |
 | `rozmowa.md` | krytyka pierwotnej specyfikacji przez inny model (tło) |
+| `README.md` | opis programu dla GitHuba — **w całości po angielsku** (decyzja właściciela) |
 | `CHANGELOG.md` | historia wersji po polsku, pisana dla użytkownika |
 | `mockup/`, `interfejs.png` | wzorzec wyglądu |
 | `docs/zrzut_<wersja>.png` | zrzut okna na każdą wersję |
 
-## 3. Co działa (2.0)
+## 3. Co działa (2.1)
 
 - **Wejścia**: generator testowy, ekran i pojedyncze okno (`d3d11screencapturesrc`), kamera z wyborem rozmiaru obrazu
   (`mfvideosrc`), SRT i RTSP (`fallbacksrc`); dźwięk: sygnał testowy, cisza, dźwięk systemowy (loopback) i wejścia
@@ -44,17 +45,24 @@ z tłumaczeniami PL, DE, ES, IT, FR.
 
 | Wersja | Zakres |
 |---|---|
-| **2.1** | Passthrough: zapis strumienia SRT/RTSP bez ponownego kodowania; pauza = nowa część |
-| **2.2** | Wejście NDI, DeckLink; kodeki H.265 / AV1 / ProRes / DNxHR; MOV / MP4 |
-| **2.3** | Scheduler (harmonogram startu / stopu / splitu), blokada uśpienia, logi, folder zapasowy |
-| **2.4** | WebRTC (WHEP, WHIP), magazyn poświadczeń, odzyskiwanie po awarii, instalator |
+| **2.2** | Wejście NDI: lista źródeł z sieci, odbiór obrazu i dźwięku, zanik sygnału i ponowne łączenie |
+| **2.3** | Scheduler: reguły startu / stopu / splitu, catch‑up, zmiana czasu, blokada uśpienia |
+| **2.4** | DeckLink; kodeki H.265 / AV1 / ProRes / DNxHR; MOV / MP4; folder zapasowy |
+| **2.5** | WebRTC (WHEP, WHIP), odzyskiwanie plików po awarii, instalator |
 
 Decyzje właściciela (2026‑11‑11) — **nie wracać do tych tematów**:
 - wyjście na wirtualną kamerę nie będzie robione: wystarcza wyjście NDI + „Webcam” z NDI Tools;
+- „passthrough” w znaczeniu zapisu strumienia bez ponownego kodowania **nie będzie robiony**: właściciel rozumie
+  passthrough jako przekazanie sygnału dalej, a to robi wyjście na żywo (NDI, SRT);
 - hasło RTSP zostaje w adresie (to standard w tego typu oprogramowaniu), bez magazynu poświadczeń dla RTSP.
 
 Znane braki: źródło, które w ogóle nie odpowiada (limit czasu startu), nie jest ponawiane automatycznie;
 sortowanie po kolumnach w widoku listy; wybór klatkażu kamery (jest tylko rozmiar).
+
+Wskazówki do 2.2 (wejście NDI): elementy `ndisrc` + `ndisrcdemux` są w GStreamerze; odbiornik potrzebuje ok. 4 s na
+znalezienie źródła; nazwa źródła ma postać `KOMPUTER (nazwa)`; listę źródeł daje dostawca urządzeń NDI
+(`GstDeviceMonitor`). Najprościej podać `ndisrc` jako `source` elementu `fallbacksrc`, żeby zanik i powrót działały tak
+samo jak przy SRT/RTSP. Do testów: własne wyjście NDI innego kanału programu.
 
 ## 5. Stałe zasady pracy (ustalone z właścicielem)
 
@@ -88,6 +96,8 @@ sortowanie po kolumnach w widoku listy; wybór klatkażu kamery (jest tylko rozm
 - GStreamer 1.28.8 MSVC x64 w `%LOCALAPPDATA%\Programs\gstreamer\1.0\msvc_x86_64` — **bez** zmiennej
   `GSTREAMER_1_0_ROOT_MSVC_X86_64`; skrypty szukają tej ścieżki same.
 - NDI 6 Tools i OBS są zainstalowane; `ffmpeg` / `ffprobe` w `D:\VideoTools\ffmpeg`.
+- Program startuje zmaksymalizowany; uruchomienia z argumentami testowymi mają stałe okno 1600×900 (zrzuty).
+- Paczka (`package.ps1`) pomija wtyczki GPL z instalacji GStreamera — nie dodawaj zależności od `x264enc` / `x265enc`.
 - Budowanie: `scripts\build.ps1` (komunikat „'vswhere.exe' is not recognized” jest nieszkodliwy).
 - Wydajność: 8 × 720p25 nagrywanych = ok. 2,3 rdzenia; 16 kanałów jest blisko granicy tej maszyny.
   **Mierz to po zmianach w torze sygnału** (patrz pułapka 7.6).

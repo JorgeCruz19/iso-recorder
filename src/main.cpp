@@ -180,8 +180,10 @@ int main(int argc, char* argv[]) {
                 if (old->isMaximized()) w->showMaximized(); else w->show();
                 old->hide();
                 old->deleteLater();
+            } else if (app.property("automation").toBool()) {
+                w->show();              // testy i zrzuty: staly rozmiar 1600 x 900
             } else {
-                w->show();
+                w->showMaximized();     // zwykle uruchomienie: okno na caly ekran
             }
         };
         makeWindow();
