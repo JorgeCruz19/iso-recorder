@@ -17,9 +17,9 @@ inline QString T(const char* english) { return Lang::tr(english); }
 namespace Roadmap {
 inline constexpr const char* localInputs = "1.5";
 inline constexpr const char* network = "1.6";
-inline constexpr const char* ndi = "2.3";
-inline constexpr const char* scheduler = "2.4";
-inline constexpr const char* streamCopy = "2.6";
-inline constexpr const char* decklink = "2.7";
-inline constexpr const char* webrtc = "2.8";
+inline constexpr const char* ndi = "2.4";
+inline constexpr const char* scheduler = "2.5";
+inline constexpr const char* streamCopy = "2.7";
+inline constexpr const char* decklink = "2.8";
+inline constexpr const char* webrtc = "2.9";
 }

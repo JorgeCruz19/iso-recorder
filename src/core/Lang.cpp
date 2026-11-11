@@ -79,8 +79,6 @@ const Row rows[] = {
     {"SELECT NONE", "ŻADEN", "KEINE", "NINGUNO", "NESSUNO", "AUCUN"},
     {"INVERT", "ODWRÓĆ", "UMKEHREN", "INVERTIR", "INVERTI", "INVERSER"},
     {"Active channel", "Kanał aktywny", "Aktiver Kanal", "Canal activo", "Canale attivo", "Canal actif"},
-    {"MOVE UP", "W GÓRĘ", "NACH OBEN", "SUBIR", "SU", "MONTER"},
-    {"MOVE DOWN", "W DÓŁ", "NACH UNTEN", "BAJAR", "GIÙ", "DESCENDRE"},
     {"Channel list", "Lista kanałów", "Kanalliste", "Lista de canales", "Elenco canali", "Liste des canaux"},
     {"ADD SOURCE", "DODAJ ŹRÓDŁO", "QUELLE HINZUFÜGEN", "AÑADIR FUENTE", "AGGIUNGI SORGENTE", "AJOUTER SOURCE"},
     {"LOAD", "WCZYTAJ", "LADEN", "CARGAR", "CARICA", "CHARGER"},

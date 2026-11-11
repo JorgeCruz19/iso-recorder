@@ -32,7 +32,6 @@ public:
     void removeChannel(Channel* ch);                        // nagrywajacy kanal jest najpierw finalizowany
     void removeChannels(const QList<Channel*>& list);
     void duplicateChannels(const QList<Channel*>& list);
-    void moveActive(int delta);
     void moveChannel(int from, int gap);                    // gap = pozycja wstawienia 0..count (przed kanalem o tym indeksie)
     void setActive(Channel* ch);
     void selectAll();

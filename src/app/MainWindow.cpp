@@ -359,12 +359,6 @@ QWidget* MainWindow::buildControlPanel() {
     connect(m_btnSelect[4], &KeyButton::clicked, this, &MainWindow::removeSelected);
     group(cap(T("Selection")), {m_btnSelect[0], m_btnSelect[1], m_btnSelect[2], m_btnSelect[3], m_btnSelect[4]});
 
-    // Kanal aktywny (pomaranczowa ramka, pokazany w inspektorze)
-    m_btnUp = new KeyButton(T("MOVE UP"), KeyButton::Up, false);
-    m_btnDown = new KeyButton(T("MOVE DOWN"), KeyButton::Down, false);
-    connect(m_btnUp, &KeyButton::clicked, this, [this] { m_mgr->moveActive(-1); });
-    connect(m_btnDown, &KeyButton::clicked, this, [this] { m_mgr->moveActive(1); });
-    group(cap(T("Active channel")), {m_btnUp, m_btnDown});
 
     // Lista kanalow jako calosc; licznik n / 16 w wierszu tytulu
     m_btnAdd = new KeyButton(T("ADD SOURCE"), KeyButton::None, true);
@@ -500,8 +494,6 @@ void MainWindow::refreshActive() {
     Channel* ch = m_mgr->active();
     const int i = m_mgr->indexOf(ch);
     m_recCap->setText((ch ? T("Recording time — channel %1").arg(i + 1, 2, 10, QLatin1Char('0')) : T("Recording time")).toUpper());
-    m_btnUp->setEnabled(i > 0);
-    m_btnDown->setEnabled(i >= 0 && i < m_mgr->count() - 1);
 }
 
 void MainWindow::tickSecond() {
@@ -677,8 +669,6 @@ void MainWindow::keyPressEvent(QKeyEvent* e) {
     case Qt::Key_O: if (ctrl) loadList(); break;
     case Qt::Key_N: if (ctrl) newList(); break;
     case Qt::Key_X: if (ch && !ctrl) m_mgr->transport(ch, Transport::Split); break;
-    case Qt::Key_Up: if (ctrl) m_mgr->moveActive(-1); break;
-    case Qt::Key_Down: if (ctrl) m_mgr->moveActive(1); break;
     case Qt::Key_Left: if (i > 0) m_mgr->setActive(m_mgr->channels().at(i - 1)); break;
     case Qt::Key_Right: if (i >= 0 && i < n - 1) m_mgr->setActive(m_mgr->channels().at(i + 1)); break;
     case Qt::Key_Space: if (ch) ch->setSelected(!ch->isSelected()); break;

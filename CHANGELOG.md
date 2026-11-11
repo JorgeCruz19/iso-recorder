@@ -2,6 +2,11 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 2.3
+
+- Usunięte przyciski MOVE UP / MOVE DOWN (grupa Active channel) i skróty Ctrl+↑ / Ctrl+↓. Kolejność kanałów zmienia się
+  przeciąganiem — kafla w widoku siatki albo wiersza w widoku listy. Inspektor zyskał miejsce po usuniętej grupie.
+
 ## 2.2
 
 Ustawienia (☰ → Settings…):

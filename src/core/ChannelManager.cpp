@@ -122,14 +122,6 @@ void ChannelManager::duplicateChannels(const QList<Channel*>& list) {
     }
 }
 
-void ChannelManager::moveActive(int delta) {
-    const int from = indexOf(m_active);
-    const int to = from + delta;
-    if (from < 0 || to < 0 || to >= count()) return;
-    m_channels.move(from, to);      // pipeline nie jest restartowany
-    emit listChanged();
-}
-
 void ChannelManager::moveChannel(int from, int gap) {
     if (from < 0 || from >= count() || gap < 0 || gap > count()) return;
     const int to = gap > from ? gap - 1 : gap;

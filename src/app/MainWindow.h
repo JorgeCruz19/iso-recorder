@@ -88,8 +88,6 @@ private:
     KeyButton* m_btnSelect[5]{};
     KeyButton* m_btnAdd;
     KeyButton* m_btnSplitFolder = nullptr;
-    KeyButton* m_btnUp;
-    KeyButton* m_btnDown;
     QLabel* m_count;
     QLabel* m_legend;
 

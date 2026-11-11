@@ -1,6 +1,6 @@
 # ISO Recorder — stan projektu i instrukcje dla kolejnego modelu
 
-Ten plik jest punktem wejścia. Przeczytaj go w całości, zanim cokolwiek zmienisz. Stan na 2026‑11‑11, wersja **2.2**. Wydania od 2.0 są publikowane jako Release na GitHubie.
+Ten plik jest punktem wejścia. Przeczytaj go w całości, zanim cokolwiek zmienisz. Stan na 2026‑11‑11, wersja **2.3**. Wydania od 2.0 są publikowane jako Release na GitHubie.
 
 ## 1. Co to jest
 
@@ -23,7 +23,7 @@ z tłumaczeniami PL, DE, ES, IT, FR.
 | `mockup/`, `interfejs.png` | wzorzec wyglądu |
 | `docs/zrzut_<wersja>.png` | zrzut okna na każdą wersję |
 
-## 3. Co działa (2.2)
+## 3. Co działa (2.3)
 
 - **Wejścia**: generator testowy, ekran i pojedyncze okno (`d3d11screencapturesrc`), kamera z wyborem rozmiaru obrazu
   (`mfvideosrc`), SRT i RTSP (`fallbacksrc`); dźwięk: sygnał testowy, cisza, dźwięk systemowy (loopback) i wejścia
@@ -41,31 +41,31 @@ z tłumaczeniami PL, DE, ES, IT, FR.
 - **Split do nowego folderu** dla zaznaczonych kanałów; **zegary testowe** (cyfrowy z numerem klatki, analogowy).
 - **Sesja i listy kanałów**: zapis / wczytanie `.isorec.json`, autozapis, przywracanie po awarii, ostatnie listy.
 - **Interfejs**: kafle 2×2 / 3×3 / 4×4 i widok listy, inspektor (Input / Output), panel sterowania, duży podgląd
-  (dwuklik), przeciąganie kafli i wierszy listy, okno Disks z testem prędkości zapisu, 6 języków.
+  (dwuklik), kolejność kanałów tylko przeciąganiem (kafle i wiersze listy; przycisków MOVE UP/DOWN nie ma od 2.3), okno Disks z testem prędkości zapisu, 6 języków.
 - **Odporność**: start i stop kanału mają limit czasu — źródło, które nie odpowiada, nie zawiesza programu.
 
 ## 4. Następne etapy (rozdz. 6 `instrukcja_koncowa.md`)
 
 | Wersja | Zakres |
 |---|---|
-| **2.3** | Wejście NDI: lista źródeł z sieci, odbiór obrazu i dźwięku, zanik sygnału i ponowne łączenie |
-| **2.4** | Scheduler: reguły startu / stopu / splitu, catch‑up, zmiana czasu, blokada uśpienia; **wyjście na żywo w harmonogramie**: „jak w harmonogramie nagrywania” albo „cały czas” |
-| **2.5** | Wiele lokalizacji zapisu: folder zapasowy przy małej ilości miejsca i zapis podwójny |
-| **2.6** | Zapis bez ponownego kodowania (stream copy) dla SRT/RTSP jako opcja enkodera |
-| **2.7** | DeckLink; kodeki H.265 / AV1 / ProRes / DNxHR; MOV / MP4 |
-| **2.8** | WebRTC (WHEP, WHIP), odzyskiwanie plików po awarii, instalator |
+| **2.4** | Wejście NDI: lista źródeł z sieci, odbiór obrazu i dźwięku, zanik sygnału i ponowne łączenie |
+| **2.5** | Scheduler: reguły startu / stopu / splitu, catch‑up, zmiana czasu, blokada uśpienia; **wyjście na żywo w harmonogramie**: „jak w harmonogramie nagrywania” albo „cały czas” |
+| **2.6** | Wiele lokalizacji zapisu: folder zapasowy przy małej ilości miejsca i zapis podwójny |
+| **2.7** | Zapis bez ponownego kodowania (stream copy) dla SRT/RTSP jako opcja enkodera |
+| **2.8** | DeckLink; kodeki H.265 / AV1 / ProRes / DNxHR; MOV / MP4 |
+| **2.9** | WebRTC (WHEP, WHIP), odzyskiwanie plików po awarii, instalator |
 
 Decyzje właściciela (2026‑11‑11) — **nie wracać do tych tematów**:
 - wyjście na wirtualną kamerę nie będzie robione: wystarcza wyjście NDI + „Webcam” z NDI Tools;
 - słowo „passthrough” właściciel rozumie jako przekazanie sygnału dalej (robi to wyjście na żywo). Zapis **bez
-  ponownego kodowania** wrócił do planu jako opcja enkodera (2.6) — nazywaj go „stream copy”, nie „passthrough”,
+  ponownego kodowania** wrócił do planu jako opcja enkodera (2.7) — nazywaj go „stream copy”, nie „passthrough”,
   i zawsze z opisem, co użytkownik dostaje i co traci (tekst jest w oknie Settings);
 - hasło RTSP zostaje w adresie (to standard w tego typu oprogramowaniu), bez magazynu poświadczeń dla RTSP.
 
 Znane braki: źródło, które w ogóle nie odpowiada (limit czasu startu), nie jest ponawiane automatycznie;
 sortowanie po kolumnach w widoku listy; wybór klatkażu kamery (jest tylko rozmiar).
 
-Wskazówki do 2.2 (wejście NDI): elementy `ndisrc` + `ndisrcdemux` są w GStreamerze; odbiornik potrzebuje ok. 4 s na
+Wskazówki do 2.4 (wejście NDI): elementy `ndisrc` + `ndisrcdemux` są w GStreamerze; odbiornik potrzebuje ok. 4 s na
 znalezienie źródła; nazwa źródła ma postać `KOMPUTER (nazwa)`; listę źródeł daje dostawca urządzeń NDI
 (`GstDeviceMonitor`). Najprościej podać `ndisrc` jako `source` elementu `fallbacksrc`, żeby zanik i powrót działały tak
 samo jak przy SRT/RTSP. Do testów: własne wyjście NDI innego kanału programu.
