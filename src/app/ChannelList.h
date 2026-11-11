@@ -26,6 +26,12 @@ protected:
 private:
     void rebuild();
     void relayout();
+    // Zmiana kolejnosci przeciaganiem wiersza: pomaranczowa kreska pokazuje miejsce wstawienia.
+    void dragMove(ChannelRow* row, const QPoint& globalPos);
+    void dragEnd(ChannelRow* row, const QPoint& globalPos);
+    QWidget* m_marker = nullptr;
+    int m_dragGap = -1;
+    int m_rowH = 46;
 
     ChannelManager* m_mgr;
     QWidget* m_inner;
@@ -54,8 +60,17 @@ protected:
     void mousePressEvent(QMouseEvent*) override;
     void mouseDoubleClickEvent(QMouseEvent*) override;
     void contextMenuEvent(QContextMenuEvent*) override;
+    void mouseMoveEvent(QMouseEvent*) override;
+    void mouseReleaseEvent(QMouseEvent*) override;
+
+signals:
+    void dragMoved(const QPoint& globalPos);
+    void dragFinished(const QPoint& globalPos);
 
 private:
+    QPoint m_pressPos;
+    bool m_pressed = false;
+    bool m_dragging = false;
     QRect buttonRect(const ListColumns& c, int i) const;
     ChannelManager* m_mgr;
     Channel* m_ch;

@@ -1,5 +1,6 @@
 #include "ChannelList.h"
 
+#include <QApplication>
 #include <QContextMenuEvent>
 #include <functional>
 #include <QInputDialog>
@@ -199,6 +200,8 @@ void ChannelList::resizeEvent(QResizeEvent* e) {
 }
 
 void ChannelList::rebuild() {
+    if (m_marker) m_marker->hide();
+    m_dragGap = -1;
     for (ChannelRow* r : m_rows) {
         r->hide();
         r->deleteLater();
@@ -207,6 +210,8 @@ void ChannelList::rebuild() {
     int n = 0;
     for (Channel* ch : m_mgr->channels()) {
         auto* r = new ChannelRow(m_mgr, ch, ++n, m_inner);
+        connect(r, &ChannelRow::dragMoved, this, [this, r](const QPoint& p) { dragMove(r, p); });
+        connect(r, &ChannelRow::dragFinished, this, [this, r](const QPoint& p) { dragEnd(r, p); });
         r->show();
         m_rows.append(r);
     }
@@ -228,6 +233,38 @@ void ChannelList::relayout() {
     m_header->update();
     m_hint->setGeometry(0, HeaderH, vp.width(), avail);
     for (int i = 0; i < n; ++i) m_rows[i]->setGeometry(0, HeaderH + i * h, vp.width(), h);
+    m_rowH = h;
+}
+
+void ChannelList::dragMove(ChannelRow* row, const QPoint& globalPos) {
+    const int from = int(m_rows.indexOf(row)), n = int(m_rows.size());
+    if (from < 0) return;
+    if (!m_marker) {
+        m_marker = new QWidget(m_inner);
+        m_marker->setAttribute(Qt::WA_TransparentForMouseEvents);
+        m_marker->setAttribute(Qt::WA_StyledBackground);
+        m_marker->setStyleSheet(QStringLiteral("background:#ff8a1f;"));
+    }
+    const QPoint pos = m_inner->mapFromGlobal(globalPos);
+    const bool inside = viewport()->rect().contains(viewport()->mapFromGlobal(globalPos));
+    const int gap = qBound(0, (pos.y() - HeaderH + m_rowH / 2) / m_rowH, n);
+    // upuszczenie tuz nad lub tuz pod samym soba niczego nie zmienia; poza lista - anulowanie
+    m_dragGap = (!inside || gap == from || gap == from + 1) ? -1 : gap;
+    if (m_dragGap < 0) {
+        m_marker->hide();
+        return;
+    }
+    m_marker->setGeometry(0, HeaderH + m_dragGap * m_rowH - 2, m_inner->width(), 4);
+    m_marker->show();
+    m_marker->raise();
+}
+
+void ChannelList::dragEnd(ChannelRow* row, const QPoint& globalPos) {
+    dragMove(row, globalPos);
+    const int from = int(m_rows.indexOf(row)), gap = m_dragGap;
+    if (m_marker) m_marker->hide();
+    m_dragGap = -1;
+    if (from >= 0 && gap >= 0) m_mgr->moveChannel(from, gap);      // przebudowuje liste
 }
 
 // ---------------------------------------------------------------- wiersz
@@ -365,11 +402,33 @@ void ChannelRow::mousePressEvent(QMouseEvent* e) {
         m_ch->setSelected(!m_ch->isSelected());
         return;
     }
+    m_pressPos = pt;
+    m_pressed = true;
     m_mgr->setActive(m_ch);
+}
+
+void ChannelRow::mouseMoveEvent(QMouseEvent* e) {
+    if (!m_pressed || !(e->buttons() & Qt::LeftButton)) return;
+    if (!m_dragging) {
+        if ((e->position().toPoint() - m_pressPos).manhattanLength() < QApplication::startDragDistance()) return;
+        m_dragging = true;
+        setCursor(Qt::ClosedHandCursor);
+    }
+    emit dragMoved(e->globalPosition().toPoint());
+}
+
+void ChannelRow::mouseReleaseEvent(QMouseEvent* e) {
+    if (e->button() != Qt::LeftButton) return;
+    const bool was = m_dragging;
+    m_pressed = m_dragging = false;
+    if (!was) return;
+    unsetCursor();
+    emit dragFinished(e->globalPosition().toPoint());      // po tym sygnale wiersz moze juz nie istniec
 }
 
 void ChannelRow::mouseDoubleClickEvent(QMouseEvent* e) {
     if (e->button() != Qt::LeftButton) return;
+    m_pressed = false;
     const int x = e->position().toPoint().x();
     const ListColumns c = ListColumns::forWidth(width(), thumbWidthFor(height()));
     if (x >= c.thumb && x < c.name) {                 // miniatura = duzy podglad

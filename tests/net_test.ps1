@@ -4,8 +4,9 @@
 # w pliku opisu dokladnie jeden zanik sygnalu, obraz przed zanikiem i po powrocie nie jest czarny, a w trakcie zaniku jest.
 # Nadajnik: SRT - ffmpeg (listener na porcie), RTSP - build\rtsp_test_server.exe.
 # Uzycie:  tests\net_test.ps1 [-Type srt|rtsp] [-Port 9950] [-NoBreak] [-Exe build\IsoRecorder.exe]
+# -Loss pause|split : reakcja kanalu na zanik; sprawdzane jest wtedy, czy nagranie ma jedna pauze (pause) albo dwie czesci (split).
 # Kod wyjscia 0 = wszystko poprawne.
-param([string]$Type = 'srt', [int]$Port = 9950, [switch]$NoBreak, [string]$Exe)
+param([string]$Type = 'srt', [int]$Port = 9950, [switch]$NoBreak, [string]$Loss = '', [string]$Exe)
 $ErrorActionPreference = 'Stop'
 $inv = [cultureinfo]::InvariantCulture
 $root = Split-Path $PSScriptRoot
@@ -38,7 +39,9 @@ $seconds = 28
 $sender = Start-Sender
 Start-Sleep 1
 if ($Exe -like "*\build\*") { $env:PATH = "$qt\bin;$gstBin;$savedPath" }
-$app = Start-Process $Exe -ArgumentList @('--demo', 1, '--lang', 'en', '--out', $out, '--input', $Type, '--uri', $uri, '--rec-test', $seconds) -PassThru
+$appArgs = @('--demo', 1, '--lang', 'en', '--out', $out, '--input', $Type, '--uri', $uri, '--rec-test', $seconds)
+if ($Loss) { $appArgs += @('--loss', $Loss) }
+$app = Start-Process $Exe -ArgumentList $appArgs -PassThru
 $env:PATH = $savedPath
 if (-not $NoBreak) {
     Start-Sleep 13
@@ -56,6 +59,22 @@ function Check($name, $ok, $detail) { "{0}  {1}  {2}" -f $(if ($ok) { 'ok  ' } e
 $sc = Get-ChildItem $out -Filter *.json | Select-Object -First 1
 if (-not $sc) { 'BLAD: brak nagrania'; Remove-Item $out -Recurse -Force; exit 1 }
 $j = Get-Content $sc.FullName -Raw -Encoding utf8 | ConvertFrom-Json
+if ($Loss) {
+    # reakcja na zanik: pauza = jedna pauza w opisie i krotszy material; nowa czesc = dwie czesci
+    $frames = 0; foreach ($part in $j.parts) { $frames += [int](ffprobe -v error -select_streams v:0 -count_packets -show_entries stream=nb_read_packets -of csv=p=0 (Join-Path $out $part.file)).Trim(',') }
+    Check 'nagranie poprawnie zamkniete' ($j.clean) ''
+    Check 'jeden zanik sygnalu w opisie' ($j.signalLosses -eq 1) "($($j.signalLosses))"
+    if ($Loss -eq 'pause') {
+        Check 'jedna czesc i jedna pauza w opisie' ($j.parts.Count -eq 1 -and @($j.pauses).Count -eq 1) ("(czesci {0}, pauz {1}, dlugosc pauzy {2:N1} s)" -f $j.parts.Count, @($j.pauses).Count, $(if (@($j.pauses).Count) { $j.pauses[0].durationMs / 1000 } else { 0 }))
+        Check 'material krotszy o czas pauzy' ($frames -lt ($seconds - 2) * 25 -and $frames -gt ($seconds - 8) * 25) "($frames klatek)"
+    } else {
+        Check 'dwie czesci pliku' ($j.parts.Count -eq 2) "(czesci $($j.parts.Count))"
+        Check 'material pelnej dlugosci' ($frames -ge ($seconds - 2) * 25) "($frames klatek)"
+    }
+    Remove-Item $out -Recurse -Force
+    "Wynik: bledow $fail"
+    exit $fail
+}
 $f = Join-Path $out $j.parts[0].file
 $pts = ffprobe -v error -select_streams v:0 -show_entries packet=pts_time -of csv=p=0 $f | ForEach-Object { [double]::Parse($_.Trim(','), $inv) } | Sort-Object
 $gap = 0.0; for ($i = 1; $i -lt $pts.Count; $i++) { $d = $pts[$i] - $pts[$i - 1]; if ($d -gt $gap) { $gap = $d } }

@@ -1,6 +1,7 @@
 #include "Channel.h"
 
 #include "Lang.h"
+#include "media/Devices.h"
 #include "media/EncoderFactory.h"
 #include "util/FileNameTemplate.h"
 
@@ -16,6 +17,7 @@
 #include <gst/video/video-event.h>
 
 #include <algorithm>
+#include <cmath>
 #include <chrono>
 #include <condition_variable>
 #include <memory>
@@ -82,6 +84,20 @@ Channel::Channel(const ChannelConfig& cfg, QObject* parent) : QObject(parent), m
     m_finalizeTimeout.setSingleShot(true);
     m_finalizeTimeout.setInterval(10000);
     connect(&m_finalizeTimeout, &QTimer::timeout, this, [this] { finishRecording(false, T("finalization timed out")); });
+    m_retry.setSingleShot(true);
+    connect(&m_retry, &QTimer::timeout, this, [this] {
+        if (m_state != ChannelState::Error || m_pipeline) return;
+        ++m_retryCount;
+        emit notice(T("%1: restarting the source (attempt %2)").arg(m_cfg.name).arg(m_retryCount));
+        startPreview();
+        if (m_state != ChannelState::Preview) return;      // nieudany start sam zaplanowal kolejna probe
+        emit notice(T("%1: source restarted").arg(m_cfg.name));
+        m_retryCount = 0;
+        if (m_autoRecord) {
+            m_autoRecord = false;
+            emit autoRecordRequested();
+        }
+    });
     m_stopPoll.setInterval(15);
     connect(&m_stopPoll, &QTimer::timeout, this, [this] {
         if ((m_stopSeenVideo && m_stopSeenAudio) || m_stopWait.elapsed() > m_stopWaitMs) closeBranch();
@@ -120,7 +136,18 @@ void Channel::setFormat(int width, int height) {
 }
 
 void Channel::setInput(const InputConfig& in) {
-    if (in == m_cfg.in || !canEdit()) return;
+    if (in == m_cfg.in) return;
+    InputConfig sameButGain = in;
+    sameButGain.gainDb = m_cfg.in.gainDb;
+    sameButGain.lossPolicy = m_cfg.in.lossPolicy;
+    if (sameButGain == m_cfg.in) {          // glosnosc i reakcja na zanik dzialaja od razu, takze podczas nagrywania
+        m_cfg.in = in;
+        applyGain();
+        emit changed();
+        emit configChanged();
+        return;
+    }
+    if (!canEdit()) return;
     m_cfg.in = in;
     restart();
     emit configChanged();
@@ -313,6 +340,7 @@ QString Channel::sourceText() const {
         return (m_cfg.in.type == QLatin1String("srt") ? QStringLiteral("SRT ") : QStringLiteral("RTSP ")) + a;
     }
     if (m_cfg.in.type == QLatin1String("screen")) return T("Screen %1").arg(m_cfg.in.screenIndex + 1);
+    if (m_cfg.in.type == QLatin1String("window")) return T("Window: %1").arg(m_cfg.in.windowTitle);
     if (m_cfg.in.type == QLatin1String("camera")) return m_cfg.in.cameraName.isEmpty() ? T("Camera") : m_cfg.in.cameraName;
     return T("Test generator");
 }
@@ -323,8 +351,55 @@ void Channel::setState(ChannelState s, const QString& error) {
     emit changed();
 }
 
+// Awaria zrodla (blad, koniec strumienia): kanal przechodzi w stan bledu i sam probuje wystartowac ponownie -
+// po 5, 10, 20, a potem co 30 s. Jesli w chwili awarii nagrywal, po udanym starcie nagrywanie rusza od nowa.
+void Channel::sourceFailed(const QString& text) {
+    // Najpierw poprawne zamkniecie pliku: zrodlo juz nie nadaje, wiec galaz zapisu mozna odpiac i zakonczyc (EOS)
+    // wprost z tego watku. Dalszy ciag (stan bledu, ponawianie) nastapi po zamknieciu pliku - albo po 3 s.
+    if (m_recBin && (m_state == ChannelState::Recording || m_state == ChannelState::Paused) && m_pendingFail.isEmpty()) {
+        m_pendingFail = text;
+        m_autoRecord = true;
+        m_stopPoll.stop();
+        setState(ChannelState::Finalizing);
+        for (GstPad* pad : {m_teeVideo, m_teeAudio}) {
+            if (!pad) continue;
+            if (GstPad* peer = gst_pad_get_peer(pad)) {
+                gst_pad_unlink(pad, peer);
+                gst_pad_send_event(peer, gst_event_new_eos());
+                gst_object_unref(peer);
+            }
+        }
+        m_finalizeTimeout.start(3000);
+        return;
+    }
+    m_pendingFail.clear();
+    const bool wasRecording = isRecording();
+    stopPreview();
+    m_autoRecord = m_autoRecord || wasRecording;
+    setState(ChannelState::Error, text);
+    emit notice(T("%1: source error — %2").arg(m_cfg.name, text));
+    scheduleRetry();
+}
+
+void Channel::scheduleRetry() {
+    static const int delays[] = {5, 10, 20, 30};
+    m_retry.start(delays[qMin(m_retryCount, 3)] * 1000);
+}
+
+void Channel::applyGain() {
+    if (!m_pipeline) return;
+    if (GstElement* vol = gst_bin_get_by_name(GST_BIN(m_pipeline), "avol")) {
+        g_object_set(vol, "volume", std::pow(10.0, m_cfg.in.gainDb / 20.0), nullptr);
+        gst_object_unref(vol);
+    }
+}
+
 void Channel::restart() {
-    const bool was = m_pipeline != nullptr;
+    // zmiana ustawien: takze kanal w stanie bledu startuje od nowa, a licznik ponowien sie zeruje
+    const bool was = m_pipeline != nullptr || m_state == ChannelState::Error;
+    m_retry.stop();
+    m_retryCount = 0;
+    m_autoRecord = false;
     stopPreview();
     if (was) startPreview();
     emit changed();
@@ -337,24 +412,38 @@ QString Channel::sourceDescription() const {
         return QLatin1Char('"') + s.replace(QLatin1Char('\\'), QStringLiteral("\\\\")).replace(QLatin1Char('"'), QStringLiteral("\\\"")) + QLatin1Char('"');
     };
     const QString size = QStringLiteral("width=%1,height=%2,pixel-aspect-ratio=1/1").arg(m_cfg.width).arg(m_cfg.height);
+    const QString gain = QStringLiteral(" ! volume name=avol volume=%1").arg(QString::number(std::pow(10.0, m_cfg.in.gainDb / 20.0), 'f', 4));
     if (m_cfg.in.isNetwork()) {
         // fallbacksrc sam dekoduje strumien, a przy zaniku podaje czarny obraz i cisze i laczy sie ponownie -
         // dalsza czesc pipeline'u (takze nagrywanie) nie widzi przerwy.
         return QStringLiteral("fallbacksrc name=fs uri=%1 timeout=2000000000 restart-timeout=3000000000 retry-timeout=86400000000000 "
                               "enable-dummy=true immediate-fallback=true "
                               "fs. ! queue ! videoconvertscale add-borders=true ! videorate ! video/x-raw,%2,framerate=%3/1 ! tee name=tv "
-                              "fs. ! queue ! audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ")
-            .arg(quoted(networkUri()), size).arg(m_cfg.fps);
+                              "fs. ! queue ! audioconvert ! audioresample%4 ! audio/x-raw,rate=48000,channels=2 ")
+            .arg(quoted(networkUri()), size).arg(m_cfg.fps).arg(gain);
     }
     QString video;
     if (m_cfg.in.type == QLatin1String("screen")) {
         video = QStringLiteral("d3d11screencapturesrc monitor-index=%1 show-cursor=true ! capsfilter caps=\"video/x-raw(memory:D3D11Memory),framerate=%2/1\" "
                                "! d3d11download ! videoconvertscale add-borders=true ! video/x-raw,%3")
                     .arg(m_cfg.in.screenIndex).arg(m_cfg.fps).arg(size);
+    } else if (m_cfg.in.type == QLatin1String("window")) {
+        // pojedyncze okno: Windows Graphics Capture; uchwyt jest szukany po tytule przy kazdym starcie kanalu
+        const quint64 hwnd = Devices::findWindow(m_cfg.in.windowTitle);
+        if (!hwnd) return {};
+        video = QStringLiteral("d3d11screencapturesrc capture-api=wgc window-handle=%1 show-cursor=true "
+                               "! capsfilter caps=\"video/x-raw(memory:D3D11Memory),framerate=%2/1\" "
+                               "! d3d11download ! videoconvertscale add-borders=true ! videorate ! video/x-raw,%3,framerate=%2/1")
+                    .arg(hwnd).arg(m_cfg.fps).arg(size);
     } else if (m_cfg.in.type == QLatin1String("camera")) {
-        video = QStringLiteral("mfvideosrc %1 ! decodebin ! videoconvertscale add-borders=true ! videorate ! video/x-raw,%2,framerate=%3/1")
+        // wybrany rozmiar obrazu kamery: surowy albo MJPEG w tym rozmiarze (decodebin rozpakuje)
+        QString mode;
+        const QStringList wh = m_cfg.in.cameraMode.split(QLatin1Char('x'));
+        if (wh.size() == 2 && wh.at(0).toInt() > 0 && wh.at(1).toInt() > 0)
+            mode = QStringLiteral(" ! capsfilter caps=\"video/x-raw,width=%1,height=%2;image/jpeg,width=%1,height=%2\"").arg(wh.at(0).toInt()).arg(wh.at(1).toInt());
+        video = QStringLiteral("mfvideosrc %1%4 ! decodebin ! videoconvertscale add-borders=true ! videorate ! video/x-raw,%2,framerate=%3/1")
                     .arg(m_cfg.in.cameraPath.isEmpty() ? QString() : QStringLiteral("device-path=") + quoted(m_cfg.in.cameraPath))
-                    .arg(size).arg(m_cfg.fps);
+                    .arg(size).arg(m_cfg.fps).arg(mode);
     } else {
         video = QStringLiteral("videotestsrc is-live=true pattern=%1 ! video/x-raw,%2,framerate=%3/1").arg(m_cfg.pattern).arg(size).arg(m_cfg.fps);
     }
@@ -368,13 +457,19 @@ QString Channel::sourceDescription() const {
         audio = QStringLiteral("audiotestsrc is-live=true wave=%1 volume=%2")
                     .arg(silent ? 4 : m_cfg.audioWave).arg(QString::number(m_cfg.audioVolume, 'f', 3));
     }
-    return video + QStringLiteral(" ! tee name=tv ") + audio + QStringLiteral(" ! audio/x-raw,rate=48000,channels=2 ");
+    return video + QStringLiteral(" ! tee name=tv ") + audio + gain + QStringLiteral(" ! audio/x-raw,rate=48000,channels=2 ");
 }
 
 void Channel::startPreview() {
     if (m_pipeline) return;
     // tee "tv"/"ta" sa punktami zaczepienia galezi nagrywania.
-    const QString desc = sourceDescription() + QStringLiteral(
+    const QString source = sourceDescription();
+    if (source.isEmpty()) {              // np. okno o zapamietanym tytule nie istnieje
+        setState(ChannelState::Error, T("window not found"));
+        scheduleRetry();
+        return;
+    }
+    const QString desc = source + QStringLiteral(
         "! level name=level interval=100000000 post-messages=true ! tee name=ta "
         "ta. ! queue ! fakesink sync=false "
         "tv. ! queue leaky=downstream max-size-buffers=2 ! videorate name=pvrate drop-only=true max-rate=15 "
@@ -391,6 +486,7 @@ void Channel::startPreview() {
         g_clear_error(&err);
         if (m_pipeline) { gst_object_unref(m_pipeline); m_pipeline = nullptr; }
         setState(ChannelState::Error, text);
+        scheduleRetry();
         return;
     }
     // EOS galezi nagrywania nie moze czekac na EOS calego pipeline'u (podglad gra dalej) -
@@ -423,6 +519,7 @@ void Channel::startPreview() {
     if (started == GST_STATE_CHANGE_FAILURE) {
         stopPreview();
         setState(ChannelState::Error, T("cannot start the preview"));
+        scheduleRetry();
         return;
     }
     m_signalLost = false;
@@ -658,6 +755,7 @@ void Channel::stopRecording(quint64 clockNs) {
     if (m_cfg.in.isNetwork()) m_stopWaitMs = qMax<qint64>(m_stopWaitMs, 3000);
     m_stopWait.start();
     m_stopPoll.start();
+    m_finalizeTimeout.setInterval(10000);
 }
 
 void Channel::closeBranch() {
@@ -704,6 +802,7 @@ void Channel::pauseRecording(quint64 clockNs) {
 }
 
 void Channel::resumeRecording(quint64 clockNs) {
+    m_autoPaused = false;
     if (m_state != ChannelState::Paused || !m_recBin) return;
     {
         std::lock_guard<std::mutex> lock(m_pause.mutex);
@@ -834,6 +933,10 @@ void Channel::finishRecording(bool clean, const QString& reason) {
     emit notice(clean ? T("%1: recording saved — %2").arg(m_cfg.name, name)
                       : T("%1: recording interrupted (%2) — %3").arg(m_cfg.name, reason, name));
     emit recordingFinished(file, clean);
+    if (!m_pendingFail.isEmpty()) {         // plik zamkniety - teraz wlasciwa obsluga awarii zrodla
+        const QString text = m_pendingFail;
+        QTimer::singleShot(0, this, [this, text] { if (!m_pendingFail.isEmpty()) sourceFailed(text); });
+    }
 }
 
 // Stan zrodla sieciowego. Do pierwszego sygnalu po starcie kanalu to "laczenie", potem kazda przerwa to zanik sygnalu.
@@ -876,10 +979,21 @@ void Channel::pollSource() {
         if (m_signalSeen) {
             if (isRecording()) ++m_recLosses;
             emit notice(T("%1: signal lost — reconnecting").arg(m_cfg.name));
+            // reakcja "pauza": nagranie stoi do powrotu sygnalu
+            if (m_cfg.in.lossPolicy == QLatin1String("pause") && m_state == ChannelState::Recording) {
+                pauseRecording();
+                m_autoPaused = true;
+            }
         }
     } else {
         if (isRecording() && m_recLosses > 0) m_recLostMs += m_lostClock.elapsed();
         emit notice(T("%1: signal restored").arg(m_cfg.name));
+        if (m_autoPaused && m_state == ChannelState::Paused) {
+            resumeRecording();
+        } else if (m_cfg.in.lossPolicy == QLatin1String("split") && m_state == ChannelState::Recording && m_signalSeen) {
+            split();                    // reakcja "nowa czesc": material po powrocie trafia do osobnego pliku
+        }
+        m_autoPaused = false;
     }
     emit changed();
 }
@@ -1138,9 +1252,16 @@ GstBusSyncReply Channel::onBus(GstBus*, GstMessage* msg, gpointer user) {
                 // tylko dla biezacego podpiecia; komunikaty z galezi odpietej przez uzytkownika sa pomijane
                 if (liveSerial == self->m_liveSerial.load() && self->liveOn()) self->liveError(text);
             } else {
-                self->stopPreview();
-                self->setState(ChannelState::Error, text);
+                self->sourceFailed(text);
             }
+        }, Qt::QueuedConnection);
+        break;
+    }
+    case GST_MESSAGE_EOS: {
+        // koniec strumienia calego pipeline'u = zrodlo sie skonczylo (zamkniete okno, odlaczona kamera)
+        const int gen = self->m_gen.load();
+        QMetaObject::invokeMethod(self, [self, gen] {
+            if (gen == self->m_gen.load() && self->m_pipeline) self->sourceFailed(T("the source ended"));
         }, Qt::QueuedConnection);
         break;
     }

@@ -3,7 +3,9 @@
 #include <QApplication>
 #include <QButtonGroup>
 #include <QDateTime>
+#include <QDesktopServices>
 #include <QDialog>
+#include <QUrl>
 #include <QDir>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -37,6 +39,7 @@
 #include "core/ChannelManager.h"
 #include "core/DiskMonitor.h"
 #include "core/EnvCheck.h"
+#include "core/EventLog.h"
 #include "core/Lang.h"
 
 namespace {
@@ -251,11 +254,12 @@ QWidget* MainWindow::buildHeader() {
         a->setChecked(code == Lang::current());
     }
     menu->addAction(T("Disks…"), this, &MainWindow::showDisks);
+    menu->addAction(T("Event log…"), this, &MainWindow::showEventLog);
     menu->addAction(T("Diagnostics…"), this, &MainWindow::showDiagnostics);
     menu->addAction(T("About"), this, [this] {
         QMessageBox::about(this, QStringLiteral("ISO Recorder"),
-                           QStringLiteral("ISO Recorder %1\n%2\n\nQt %3 · GStreamer")
-                               .arg(QLatin1String(APP_VERSION), T("Multi-channel video recorder."), QLatin1String(qVersion())));
+                           QStringLiteral("ISO Recorder %1\n%2\n\n%3: Studio Krause + Claude Fable 5.2\n\nQt %4 · GStreamer")
+                               .arg(QLatin1String(APP_VERSION), T("Multi-channel video recorder."), T("Author"), QLatin1String(qVersion())));
     });
     menuBtn->setMenu(menu);
     hv->addWidget(menuBtn);
@@ -379,6 +383,8 @@ QWidget* MainWindow::buildStatus() {
     m_autosave->setTextFormat(Qt::RichText);
     h->addWidget(m_autosave);
     h->addWidget(m_events = new QLabel, 1);
+    m_events->setCursor(Qt::PointingHandCursor);        // klik = pelny log zdarzen
+    m_events->installEventFilter(this);
     h->addWidget(m_hint = new QLabel);
     // stany kanalow: REC / PAUSED / PREVIEW / WAITING (+ ERROR)
     h->addWidget(m_legend = new QLabel);
@@ -526,11 +532,43 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* e) {
         showDisks();
         return true;
     }
+    if (watched == m_events && e->type() == QEvent::MouseButtonRelease) {
+        showEventLog();
+        return true;
+    }
     if (watched == m_sessionCell && e->type() == QEvent::MouseButtonRelease) {
         renameSession();
         return true;
     }
     return QWidget::eventFilter(watched, e);
+}
+
+// Log zdarzen: wpisy z tego uruchomienia; starsze sa w plikach dziennych (przycisk otwiera folder).
+void MainWindow::showEventLog() {
+    QDialog dlg(this);
+    dlg.setWindowTitle(T("Event log"));
+    dlg.resize(820, 560);
+    auto* v = new QVBoxLayout(&dlg);
+    auto* text = new QPlainTextEdit(EventLog::recent().join(QLatin1Char('\n')));
+    text->setReadOnly(true);
+    text->setLineWrapMode(QPlainTextEdit::NoWrap);
+    v->addWidget(text);
+    auto* h = new QHBoxLayout;
+    auto* folder = new QPushButton(T("Open log folder"));
+    folder->setEnabled(!EventLog::dir().isEmpty());
+    connect(folder, &QPushButton::clicked, &dlg, [] { QDesktopServices::openUrl(QUrl::fromLocalFile(EventLog::dir())); });
+    h->addWidget(folder);
+    h->addStretch(1);
+    auto* close = new QPushButton(T("Close"));
+    connect(close, &QPushButton::clicked, &dlg, &QDialog::accept);
+    h->addWidget(close);
+    v->addLayout(h);
+    text->moveCursor(QTextCursor::End);
+    if (qApp->property("shotLog").isValid()) {      // zrzut okna do dokumentacji / testu
+        const QString path = qApp->property("shotLog").toString();
+        QTimer::singleShot(600, &dlg, [&dlg, path] { dlg.grab().save(path); dlg.accept(); });
+    }
+    dlg.exec();
 }
 
 void MainWindow::showDiagnostics() {

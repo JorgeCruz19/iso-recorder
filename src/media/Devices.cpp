@@ -1,6 +1,10 @@
 #include "Devices.h"
 
 #include <gst/gst.h>
+#include <windows.h>
+#include <dwmapi.h>
+
+#include <algorithm>
 
 namespace {
 QString str(const GstStructure* s, const char* field) {
@@ -37,7 +41,24 @@ Devices::All scan() {
         } else if (klass.contains(QLatin1String("Video"))) {
             // kamery wystepuja podwojnie (Kernel Streaming i Media Foundation) - bierzemy te z Media Foundation
             const QString path = str(p, "device.path");
-            if (!path.isEmpty()) out.cameras.append({name, path, {}});
+            if (!path.isEmpty()) {
+                // rozmiary obrazu, ktore kamera podaje (surowy obraz albo MJPEG)
+                QList<QPair<int, int>> sizes;
+                if (GstCaps* caps = gst_device_get_caps(d)) {
+                    for (guint i = 0; i < gst_caps_get_size(caps); ++i) {
+                        const GstStructure* st = gst_caps_get_structure(caps, i);
+                        int w = 0, h = 0;
+                        if (gst_structure_get_int(st, "width", &w) && gst_structure_get_int(st, "height", &h) && w > 0 && h > 0 &&
+                            !sizes.contains({w, h}))
+                            sizes.append({w, h});
+                    }
+                    gst_caps_unref(caps);
+                }
+                std::sort(sizes.begin(), sizes.end(), [](const auto& a, const auto& b) { return a.first * a.second > b.first * b.second; });
+                QStringList modes;
+                for (const auto& sz : sizes) modes << QStringLiteral("%1x%2").arg(sz.first).arg(sz.second);
+                out.cameras.append({name, path, {}, modes});
+            }
         } else if (klass.contains(QLatin1String("Audio")) && p && gst_structure_has_field(p, "wasapi2.device.loopback")) {
             gboolean loopback = FALSE, def = FALSE;
             gst_structure_get_boolean(p, "wasapi2.device.loopback", &loopback);
@@ -51,6 +72,36 @@ Devices::All scan() {
     return out;
 }
 }  // namespace
+
+QList<Devices::Info> Devices::windows() {
+    QList<Info> out;
+    EnumWindows([](HWND hwnd, LPARAM param) -> BOOL {
+        auto* list = reinterpret_cast<QList<Info>*>(param);
+        if (!IsWindowVisible(hwnd) || GetWindow(hwnd, GW_OWNER) != nullptr) return TRUE;
+        if (GetWindowLongPtrW(hwnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW) return TRUE;
+        BOOL cloaked = FALSE;       // okna ukryte przez system (np. na innym pulpicie wirtualnym)
+        if (SUCCEEDED(DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked) return TRUE;
+        DWORD pid = 0;
+        GetWindowThreadProcessId(hwnd, &pid);
+        if (pid == GetCurrentProcessId()) return TRUE;      // wlasnych okien nie przechwytujemy
+        wchar_t title[512];
+        const int n = GetWindowTextW(hwnd, title, 512);
+        if (n <= 0) return TRUE;
+        list->append({QString::fromWCharArray(title, n), QString::number(quint64(reinterpret_cast<quintptr>(hwnd))), {}, {}});
+        return TRUE;
+    }, reinterpret_cast<LPARAM>(&out));
+    return out;
+}
+
+quint64 Devices::findWindow(const QString& title) {
+    if (title.trimmed().isEmpty()) return 0;
+    const QList<Info> all = windows();
+    for (const Info& w : all)
+        if (w.name == title) return w.id.toULongLong();
+    for (const Info& w : all)
+        if (w.name.contains(title, Qt::CaseInsensitive)) return w.id.toULongLong();
+    return 0;
+}
 
 const Devices::All& Devices::list(bool refresh) {
     static Devices::All cache;

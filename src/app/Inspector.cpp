@@ -145,6 +145,7 @@ QWidget* Inspector::buildInputPage() {
     m_type = new QComboBox;
     m_type->addItem(T("Test generator"), QStringLiteral("test"));
     m_type->addItem(T("Screen grab"), QStringLiteral("screen"));
+    m_type->addItem(T("Window capture"), QStringLiteral("window"));
     m_type->addItem(T("Camera (UVC, capture card)"), QStringLiteral("camera"));
     m_type->addItem(QStringLiteral("SRT"), QStringLiteral("srt"));
     m_type->addItem(QStringLiteral("RTSP"), QStringLiteral("rtsp"));
@@ -162,6 +163,14 @@ QWidget* Inspector::buildInputPage() {
     row(g, T("Device"), m_device);
     m_uri = new QLineEdit;
     row(g, T("Address"), m_uri);
+    m_camMode = new QComboBox;
+    row(g, T("Camera mode"), m_camMode);
+    // Co robic z nagraniem, gdy zrodlo sieciowe straci sygnal
+    m_loss = new QComboBox;
+    m_loss->addItem(T("Keep recording (black picture)"), QStringLiteral("continue"));
+    m_loss->addItem(T("Pause until the signal returns"), QStringLiteral("pause"));
+    m_loss->addItem(T("New file part after the signal returns"), QStringLiteral("split"));
+    row(g, T("On signal loss"), m_loss);
     m_pattern = new QComboBox;
     const struct { const char* name; int id; } patterns[] = {
         {"SMPTE bars", 0}, {"SMPTE bars 75%", 13}, {"SMPTE bars 100%", 19}, {"Ball", 18}, {"Pinwheel", 21},
@@ -193,6 +202,9 @@ QWidget* Inspector::buildInputPage() {
     for (const Devices::Info& d : Devices::list().audioInputs)
         audioItem(T("Input: %1").arg(d.name), QStringLiteral("device"), d.id, d.name);
     row(g, T("Audio source"), m_wave);
+    m_gain = new QComboBox;
+    for (int db = 18; db >= -24; db -= 3) m_gain->addItem(db == 0 ? QStringLiteral("0 dB") : QStringLiteral("%1%2 dB").arg(db > 0 ? QStringLiteral("+") : QStringLiteral("−")).arg(qAbs(db)), db);
+    row(g, T("Input gain"), m_gain);
 
     v->addWidget(section(T("Scheduler — from version %1").arg(QLatin1String(Roadmap::scheduler)), true));
     v->addStretch(1);
@@ -210,6 +222,7 @@ QWidget* Inspector::buildInputPage() {
     connect(m_wave, &QComboBox::activated, this, &Inspector::commitInput);
     connect(m_device, &QComboBox::activated, this, &Inspector::commitInput);
     connect(m_uri, &QLineEdit::editingFinished, this, &Inspector::commitInput);
+    for (QComboBox* c : {m_camMode, m_loss, m_gain}) connect(c, &QComboBox::activated, this, &Inspector::commitInput);
     connect(m_type, &QComboBox::activated, this, [this](int i) {
         fillDevices(m_type->itemData(i).toString());
         commitInput();
@@ -367,23 +380,45 @@ void Inspector::fillDevices(const QString& type) {
             m_device->addItem(QStringLiteral("%1: %2  ·  %3").arg(d.id.toInt() + 1).arg(d.name, d.detail), QStringList{d.id, d.name});
     } else if (type == QLatin1String("camera")) {
         for (const Devices::Info& d : Devices::list(true).cameras) m_device->addItem(d.name, QStringList{d.id, d.name});
+    } else if (type == QLatin1String("window")) {
+        for (const Devices::Info& d : Devices::windows()) m_device->addItem(d.name, QStringList{d.name, d.name});
     }
     for (int i = 0; i < m_device->count(); ++i) m_device->setItemData(i, m_device->itemText(i), Qt::ToolTipRole);
     m_device->setProperty("forType", type);
 }
 
+// Rozmiary obrazu wybranej kamery; pierwsza pozycja zostawia wybor sterownikowi.
+void Inspector::fillCameraModes(const QString& cameraPath) {
+    const QSignalBlocker block(m_camMode);
+    m_camMode->clear();
+    m_camMode->addItem(T("Auto"), QString());
+    for (const Devices::Info& d : Devices::list().cameras)
+        if (d.id == cameraPath)
+            for (const QString& m : d.modes) m_camMode->addItem(QString(m).replace(QLatin1Char('x'), QStringLiteral(" × ")), m);
+    m_camMode->setProperty("forCamera", cameraPath);
+}
+
 void Inspector::commitInput() {
     Channel* ch = m_mgr->active();
-    if (!ch || !ch->canEdit()) return;
+    if (!ch) return;
     InputConfig in = ch->config().in;
+    in.gainDb = m_gain->currentData().toInt();          // glosnosc i reakcja na zanik dzialaja takze podczas nagrywania
+    in.lossPolicy = m_loss->currentData().toString();
+    if (!ch->canEdit()) {
+        ch->setInput(in);
+        return;
+    }
     in.type = m_type->currentData().toString();
     if (in.type.isEmpty()) in.type = QStringLiteral("test");
     const QStringList dev = m_device->currentData().toStringList();
     if (in.type == QLatin1String("screen")) in.screenIndex = dev.value(0).toInt();
     if (in.type == QLatin1String("camera")) {
+        const bool sameCamera = in.cameraPath == dev.value(0);
         in.cameraPath = dev.value(0);
         in.cameraName = dev.value(1);
+        in.cameraMode = sameCamera ? m_camMode->currentData().toString() : QString();
     }
+    if (in.type == QLatin1String("window") && !dev.value(0).isEmpty()) in.windowTitle = dev.value(0);
     in.uri = m_uri->text().trimmed();
     const QStringList au = m_wave->currentData().toStringList();
     in.audioType = au.value(0, QStringLiteral("test"));
@@ -431,9 +466,9 @@ void Inspector::refresh() {
                                                   .arg(m_mgr->indexOf(ch) + 1, 2, 10, QLatin1Char('0'))
                                                   .arg(ch->config().name.toHtmlEscaped())));
     if (!m_name->hasFocus()) m_name->setText(ch->config().name);
-    // Input i Output sa zablokowane podczas nagrywania
+    // Input i Output sa zablokowane podczas nagrywania - poza glosnoscia wejscia, reakcja na zanik sygnalu i wyjsciem na zywo
     const bool editable = ch->canEdit();
-    m_inputPage->setEnabled(editable);
+    for (QWidget* w : {static_cast<QWidget*>(m_type), static_cast<QWidget*>(m_format)}) w->setEnabled(editable);
     m_outputForm->setEnabled(editable);
     m_lock->setVisible(!editable);
     const OutputConfig& out = ch->config().out;
@@ -460,19 +495,32 @@ void Inspector::refresh() {
     int devIndex = -1;
     for (int i = 0; i < m_device->count(); ++i) {
         const QString id = m_device->itemData(i).toStringList().value(0);
-        if ((in.type == QLatin1String("screen") && id.toInt() == in.screenIndex) || (in.type == QLatin1String("camera") && id == in.cameraPath)) devIndex = i;
+        if ((in.type == QLatin1String("screen") && id.toInt() == in.screenIndex) || (in.type == QLatin1String("camera") && id == in.cameraPath) ||
+            (in.type == QLatin1String("window") && id == in.windowTitle)) devIndex = i;
+    }
+    if (in.type == QLatin1String("window") && devIndex < 0 && !in.windowTitle.isEmpty()) {     // okno z listy zniknelo albo zmienilo tytul
+        const QSignalBlocker block(m_device);
+        m_device->addItem(in.windowTitle, QStringList{in.windowTitle, in.windowTitle});
+        devIndex = m_device->count() - 1;
     }
     m_device->setCurrentIndex(devIndex);
-    m_device->setEnabled(in.type == QLatin1String("screen") || in.type == QLatin1String("camera"));
+    m_device->setEnabled(editable && (in.type == QLatin1String("screen") || in.type == QLatin1String("camera") || in.type == QLatin1String("window")));
+    if (in.type == QLatin1String("camera") && m_camMode->property("forCamera").toString() != in.cameraPath) fillCameraModes(in.cameraPath);
+    if (in.type != QLatin1String("camera") && m_camMode->count() != 1) fillCameraModes(QString());
+    m_camMode->setCurrentIndex(qMax(0, m_camMode->findData(in.cameraMode)));
+    m_camMode->setEnabled(editable && in.type == QLatin1String("camera"));
+    m_loss->setCurrentIndex(qMax(0, m_loss->findData(in.lossPolicy)));
+    m_loss->setEnabled(in.isNetwork());
+    m_gain->setCurrentIndex(qMax(0, m_gain->findData(in.gainDb)));
     if (!m_uri->hasFocus()) m_uri->setText(in.uri);
-    m_uri->setEnabled(in.isNetwork());
+    m_uri->setEnabled(editable && in.isNetwork());
     m_uri->setPlaceholderText(in.type == QLatin1String("srt") ? QStringLiteral("host:9000   |   :9000")
                               : in.type == QLatin1String("rtsp") ? QStringLiteral("rtsp://host:554/stream") : QString());
     m_uri->setToolTip(in.type == QLatin1String("srt")
         ? T("host:9000 — this computer connects to the sender;  :9000 — this computer waits for the sender on port 9000")
         : in.type == QLatin1String("rtsp") ? T("rtsp://host:554/stream — use rtspt:// to force TCP") : QString());
-    m_wave->setEnabled(!in.isNetwork());      // dzwiek pochodzi ze strumienia
-    m_pattern->setEnabled(in.type == QLatin1String("test"));
+    m_wave->setEnabled(editable && !in.isNetwork());      // dzwiek pochodzi ze strumienia
+    m_pattern->setEnabled(editable && in.type == QLatin1String("test"));
     int auIndex = 0;
     for (int i = 0; i < m_wave->count(); ++i) {
         const QStringList d = m_wave->itemData(i).toStringList();

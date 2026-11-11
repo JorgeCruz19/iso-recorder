@@ -1,6 +1,6 @@
 ﻿cmake_minimum_required(VERSION 3.24)
-project(IsoRecorder VERSION 1.9.0 LANGUAGES CXX)
-set(APP_VERSION_SHORT "1.9")
+project(IsoRecorder VERSION 2.0.0 LANGUAGES CXX)
+set(APP_VERSION_SHORT "2.0")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -29,7 +29,7 @@ target_link_libraries(IsoRecorder PRIVATE
     Qt6::Widgets
     gstreamer-1.0 gstbase-1.0 gstapp-1.0 gstvideo-1.0 gstaudio-1.0
     gobject-2.0 glib-2.0
-    dwmapi)
+    dwmapi user32)
 target_compile_definitions(IsoRecorder PRIVATE
     UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN
     APP_VERSION="${APP_VERSION_SHORT}")

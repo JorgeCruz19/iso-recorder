@@ -48,7 +48,11 @@ struct RecordPart {
 
 // Zrodlo obrazu i dzwieku kanalu.
 struct InputConfig {
-    QString type = QStringLiteral("test");        // "test" generator, "screen" ekran, "camera" kamera, "srt", "rtsp"
+    QString type = QStringLiteral("test");        // "test" generator, "screen" ekran, "window" okno, "camera" kamera, "srt", "rtsp"
+    QString windowTitle;                          // okno: tytul (uchwyt jest szukany przy starcie kanalu)
+    QString cameraMode;                           // kamera: rozmiar obrazu "WxH"; puste = wybor sterownika
+    QString lossPolicy = QStringLiteral("continue");   // zanik sygnalu sieciowego: "continue", "pause", "split"
+    int gainDb = 0;                               // glosnosc wejscia dzwieku, dB
     QString uri;                                  // srt / rtsp: adres strumienia
     bool isNetwork() const { return type == QLatin1String("srt") || type == QLatin1String("rtsp"); }
     int screenIndex = 0;                          // ekran: numer monitora
@@ -148,6 +152,7 @@ signals:
     void levelsChanged();
     void changed();          // nazwa, stan, zaznaczenie, konfiguracja, statystyki nagrania
     void configChanged();    // tylko ustawienia zapisywane w liscie kanalow
+    void autoRecordRequested();   // zrodlo wrocilo po awarii, a kanal przed nia nagrywal - wznow nagrywanie (nowy plik)
     void notice(const QString& text);
     void recordingFinished(const QString& file, bool clean);
 
@@ -165,6 +170,9 @@ private:
     static GstPadProbeReturn onStopBlock(GstPad* pad, GstPadProbeInfo* info, gpointer user);
     void setState(ChannelState s, const QString& error = {});
     void restart();
+    void sourceFailed(const QString& text);     // awaria zrodla: kanal w stan bledu + ponawianie startu
+    void scheduleRetry();
+    void applyGain();
     void abandonPipeline();
     QString sourceDescription() const;      // poczatek opisu pipeline'u: zrodla do tee "tv" i "ta"
     QString liveDescription();
@@ -183,6 +191,11 @@ private:
     GstElement* m_pipeline = nullptr;
     bool m_largePreview = false;
     bool m_signalLost = false;
+    bool m_autoPaused = false;              // pauza wlaczona automatycznie przez zanik sygnalu
+    QTimer m_retry;                         // ponawianie startu kanalu po awarii zrodla
+    int m_retryCount = 0;
+    bool m_autoRecord = false;              // po udanym restarcie wznowic nagrywanie
+    QString m_pendingFail;                  // awaria zrodla czeka na zamkniecie pliku nagrania
     bool m_signalSeen = false;              // zrodlo sieciowe podalo sygnal przynajmniej raz od startu kanalu
     int m_recLosses = 0;                    // zaniki sygnalu w trakcie biezacego nagrania
     qint64 m_recLostMs = 0;

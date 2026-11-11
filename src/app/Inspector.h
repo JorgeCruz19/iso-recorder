@@ -37,6 +37,10 @@ private:
     QComboBox* m_type;
     QComboBox* m_device;
     QLineEdit* m_uri;
+    QComboBox* m_camMode;
+    QComboBox* m_loss;
+    QComboBox* m_gain;
+    void fillCameraModes(const QString& cameraPath);
     void fillDevices(const QString& type);
     void commitInput();
     QComboBox* m_pattern;

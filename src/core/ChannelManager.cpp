@@ -62,6 +62,7 @@ Channel* ChannelManager::addChannel(const ChannelConfig& cfg, int at) {
     connect(ch, &Channel::changed, this, &ChannelManager::selectionChanged);
     connect(ch, &Channel::notice, this, &ChannelManager::notice);
     connect(ch, &Channel::configChanged, this, &ChannelManager::markDirty);
+    connect(ch, &Channel::autoRecordRequested, this, [this, ch] { transport(ch, Transport::Rec); });
     connect(ch, &Channel::recordingFinished, this, [this, ch] {
         if (m_removeAfterStop.removeAll(ch)) removeChannel(ch);
         if (m_replacePending && recordingCount() == 0) {     // nagrania sfinalizowane - mozna podmienic liste
@@ -236,12 +237,16 @@ QJsonObject channelToJson(const Channel* ch) {
         {QStringLiteral("selected"), ch->isSelected()},
         {QStringLiteral("input"), QJsonObject{{QStringLiteral("type"), c.in.type},
                                               {QStringLiteral("uri"), c.in.uri},
+                                              {QStringLiteral("lossPolicy"), c.in.lossPolicy},
+                                              {QStringLiteral("windowTitle"), c.in.windowTitle},
+                                              {QStringLiteral("cameraMode"), c.in.cameraMode},
                                               {QStringLiteral("screenIndex"), c.in.screenIndex},
                                               {QStringLiteral("cameraPath"), c.in.cameraPath},
                                               {QStringLiteral("cameraName"), c.in.cameraName},
                                               {QStringLiteral("audio"), QJsonObject{{QStringLiteral("type"), c.in.audioType},
                                                                                     {QStringLiteral("device"), c.in.audioDevice},
-                                                                                    {QStringLiteral("name"), c.in.audioName}}},
+                                                                                    {QStringLiteral("name"), c.in.audioName},
+                                                                                    {QStringLiteral("gainDb"), c.in.gainDb}}},
                                               {QStringLiteral("pattern"), c.pattern},
                                               {QStringLiteral("audioWave"), c.audioWave},
                                               {QStringLiteral("audioVolume"), c.audioVolume},
@@ -269,9 +274,14 @@ ChannelConfig channelFromJson(const QJsonObject& j, int number) {
     if (c.name.isEmpty()) c.name = QStringLiteral("CH %1").arg(number);
     const QJsonObject in = j.value(QStringLiteral("input")).toObject();
     const QString it = in.value(QStringLiteral("type")).toString();
-    c.in.type = it == QLatin1String("screen") || it == QLatin1String("camera") || it == QLatin1String("srt") || it == QLatin1String("rtsp")
+    c.in.type = it == QLatin1String("screen") || it == QLatin1String("window") || it == QLatin1String("camera") ||
+                        it == QLatin1String("srt") || it == QLatin1String("rtsp")
                     ? it : QStringLiteral("test");
     c.in.uri = in.value(QStringLiteral("uri")).toString();
+    const QString lp = in.value(QStringLiteral("lossPolicy")).toString();
+    c.in.lossPolicy = lp == QLatin1String("pause") || lp == QLatin1String("split") ? lp : QStringLiteral("continue");
+    c.in.windowTitle = in.value(QStringLiteral("windowTitle")).toString();
+    c.in.cameraMode = in.value(QStringLiteral("cameraMode")).toString();
     c.in.screenIndex = qBound(0, in.value(QStringLiteral("screenIndex")).toInt(), 15);
     c.in.cameraPath = in.value(QStringLiteral("cameraPath")).toString();
     c.in.cameraName = in.value(QStringLiteral("cameraName")).toString();
@@ -280,6 +290,7 @@ ChannelConfig channelFromJson(const QJsonObject& j, int number) {
     c.in.audioType = at == QLatin1String("none") || at == QLatin1String("loopback") || at == QLatin1String("device") ? at : QStringLiteral("test");
     c.in.audioDevice = au.value(QStringLiteral("device")).toString();
     c.in.audioName = au.value(QStringLiteral("name")).toString();
+    c.in.gainDb = qBound(-30, au.value(QStringLiteral("gainDb")).toInt(), 30);
     c.pattern = in.value(QStringLiteral("pattern")).toInt(d.pattern);
     c.audioWave = in.value(QStringLiteral("audioWave")).toInt(d.audioWave);
     c.audioVolume = qBound(0.0, in.value(QStringLiteral("audioVolume")).toDouble(d.audioVolume), 1.0);

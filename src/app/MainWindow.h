@@ -20,6 +20,7 @@ public:
     explicit MainWindow(ChannelManager* mgr, QWidget* parent = nullptr);
 
     Inspector* inspector() const { return m_inspector; }
+    void openEventLog() { showEventLog(); }
     void setView(int view);                 // 2, 3, 4 = siatka n x n; 0 = lista
 
 signals:
@@ -43,6 +44,7 @@ private:
     void notice(const QString& text);
     void showDiagnostics();
     void showDisks();
+    void showEventLog();
     // lista kanalow
     void refreshSession();
     void renameSession();

@@ -32,6 +32,7 @@
 #include "core/ChannelManager.h"
 #include "core/DiskTest.h"
 #include "core/EnvCheck.h"
+#include "core/EventLog.h"
 #include "core/Lang.h"
 #include "media/Devices.h"
 
@@ -55,6 +56,9 @@
 //   --container ts|mkv    kontener dla kanalow --demo
 //   --input screen [--audio loopback|device|none]  kanaly --demo biora obraz z ekranu (kolejne monitory) i dzwiek z WASAPI
 //   --input srt|rtsp --uri adres   kanaly --demo odbieraja strumien sieciowy (wszystkie ten sam adres)
+//   --loss pause|split    reakcja kanalow --demo na zanik sygnalu sieciowego
+//   --input window --window tytul  kanaly --demo przechwytuja okno o tym tytule (albo zawierajace ten tekst)
+//   --shot-log plik       otworz okno logu zdarzen po 6 s, zapisz jego zrzut i wyjdz
 //   --live ndi|srt [port] wyjscie na zywo dla kanalow --demo: NDI o nazwie "ISO <kanal>" albo SRT na portach port+1, port+2...
 //   --auto-split S        auto-split co S sekund dla kanalow --demo
 //   --split-every S       w --rec-test: reczny split wszystkich kanalow co S sekund
@@ -97,7 +101,7 @@ int main(int argc, char* argv[]) {
     QApplication::setApplicationVersion(QStringLiteral(APP_VERSION));
     const QStringList args = app.arguments();
     // Uruchomienie sterowane argumentami (zrzuty, testy) konczy sie samo - bez pytan o zapis listy.
-    for (const char* a : {"--screenshot", "--save-list", "--save-list-real", "--rec-test", "--shot-big", "--shot-disks", "--drag-test", "--shot-combo"})
+    for (const char* a : {"--screenshot", "--save-list", "--save-list-real", "--rec-test", "--shot-big", "--shot-disks", "--drag-test", "--shot-combo", "--shot-log"})
         if (args.contains(QLatin1String(a))) app.setProperty("automation", true);
 
     if (args.contains(QStringLiteral("--check-env"))) {
@@ -159,6 +163,8 @@ int main(int argc, char* argv[]) {
     int rc = 0;
     {
         ChannelManager manager;
+        // Log zdarzen: wszystkie komunikaty programu; do pliku tylko przy zwyklym uruchomieniu (testy - sama pamiec).
+        QObject::connect(&manager, &ChannelManager::notice, &manager, [](const QString& text) { EventLog::add(text); });
         // Zmiana jezyka buduje okno od nowa; kanaly i ich pipeline'y zostaja nietkniete.
         std::unique_ptr<MainWindow> w;
         std::function<void()> makeWindow = [&] {
@@ -185,6 +191,10 @@ int main(int argc, char* argv[]) {
                               !args.contains(QStringLiteral("--persist"));
         // Awaryjny start z pusta lista: Shift trzymany przy uruchomieniu albo argument --empty.
         const bool safeStart = args.contains(QStringLiteral("--empty")) || (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+        if (!testMode)
+            EventLog::enableFile(QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + QLatin1Char('/') +
+                                 ChannelManager::settingsOrg() + QStringLiteral("/logs"));
+        EventLog::add(T("Program started — version %1").arg(QLatin1String(APP_VERSION)));
         if (!testMode && safeStart) {
             manager.setPersistence(true);
             manager.discardAutosave();
@@ -226,11 +236,20 @@ int main(int argc, char* argv[]) {
             const int at = int(args.indexOf(QLatin1String(name)));
             return at >= 0 && at + 1 < args.size() ? args.at(at + 1) : QString();
         };
+        if (argAfter("--input") == QLatin1String("window")) {
+            for (Channel* c : manager.channels()) {
+                InputConfig in = c->config().in;
+                in.type = QStringLiteral("window");
+                in.windowTitle = argAfter("--window");
+                c->setInput(in);
+            }
+        }
         if (argAfter("--input") == QLatin1String("srt") || argAfter("--input") == QLatin1String("rtsp")) {
             for (Channel* c : manager.channels()) {
                 InputConfig in = c->config().in;
                 in.type = argAfter("--input");
                 in.uri = argAfter("--uri");
+                if (!argAfter("--loss").isEmpty()) in.lossPolicy = argAfter("--loss");
                 c->setInput(in);
             }
         }
@@ -459,6 +478,13 @@ int main(int argc, char* argv[]) {
                 });
             });
         }
+        if (const QString shot = argAfter("--shot-log"); !shot.isEmpty()) {
+            app.setProperty("shotLog", shot);
+            QTimer::singleShot(6000, &manager, [&w] {
+                w->openEventLog();
+                QTimer::singleShot(200, [] { QApplication::quit(); });
+            });
+        }
         if (const QString view = argAfter("--view"); !view.isEmpty()) w->setView(view == QLatin1String("list") ? 0 : view.toInt());
         const int tabAt = int(args.indexOf(QStringLiteral("--tab")));       // 0 Input, 1 Output, 2 Scheduler
         if (tabAt >= 0 && tabAt + 1 < args.size()) w->inspector()->setTab(args.at(tabAt + 1).toInt());
@@ -480,6 +506,10 @@ int main(int argc, char* argv[]) {
             });
         }
         rc = app.exec();
+        if (const QString dump = argAfter("--dump-log"); !dump.isEmpty()) {     // --dump-log plik: log zdarzen tego uruchomienia
+            QFile f(dump);
+            if (f.open(QIODevice::WriteOnly | QIODevice::Text)) f.write(EventLog::recent().join(QLatin1Char('\n')).toUtf8());
+        }
         if (!testMode) manager.discardAutosave();    // poprawne wyjscie - autozapis niepotrzebny
     }   // kanaly i pipeline'y sa zamykane tutaj, przed gst_deinit
     // Jesli jakies zrodlo nie odpowiedzialo i jego pipeline zostal porzucony, jego watki moga wisiec bez konca -

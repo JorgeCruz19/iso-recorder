@@ -1,6 +1,6 @@
 # ISO Recorder — stan projektu i instrukcje dla kolejnego modelu
 
-Ten plik jest punktem wejścia. Przeczytaj go w całości, zanim cokolwiek zmienisz. Stan na 2026‑11‑11, wersja **1.9**.
+Ten plik jest punktem wejścia. Przeczytaj go w całości, zanim cokolwiek zmienisz. Stan na 2026‑11‑11, wersja **2.0** (pierwsza opublikowana jako Release na GitHubie).
 
 ## 1. Co to jest
 
@@ -22,41 +22,39 @@ z tłumaczeniami PL, DE, ES, IT, FR.
 | `mockup/`, `interfejs.png` | wzorzec wyglądu |
 | `docs/zrzut_<wersja>.png` | zrzut okna na każdą wersję |
 
-## 3. Co działa (1.9)
+## 3. Co działa (2.0)
 
-- **Wejścia**: generator testowy, ekran (`d3d11screencapturesrc`), kamera (`mfvideosrc`), SRT i RTSP (`fallbacksrc`);
-  dźwięk: sygnał testowy, cisza, dźwięk systemowy (loopback) i wejścia WASAPI.
+- **Wejścia**: generator testowy, ekran i pojedyncze okno (`d3d11screencapturesrc`), kamera z wyborem rozmiaru obrazu
+  (`mfvideosrc`), SRT i RTSP (`fallbacksrc`); dźwięk: sygnał testowy, cisza, dźwięk systemowy (loopback) i wejścia
+  WASAPI, z regulacją głośności.
 - **Nagrywanie**: H.264 + AAC do MKV lub MPEG‑TS; enkoder wybierany próbą (NVENC → Quick Sync → AMF → MF → OpenH264);
   split ręczny i automatyczny; pauza w tym samym pliku; plik opisu `.json` obok nagrania.
 - **Grupa kanałów**: wspólna chwila startu, pauzy i stopu (dokładność do jednej klatki).
 - **Wyjście na żywo** kanału, równolegle do nagrania: NDI albo SRT; można przełączać w trakcie nagrywania.
-- **Zanik sygnału sieciowego**: nagranie trwa (ostatnia klatka → czarny obraz), automatyczne ponowne łączenie.
+- **Zanik sygnału sieciowego**: do wyboru — nagranie trwa (ostatnia klatka → czarny obraz), pauza albo nowa część;
+  automatyczne ponowne łączenie.
+- **Awaria źródła**: automatyczny restart kanału (5, 10, 20, potem co 30 s) i wznowienie nagrywania w nowym pliku.
+- **Log zdarzeń**: plik dzienny w `%LOCALAPPDATA%\IsoRecorder\logs` i okno w programie.
 - **Sesja i listy kanałów**: zapis / wczytanie `.isorec.json`, autozapis, przywracanie po awarii, ostatnie listy.
 - **Interfejs**: kafle 2×2 / 3×3 / 4×4 i widok listy, inspektor (Input / Output), panel sterowania, duży podgląd
-  (dwuklik), przeciąganie kafli, okno Disks z testem prędkości zapisu, 6 języków.
+  (dwuklik), przeciąganie kafli i wierszy listy, okno Disks z testem prędkości zapisu, 6 języków.
 - **Odporność**: start i stop kanału mają limit czasu — źródło, które nie odpowiada, nie zawiesza programu.
 
 ## 4. Następne etapy (rozdz. 6 `instrukcja_koncowa.md`)
 
 | Wersja | Zakres |
 |---|---|
-| **2.0** | Zaległe poprawki wybrane przez właściciela: reakcja na zanik sygnału do wyboru (trwa / pauza / nowa część), przechwytywanie pojedynczego okna, wybór rozdzielczości i klatkażu kamery, głośność wejścia dźwięku |
 | **2.1** | Passthrough: zapis strumienia SRT/RTSP bez ponownego kodowania; pauza = nowa część |
 | **2.2** | Wejście NDI, DeckLink; kodeki H.265 / AV1 / ProRes / DNxHR; MOV / MP4 |
 | **2.3** | Scheduler (harmonogram startu / stopu / splitu), blokada uśpienia, logi, folder zapasowy |
 | **2.4** | WebRTC (WHEP, WHIP), magazyn poświadczeń, odzyskiwanie po awarii, instalator |
 
-Uwagi do 2.0 — co już ustalono:
-- Przechwytywanie okna: prototyp działa — `d3d11screencapturesrc capture-api=wgc window-handle=<HWND>`
-  (100 klatek 1280×720 z okna Notatnika). Okna trzeba wyliczać przez `EnumWindows`; zapamiętywać po tytule.
-- Tryby kamery: `GstDevice` podaje listę formatów (`gst_device_get_caps`); format wymusza się przez
-  `capsfilter caps="video/x-raw,…;image/jpeg,…"` przed `decodebin`.
-- Reakcja na zanik: stan zaniku zna `Channel::pollSource()`; „pauza” = `pauseRecording()` / `resumeRecording()`
-  wywoływane automatycznie, „nowa część” = `split()` po powrocie sygnału.
-- Głośność: element `volume` w torze dźwięku, ustawiany na żywo.
+Decyzje właściciela (2026‑11‑11) — **nie wracać do tych tematów**:
+- wyjście na wirtualną kamerę nie będzie robione: wystarcza wyjście NDI + „Webcam” z NDI Tools;
+- hasło RTSP zostaje w adresie (to standard w tego typu oprogramowaniu), bez magazynu poświadczeń dla RTSP.
 
-Znane braki poza planem: wirtualna kamera jako wyjście (na Windows 10 brak API; dziś przez NDI Tools → Webcam),
-hasło RTSP poza adresem, zmiana kolejności przeciąganiem w widoku listy, kanał w stanie błędu nie ponawia startu sam.
+Znane braki: źródło, które w ogóle nie odpowiada (limit czasu startu), nie jest ponawiane automatycznie;
+sortowanie po kolumnach w widoku listy; wybór klatkażu kamery (jest tylko rozmiar).
 
 ## 5. Stałe zasady pracy (ustalone z właścicielem)
 
@@ -69,9 +67,12 @@ hasło RTSP poza adresem, zmiana kolejności przeciąganiem w widoku listy, kana
    - aktualizacja `instrukcja_koncowa.md` (plan + opis mechanizmu, jeśli doszedł nowy);
    - zrzut okna do `docs/zrzut_<wersja>.png` — **bez zawartości ekranu właściciela** (używaj generatora testowego);
    - commit `Wersja x.y: …`, tag `vx.y`, `git push origin main --tags` (repo prywatne `studiokrause/iso-recorder`);
+   - od 2.0 także **Release na GitHubie**: `dist\IsoRecorder` spakowane do `IsoRecorder-<wersja>-win64.zip`,
+     `gh release create vx.y <zip> --title "ISO Recorder x.y" --notes-file <notatki>` (notatki = wpis z CHANGELOG);
    - `scripts\package.ps1` → `dist\IsoRecorder\` (poza repo), potem testy na paczce z `-Exe dist\IsoRecorder\IsoRecorder.exe`.
-3. **Commity**: autor `studiokrause <15332134+studiokrause@users.noreply.github.com>`; prywatnego adresu e‑mail
-   właściciela nie wolno nigdzie wpisywać ani wysyłać. Wiadomości commitów bez polskich znaków.
+3. **Commity**: autor `studiokrause <15332134+studiokrause@users.noreply.github.com>`. Wiadomości commitów bez polskich
+   znaków. **Autorzy programu** (README, okno About, notatki wydania): „Studio Krause + Claude Fable 5.2” — **bez adresu
+   e‑mail** (decyzja właściciela z 2026‑11‑11). Prywatnego adresu właściciela nie wpisuj nigdzie i nigdzie nie wysyłaj.
 4. **Jeden język interfejsu naraz.** Każdy nowy napis: klucz po angielsku przez `T("…")` + wiersz w `src/core/Lang.cpp`
    z pięcioma tłumaczeniami. Po dodaniu napisów obejrzyj zrzut w PL i w DE lub FR (dłuższe teksty).
 5. **Raportuj uczciwie**: co sprawdzone i czym, a czego nie. Kliknięć myszą nie da się tu testować — pisz to wprost.

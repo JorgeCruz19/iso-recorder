@@ -92,6 +92,16 @@ Wejścia sieciowe — stan po wersji 1.6:
 - **Zmiany stanu z limitem czasu** (1.7): `setStateTimed()` wykonuje `gst_element_set_state` w wątku pomocniczym (`gst_element_call_async`), a wątek okna czeka najwyżej 2,5 s (start) lub 2 s (stop). Sterowniki urządzeń potrafią zablokować zmianę stanu na zawsze (wirtualna kamera bez źródła blokuje przejście do NULL). Po przekroczeniu limitu pipeline jest porzucany (`Channel::abandonPipeline`: zdjęte wywołania podglądu i szyny, numer generacji w górę), a proces przy wyjściu kończy się przez `TerminateProcess`, bo wiszące wątki blokowałyby `gst_deinit`.
 - Narzędzie testowe `tests/tools/rtsp_test_server.cpp` (GstRtspServer) buduje się razem z programem, nie trafia do paczki.
 
+Awarie źródeł i log — stan po wersji 2.0:
+
+- **Automatyczny restart** (`Channel::sourceFailed`, `scheduleRetry`): błąd spoza gałęzi nagrywania i wyjścia albo EOS całego pipeline'u → jeśli kanał nagrywał, gałąź zapisu jest odpinana i dostaje EOS wprost z wątku okna (źródło już nie nadaje, więc sonda blokująca nigdy by się nie wywołała), plik zamyka się poprawnie (limit 3 s) → pipeline jest zdejmowany, stan Error → ponowny start po 5, 10, 20, potem co 30 s → po udanym starcie `autoRecordRequested()` i menedżer zaczyna nowe nagranie. Zmiana ustawień kanału zeruje ponawianie.
+- Limit czasu startu („the source does not respond”) nie uruchamia ponawiania: każda próba blokuje okno na 2,5 s.
+- **Reakcja na zanik sygnału** (`InputConfig::lossPolicy`, tylko SRT/RTSP) działa w `pollSource()`: `pause` → `pauseRecording()` przy zaniku i `resumeRecording()` przy powrocie (flaga `m_autoPaused`, żeby nie wznawiać pauzy włączonej ręcznie); `split` → `split()` przy powrocie. Zanik jest wykrywany dopiero po przełączeniu na obraz zastępczy, więc przed pauzą do pliku trafia jeszcze 2–3 s zatrzymanej klatki.
+- **Okno**: `d3d11screencapturesrc capture-api=wgc window-handle=…`; uchwyt jest szukany po tytule (`Devices::findWindow`: dokładnie, potem „zawiera”) przy każdym starcie kanału. Zamknięcie okna = błąd źródła → ponawianie, aż okno wróci.
+- **Tryb kamery**: rozmiary z `gst_device_get_caps`; wymuszenie przez `capsfilter caps="video/x-raw,width=W,height=H;image/jpeg,width=W,height=H"` przed `decodebin`.
+- **Głośność wejścia**: element `volume name=avol` w torze dźwięku; zmiana samej głośności lub reakcji na zanik nie restartuje kanału i działa podczas nagrywania.
+- **Log zdarzeń** (`src/core/EventLog`): wszystko, co idzie sygnałem `ChannelManager::notice`, plus start programu; plik dzienny `logs\events_RRRR-MM-DD.log` w katalogu danych programu, otwierany na każdy wpis; w trybach testowych tylko pamięć (`--dump-log plik` zapisuje ją na koniec).
+
 ### 3.1a Nagrywanie — stan po wersji 0.5
 
 - Gałąź zapisu (`queue → konwersja → enkoder → h264parse` oraz `queue → audioconvert → avenc_aac → aacparse` → `splitmuxsink` z `matroskamux`) jest dopinana do działającego pipeline'u przy Rec i odpinana po Stop; podgląd nie przerywa.
@@ -352,7 +362,7 @@ Każda wersja: działający program, commit, tag, push. Kryterium = to, co da si
 | **1.7** | Poprawki: limit czasu startu i stopu kanału (źródło, które nie odpowiada, nie zawiesza programu), start awaryjny z Shiftem, usunięcie regresji zużycia procesora z 1.6 | **wydana** |
 | **1.8** | Widok listy kanałów; listy rozwijane inspektora o szerokości kolumny, etykiety bez obcinania, poprawna strzałka | **wydana** |
 | **1.9** | Widok listy: większe miniatury (wiersze dopasowane do wysokości, 16 bez przewijania), „zaznacz wszystkie” i przyciski grupowe w nagłówku | **wydana** |
-| **2.0** | Poprawki po uwagach: reakcja na zanik sygnału do wyboru (trwa / pauza / nowa część), przechwytywanie okna, tryby kamery, głośność wejścia | |
+| **2.0** | Reakcja na zanik sygnału do wyboru (trwa / pauza / nowa część), przechwytywanie okna, tryby kamery, głośność wejścia; automatyczny restart źródła ze wznowieniem nagrywania; log zdarzeń; przeciąganie wierszy w widoku listy; README; **pierwszy Release na GitHubie** | **wydana** — `tests\net_test.ps1 -Loss`, `tests\rec_test.ps1 -Source window` |
 | **2.1** | Passthrough: zapis strumienia SRT/RTSP bez ponownego kodowania; pauza = nowa część | plik zgodny bit w bit ze strumieniem, split na klatce kluczowej źródła |
 | **2.2** | NDI (discovery), DeckLink; kodeki H.265/AV1/ProRes/DNxHR wg dostępności; MOV/MP4 robust | NDI z NDI Tools; DeckLink — niesprawdzone na sprzęcie |
 | **2.3** | Scheduler (reguły, catch‑up, DST), blokada uśpienia, logi rotowane, folder zapasowy | testy jednostkowe schedulera; kontrolowany Stop przy braku miejsca |

@@ -2,6 +2,41 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 2.0
+
+Pierwsze wydanie publikowane jako Release.
+
+Źródła:
+- **Przechwytywanie okna**: Input type → Window capture, okno wybiera się z listy. Program zapamiętuje tytuł okna
+  i szuka go przy każdym starcie kanału.
+- **Tryb kamery**: wybór rozmiaru obrazu z listy podawanej przez kamerę (Auto = wybór sterownika).
+- **Głośność wejścia** (Input gain): od −24 do +18 dB, działa od razu, także podczas nagrywania.
+- **Reakcja na zanik sygnału** (SRT, RTSP) do wyboru: nagrywaj dalej z czarnym obrazem, pauza do powrotu sygnału
+  albo nowa część pliku po powrocie. Można zmienić w trakcie nagrywania.
+
+Odporność:
+- **Automatyczny restart źródła.** Gdy źródło padnie (zamknięte okno, odłączona kamera, błąd), kanał przechodzi w stan
+  błędu i sam próbuje wystartować ponownie — po 5, 10, 20 s, potem co 30 s. Jeśli w chwili awarii nagrywał, plik jest
+  poprawnie zamykany, a po udanym restarcie nagrywanie rusza samo w nowym pliku. Każdy krok jest w pasku stanu i w logu.
+- Kanał w stanie błędu startuje od nowa także po zmianie jego ustawień.
+
+Log zdarzeń:
+- Wszystkie komunikaty programu (start i koniec nagrań, pauzy, zaniki i powroty sygnału, błędy, restarty, listy)
+  trafiają z datą i godziną do pliku dziennego w `%LOCALAPPDATA%\IsoRecorder\logs`. Pliki starsze niż 30 dni są usuwane.
+- Okno logu: ☰ → Event log… albo klik w komunikaty w pasku stanu; przycisk otwiera folder z plikami.
+
+Widok listy:
+- Kolejność kanałów można zmieniać przeciąganiem wiersza (pomarańczowa kreska pokazuje miejsce wstawienia).
+
+Inne:
+- ☰ → About podaje autorów. README z opisem programu.
+
+Test: `tests\net_test.ps1 -Loss pause|split`, `tests\rec_test.ps1 -Source window -Window "tytuł"`.
+
+Nie sprawdzone na sprzęcie: tryb kamery (na maszynie deweloperskiej są tylko wirtualne kamery).
+Źródło, które w ogóle nie odpowiada (limit czasu startu), nie jest ponawiane automatycznie — każda próba blokowałaby
+okno na 2,5 s; taki kanał trzeba uruchomić zmianą ustawień.
+
 ## 1.9
 
 Widok listy:
