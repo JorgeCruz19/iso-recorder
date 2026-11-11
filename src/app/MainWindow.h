@@ -47,6 +47,7 @@ private:
     void showDisks();
     void showEventLog();
     void showSettings();
+    void showRecordings(QWidget* anchor);
     // lista kanalow
     void refreshSession();
     void renameSession();

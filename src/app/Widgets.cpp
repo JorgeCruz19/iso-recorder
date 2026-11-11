@@ -13,7 +13,11 @@ KeyButton::KeyButton(const QString& text, Glyph glyph, bool wide, QWidget* paren
     : QAbstractButton(parent), m_glyph(glyph), m_wide(wide) {
     setText(text);
     // szerokosc dopasowana do napisu - tlumaczenia bywaja dluzsze niz tekst angielski
-    m_width = qMax(wide ? 84 : 66, QFontMetrics(Theme::font(10, QFont::Bold, 0.7)).horizontalAdvance(text) + 20);
+    // napis moze miec dwa wiersze ("SPLIT TO\nFOLDER") - szerokosc wynika z dluzszego
+    int textW = 0;
+    for (const QString& line : text.split(QLatin1Char('\n')))
+        textW = qMax(textW, QFontMetrics(Theme::font(text.contains(QLatin1Char('\n')) ? 9 : 10, QFont::Bold, 0.7)).horizontalAdvance(line));
+    m_width = qMax(wide ? 84 : 66, textW + 20);
     setFixedHeight(38);
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);   // przyciski w wierszu dziela szerokosc kolumny
     setFocusPolicy(Qt::NoFocus);
@@ -86,7 +90,8 @@ void KeyButton::paintEvent(QPaintEvent*) {
     case None: break;
     }
     p.setPen(fg);
-    p.setFont(m_compact ? Theme::font(9, QFont::Bold, 0.4) : Theme::font(10, QFont::Bold, 0.7));
+    const bool twoLines = text().contains(QLatin1Char('\n'));
+    p.setFont(m_compact || twoLines ? Theme::font(9, QFont::Bold, 0.4) : Theme::font(10, QFont::Bold, 0.7));
     const QRect tr = hasGlyph ? QRect(0, 20, width(), 15) : rect();
     p.drawText(tr, Qt::AlignCenter, text());
 }

@@ -41,6 +41,7 @@
 #include "Widgets.h"
 #include "core/ChannelManager.h"
 #include "core/DiskMonitor.h"
+#include "core/AppSettings.h"
 #include "core/EnvCheck.h"
 #include "core/EventLog.h"
 #include "core/Lang.h"
@@ -208,9 +209,8 @@ QWidget* MainWindow::buildHeader() {
 
     auto* hs = new QHBoxLayout;
     hs->setSpacing(16);
-    QLabel* dummy = nullptr;
     const struct { const char* name; const char* value; QLabel** out; } stats[] = {
-        {"Write", "0 Mb/s", &m_write}, {"CPU", "—", &m_cpu}, {"GPU", "—", &dummy}, {"HW enc.", "0", &m_hwEnc}, {"Drop", "0", &dummy}};
+        {"Write", "0 Mb/s", &m_write}, {"CPU", "—", &m_cpu}, {"HW enc.", "0", &m_hwEnc}};
     for (const auto& s : stats) {
         auto* vv = new QVBoxLayout;
         vv->setSpacing(2);
@@ -266,6 +266,15 @@ QWidget* MainWindow::buildHeader() {
                                .arg(QLatin1String(APP_VERSION), T("Multi-channel video recorder."), T("Author"), QLatin1String(qVersion())));
     });
     menuBtn->setMenu(menu);
+    // dostep do folderow z nagraniami: jeden folder otwiera sie od razu, przy kilku - lista do wyboru
+    auto* recBtn = new QPushButton(T("Recordings"));
+    recBtn->setObjectName(QStringLiteral("vb"));
+    recBtn->setFocusPolicy(Qt::NoFocus);
+    recBtn->setMinimumWidth(QFontMetrics(Theme::font(11, QFont::DemiBold)).horizontalAdvance(recBtn->text()) + 30);   // tlumaczenia bywaja dlugie
+    recBtn->setToolTip(T("Open the recordings folder"));
+    connect(recBtn, &QPushButton::clicked, this, [this, recBtn] { showRecordings(recBtn); });
+    hv->addWidget(recBtn);
+    hv->addSpacing(8);
     hv->addWidget(menuBtn);
     hv->addSpacing(12);
     hv->addWidget(cap(T("View")));
@@ -340,11 +349,11 @@ QWidget* MainWindow::buildControlPanel() {
     }
     m_btnTransport[0]->setRed(true);
     // split z przejsciem do nowego folderu - nazwa folderu z szablonu w ustawieniach
-    m_btnSplitFolder = new KeyButton(T("SPLIT TO NEW FOLDER"), KeyButton::None, true);
-    m_btnSplitFolder->setCompact();
+    m_btnSplitFolder = new KeyButton(T("SPLIT TO\nFOLDER"), KeyButton::None, false);
+    m_btnSplitFolder->setToolTip(T("Split to new folder"));
     connect(m_btnSplitFolder, &KeyButton::clicked, this, [this] { m_mgr->splitToNewFolder(m_mgr->selected()); });
     group(m_selCap = cap(T("Selected channels (%1)").arg(0)),
-          {m_btnTransport[0], m_btnTransport[1], m_btnTransport[2], m_btnTransport[3]}, nullptr, m_btnSplitFolder);
+          {m_btnTransport[0], m_btnTransport[1], m_btnTransport[2], m_btnTransport[3], m_btnSplitFolder});
 
     // Zaznaczenie i akcje na zaznaczonych - male przyciski w jednym wierszu
     const char* const selNames[5] = {"ALL", "NONE", "INVERT", "DUPLICATE", "REMOVE"};
@@ -548,6 +557,27 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* e) {
 }
 
 // Log zdarzen: wpisy z tego uruchomienia; starsze sa w plikach dziennych (przycisk otwiera folder).
+// Foldery nagran: wszystkie rozne foldery kanalow (bez kanalow - folder domyslny). Folder, ktorego jeszcze nie ma,
+// jest tworzony, zeby Eksplorator mial co otworzyc.
+void MainWindow::showRecordings(QWidget* anchor) {
+    QStringList dirs;
+    for (const Channel* c : m_mgr->channels())
+        if (!dirs.contains(c->outputDir())) dirs << c->outputDir();
+    if (dirs.isEmpty()) dirs << AppSettings::defaultOutput().dir;
+    if (dirs.first().isEmpty()) dirs[0] = Channel::defaultOutputDir();
+    auto open = [](const QString& dir) {
+        QDir().mkpath(dir);
+        QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
+    };
+    if (dirs.size() == 1) {
+        open(dirs.first());
+        return;
+    }
+    QMenu menu(this);
+    for (const QString& d : dirs) menu.addAction(QDir::toNativeSeparators(d), this, [open, d] { open(d); });
+    menu.exec(anchor->mapToGlobal(QPoint(0, anchor->height())));
+}
+
 void MainWindow::showSettings() {
     SettingsDialog dlg(this);
     if (qApp->property("shotSettings").isValid()) {      // zrzut okna do dokumentacji / testu

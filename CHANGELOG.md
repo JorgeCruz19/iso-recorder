@@ -2,6 +2,15 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 2.4
+
+- Przycisk splitu do nowego folderu stoi teraz w jednym wierszu z REC / PAUSE / STOP / SPLIT i nazywa się
+  **SPLIT TO FOLDER** (wcześniej był osobnym, długim przyciskiem pod spodem).
+- W górnym pasku jest przycisk **Recordings**: otwiera folder z nagraniami w Eksploratorze. Gdy kanały zapisują do
+  kilku folderów, pokazuje ich listę do wyboru.
+- Z górnego paska zniknęły pola „GPU” i „Drop” — były atrapami bez danych, a zabierały miejsce (przy 1600 px szerokości
+  nagłówek był przepełniony i przycinał licznik czasu).
+
 ## 2.3
 
 - Usunięte przyciski MOVE UP / MOVE DOWN (grupa Active channel) i skróty Ctrl+↑ / Ctrl+↓. Kolejność kanałów zmienia się
