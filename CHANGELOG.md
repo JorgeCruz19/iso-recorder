@@ -2,6 +2,38 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 2.2
+
+Ustawienia (☰ → Settings…):
+- **Domyślne parametry nagrywania** dla nowo dodawanych kanałów: folder, szablon nazwy, kontener, auto-split, enkoder,
+  bitrate wideo i dźwięku. Istniejące kanały się nie zmieniają.
+- Na liście enkoderów jest pozycja „No re-encoding (stream copy)” — na razie niedostępna (plan: 2.6) — z opisem, co
+  dokładnie da zapis bez ponownego kodowania i czego nie pozwoli zrobić.
+- **Karta dźwiękowa odsłuchu** i **szablon nazwy folderu** dla splitu do nowego folderu.
+
+Odsłuch:
+- Ikona słuchawek nad miernikiem na każdym kaflu, obok mierników w widoku listy i w dużym podglądzie. Klik włącza
+  odsłuch kanału na karcie wybranej w ustawieniach; gra jeden kanał naraz, ponowny klik wyłącza.
+- Odsłuch działa w osobnym torze: awaria karty dźwiękowej daje tylko komunikat, kanał i nagranie działają dalej.
+
+Nagrywanie:
+- **SPLIT TO NEW FOLDER** w panelu Selected channels: split, po którym kolejna część trafia do nowego folderu
+  (w folderze nagrań kanału; nazwa z szablonu w ustawieniach, wspólna dla zaznaczonych kanałów).
+- Plik opisu (.json) podaje ścieżki części względem siebie, więc obejmuje też części w podfolderach.
+
+Sygnały testowe:
+- **Zegar cyfrowy** (godzina z numerem klatki i paskiem sekundy — do sprawdzania synchronizacji) i **zegar analogowy**.
+
+Interfejs:
+- Usunięcie kanału zawsze wymaga potwierdzenia — także jednego, który nie nagrywa.
+- Podpowiedź ze spisem zmiennych po najechaniu na etykietę „Name template” (i na samo pole).
+- Log zdarzeń: zawijanie wierszy, kreska między wpisami, eksport do pliku tekstowego.
+
+Test: `tests\rec_test.ps1 -SplitFolderEvery S`, `-Pattern 100|101`; odsłuch: `--monitor N --monitor-device id`.
+
+Plan: wejście NDI → 2.3, scheduler (z trybami wyjścia na żywo „jak w harmonogramie nagrywania” / „cały czas”) → 2.4,
+wiele lokalizacji zapisu → 2.5, zapis bez ponownego kodowania → 2.6.
+
 ## 2.1
 
 - Program otwiera się zmaksymalizowany.

@@ -6,6 +6,8 @@
 #include "util/FileNameTemplate.h"
 
 #include <QDir>
+#include <QPainter>
+#include <QPainterPath>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -84,6 +86,8 @@ Channel::Channel(const ChannelConfig& cfg, QObject* parent) : QObject(parent), m
     m_finalizeTimeout.setSingleShot(true);
     m_finalizeTimeout.setInterval(10000);
     connect(&m_finalizeTimeout, &QTimer::timeout, this, [this] { finishRecording(false, T("finalization timed out")); });
+    m_clockTimer.setTimerType(Qt::PreciseTimer);
+    connect(&m_clockTimer, &QTimer::timeout, this, &Channel::pushClockFrame);
     m_retry.setSingleShot(true);
     connect(&m_retry, &QTimer::timeout, this, [this] {
         if (m_state != ChannelState::Error || m_pipeline) return;
@@ -444,6 +448,12 @@ QString Channel::sourceDescription() const {
         video = QStringLiteral("mfvideosrc %1%4 ! decodebin ! videoconvertscale add-borders=true ! videorate ! video/x-raw,%2,framerate=%3/1")
                     .arg(m_cfg.in.cameraPath.isEmpty() ? QString() : QStringLiteral("device-path=") + quoted(m_cfg.in.cameraPath))
                     .arg(size).arg(m_cfg.fps).arg(mode);
+    } else if (m_cfg.pattern >= ClockDigital) {
+        // zegar: klatki rysuje program i podaje przez appsrc; videorate wyrownuje odstepy
+        video = QStringLiteral("appsrc name=gen is-live=true format=time do-timestamp=true max-buffers=3 leaky-type=downstream "
+                               "caps=\"video/x-raw,format=BGRx,width=%1,height=%2,framerate=%3/1,pixel-aspect-ratio=1/1\" "
+                               "! videorate ! videoconvert ! video/x-raw,%4,framerate=%3/1")
+                    .arg(m_cfg.width).arg(m_cfg.height).arg(m_cfg.fps).arg(size);
     } else {
         video = QStringLiteral("videotestsrc is-live=true pattern=%1 ! video/x-raw,%2,framerate=%3/1").arg(m_cfg.pattern).arg(size).arg(m_cfg.fps);
     }
@@ -471,7 +481,7 @@ void Channel::startPreview() {
     }
     const QString desc = source + QStringLiteral(
         "! level name=level interval=100000000 post-messages=true ! tee name=ta "
-        "ta. ! queue ! fakesink sync=false "
+        "ta. ! queue ! fakesink name=afake sync=false "
         "tv. ! queue leaky=downstream max-size-buffers=2 ! videorate name=pvrate drop-only=true max-rate=15 "
         // staly kadr 16:9 i kwadratowy piksel: videoconvertscale sam dopisuje czarne pasy dla innych proporcji
         "! videoconvertscale add-borders=true "
@@ -497,6 +507,12 @@ void Channel::startPreview() {
     gst_pipeline_use_clock(GST_PIPELINE(m_pipeline), sys);
     gst_object_unref(sys);
     applyPreviewSize();
+    if (GstElement* fake = gst_bin_get_by_name(GST_BIN(m_pipeline), "afake")) {     // punkt poboru dzwieku dla odsluchu
+        GstPad* pad = gst_element_get_static_pad(fake, "sink");
+        gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER, &Channel::onMonitorTap, this, nullptr);
+        gst_object_unref(pad);
+        gst_object_unref(fake);
+    }
 
     GstElement* sink = gst_bin_get_by_name(GST_BIN(m_pipeline), "preview");
     GstAppSinkCallbacks cb{};
@@ -524,8 +540,13 @@ void Channel::startPreview() {
     }
     m_signalLost = false;
     m_signalSeen = false;
+    if (m_cfg.in.type == QLatin1String("test") && m_cfg.pattern >= ClockDigital) {
+        pushClockFrame();
+        m_clockTimer.start(qMax(10, 1000 / qMax(1, m_cfg.fps)));
+    }
     setState(ChannelState::Preview);
     attachLive();
+    if (!monitorOn() && !m_monitorDevice.isNull()) setMonitor(true, m_monitorDevice);     // odsluch wraca po restarcie kanalu
 }
 
 void Channel::setLargePreview(bool on) {
@@ -558,6 +579,12 @@ void Channel::stopPreview() {
     if (!m_pipeline) return;
     if (m_recBin) finishRecording(false, T("channel stopped"));   // wymuszone zamkniecie, bez czekania na EOS
     detachLive();
+    m_clockTimer.stop();
+    if (monitorOn()) {                      // odsluch zatrzymuje sie razem z kanalem; ustawienie zostaje
+        const QString keep = m_monitorDevice;
+        setMonitor(false);
+        m_monitorDevice = keep;
+    }
     // NULL zatrzymuje watki streamingu - po tym zaden callback juz nie wejdzie. Zrodlo, ktore nie odpowiada, mogloby
     // zablokowac zatrzymanie na zawsze, wiec czekamy najwyzej 2 s i w razie czego porzucamy pipeline.
     if (!setStateTimed(m_pipeline, GST_STATE_NULL, 2000)) {
@@ -573,6 +600,171 @@ void Channel::stopPreview() {
     m_pipeline = nullptr;
     m_level = {0.0, 0.0};
     m_state = ChannelState::Idle;
+}
+
+// ---------------------------------------------------------------- odsluch i generator "zegar"
+
+// Odsluch. Sonda na torze dzwieku kanalu (przed fakesink, ktory zawsze przyjmuje dane) kopiuje bufory do appsrc
+// osobnego pipeline'u z karta dzwiekowa. Tor kanalu nie wie o odsluchu: bledy, blokady i zamkniecie karty zostaja
+// w tamtym pipeline'ie. sync=false - dzwiek gra od razu; kolejka appsrc przecieka, gdy karta nie nadaza.
+GstPadProbeReturn Channel::onMonitorTap(GstPad* pad, GstPadProbeInfo* info, gpointer user) {
+    auto* self = static_cast<Channel*>(user);
+    std::lock_guard<std::mutex> lock(self->m_monMutex);
+    if (!self->m_monitorSrc) return GST_PAD_PROBE_OK;
+    if (!self->m_monCapsSet) {
+        if (GstCaps* caps = gst_pad_get_current_caps(pad)) {
+            gst_app_src_set_caps(GST_APP_SRC(self->m_monitorSrc), caps);
+            gst_caps_unref(caps);
+            self->m_monCapsSet = true;
+        } else {
+            return GST_PAD_PROBE_OK;
+        }
+    }
+    GstBuffer* copy = gst_buffer_copy(GST_PAD_PROBE_INFO_BUFFER(info));     // plytka kopia: te same dane, wlasne znaczniki
+    GST_BUFFER_PTS(copy) = GST_CLOCK_TIME_NONE;
+    GST_BUFFER_DTS(copy) = GST_CLOCK_TIME_NONE;
+    gst_app_src_push_buffer(GST_APP_SRC(self->m_monitorSrc), copy);
+    return GST_PAD_PROBE_OK;
+}
+
+GstBusSyncReply Channel::onMonitorBus(GstBus*, GstMessage* msg, gpointer user) {
+    auto* self = static_cast<Channel*>(user);
+    if (GST_MESSAGE_TYPE(msg) == GST_MESSAGE_ERROR) {
+        GError* err = nullptr;
+        gst_message_parse_error(msg, &err, nullptr);
+        const QString text = err ? QString::fromUtf8(err->message) : T("pipeline error");
+        g_clear_error(&err);
+        const int serial = self->m_monSerial.load();
+        QMetaObject::invokeMethod(self, [self, text, serial] {
+            if (serial != self->m_monSerial.load() || !self->m_monitorPipe) return;
+            self->setMonitor(false);
+            emit self->notice(T("%1: monitoring failed — %2").arg(self->m_cfg.name, text));
+        }, Qt::QueuedConnection);
+    }
+    gst_message_unref(msg);
+    return GST_BUS_DROP;
+}
+
+void Channel::setMonitor(bool on, const QString& deviceId) {
+    if (m_monitorPipe) {
+        GstElement* pipe = m_monitorPipe;
+        m_monitorPipe = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(m_monMutex);       // od tej chwili sonda nie dotyka appsrc
+            if (m_monitorSrc) gst_object_unref(m_monitorSrc);
+            m_monitorSrc = nullptr;
+        }
+        ++m_monSerial;
+        GstBus* bus = gst_element_get_bus(pipe);
+        gst_bus_set_sync_handler(bus, nullptr, nullptr, nullptr);
+        gst_object_unref(bus);
+        setStateTimed(pipe, GST_STATE_NULL, 1500);              // karta moze nie odpowiadac - nie czekamy bez konca
+        gst_object_unref(pipe);
+    }
+    m_monitorDevice = on ? (deviceId.isNull() ? QStringLiteral("") : deviceId) : QString();
+    if (!on || !m_pipeline) {
+        emit changed();
+        return;
+    }
+    QString dev = deviceId;
+    dev.remove(QLatin1Char('"'));
+    const QString desc = QStringLiteral("appsrc name=in is-live=true format=time do-timestamp=true max-buffers=30 leaky-type=downstream "
+                                        "! audioconvert ! audioresample ! wasapi2sink sync=false %1")
+                             .arg(dev.isEmpty() ? QString() : QStringLiteral("device=\"%1\"").arg(dev));
+    GError* err = nullptr;
+    GstElement* pipe = gst_parse_launch(desc.toUtf8().constData(), &err);
+    if (!pipe || err) {
+        emit notice(T("%1: monitoring failed — %2").arg(m_cfg.name, err ? QString::fromUtf8(err->message) : T("cannot build the pipeline")));
+        g_clear_error(&err);
+        if (pipe) gst_object_unref(pipe);
+        m_monitorDevice = QString();
+        emit changed();
+        return;
+    }
+    ++m_monSerial;
+    GstBus* bus = gst_element_get_bus(pipe);
+    gst_bus_set_sync_handler(bus, &Channel::onMonitorBus, this, nullptr);
+    gst_object_unref(bus);
+    m_monitorPipe = pipe;
+    GstStateChangeReturn r = GST_STATE_CHANGE_FAILURE;
+    if (!setStateTimed(pipe, GST_STATE_PLAYING, 2000, &r) || r == GST_STATE_CHANGE_FAILURE) {
+        setMonitor(false);
+        emit notice(T("%1: monitoring failed — %2").arg(m_cfg.name, T("cannot start the output")));
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lock(m_monMutex);
+        m_monitorSrc = gst_bin_get_by_name(GST_BIN(pipe), "in");
+        m_monCapsSet = false;
+    }
+    emit changed();
+}
+
+// Jedna klatka zegara testowego. Zegar cyfrowy pokazuje godzine z klatkami (do sprawdzania synchronizacji kanalow),
+// analogowy - tarcze z plynnym sekundnikiem.
+void Channel::pushClockFrame() {
+    if (!m_pipeline) return;
+    GstElement* src = gst_bin_get_by_name(GST_BIN(m_pipeline), "gen");
+    if (!src) return;
+    const int w = m_cfg.width, h = m_cfg.height;
+    if (m_clockImage.size() != QSize(w, h)) m_clockImage = QImage(w, h, QImage::Format_RGB32);
+    const QDateTime now = QDateTime::currentDateTime();
+    const QTime t = now.time();
+    QPainter p(&m_clockImage);
+    p.fillRect(m_clockImage.rect(), QColor(0x10, 0x10, 0x14));
+    p.setRenderHint(QPainter::Antialiasing);
+    const int unit = qMin(w, h);
+    QFont small(QStringLiteral("Segoe UI"));
+    small.setPixelSize(qMax(10, unit / 22));
+    const QString date = now.date().toString(Qt::ISODate) + QStringLiteral("   ") + m_cfg.name;
+    if (m_cfg.pattern == ClockAnalog) {
+        const QPointF c(w / 2.0, h / 2.0 - unit * 0.04);
+        const double r = unit * 0.38;
+        p.setPen(QPen(QColor(0xe6, 0xe6, 0xe6), qMax(2.0, unit / 160.0)));
+        p.setBrush(QColor(0x1c, 0x1c, 0x22));
+        p.drawEllipse(c, r, r);
+        for (int i = 0; i < 60; ++i) {              // podzialka: grubsze kreski co 5 minut
+            const double a = i * 6.0 * 3.14159265358979 / 180.0;
+            const double r1 = r * (i % 5 == 0 ? 0.86 : 0.93);
+            p.setPen(QPen(QColor(0xe6, 0xe6, 0xe6), i % 5 == 0 ? qMax(2.0, unit / 120.0) : qMax(1.0, unit / 360.0)));
+            p.drawLine(QPointF(c.x() + r1 * std::sin(a), c.y() - r1 * std::cos(a)), QPointF(c.x() + r * 0.97 * std::sin(a), c.y() - r * 0.97 * std::cos(a)));
+        }
+        auto hand = [&](double turns, double len, double width, const QColor& color) {
+            const double a = turns * 2 * 3.14159265358979;
+            p.setPen(QPen(color, width, Qt::SolidLine, Qt::RoundCap));
+            p.drawLine(c, QPointF(c.x() + r * len * std::sin(a), c.y() - r * len * std::cos(a)));
+        };
+        const double sec = t.second() + t.msec() / 1000.0;
+        hand((t.hour() % 12 + t.minute() / 60.0) / 12.0, 0.52, qMax(4.0, unit / 60.0), QColor(0xf0, 0xf0, 0xf0));
+        hand((t.minute() + sec / 60.0) / 60.0, 0.76, qMax(3.0, unit / 90.0), QColor(0xf0, 0xf0, 0xf0));
+        hand(sec / 60.0, 0.84, qMax(2.0, unit / 220.0), QColor(0xe0, 0x24, 0x2b));
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(0xe0, 0x24, 0x2b));
+        p.drawEllipse(c, unit / 70.0, unit / 70.0);
+        p.setFont(small);
+        p.setPen(QColor(0x9d, 0x9d, 0x9d));
+        p.drawText(QRectF(0, c.y() + r + unit * 0.02, w, unit * 0.08), Qt::AlignCenter, t.toString(QStringLiteral("HH:mm:ss")) + QStringLiteral("   ") + date);
+    } else {
+        QFont big(QStringLiteral("Consolas"));
+        big.setPixelSize(qMax(20, int(w / 7.2)));
+        big.setBold(true);
+        p.setFont(big);
+        p.setPen(QColor(0xf0, 0xf0, 0xf0));
+        const int frame = t.msec() * qMax(1, m_cfg.fps) / 1000;
+        p.drawText(QRectF(0, 0, w, h * 0.92), Qt::AlignCenter,
+                   t.toString(QStringLiteral("HH:mm:ss")) + QStringLiteral(":%1").arg(frame, 2, 10, QLatin1Char('0')));
+        p.setFont(small);
+        p.setPen(QColor(0x9d, 0x9d, 0x9d));
+        p.drawText(QRectF(0, h * 0.66, w, h * 0.12), Qt::AlignCenter, date);
+        // pasek sekundy: wypelnia sie w ciagu sekundy - widac plynnosc i ewentualne zgubione klatki
+        const QRectF bar(w * 0.2, h * 0.82, w * 0.6, qMax(4.0, h / 90.0));
+        p.fillRect(bar, QColor(0x33, 0x33, 0x3a));
+        p.fillRect(QRectF(bar.left(), bar.top(), bar.width() * t.msec() / 1000.0, bar.height()), QColor(0xe8, 0x84, 0x2a));
+    }
+    p.end();
+    GstBuffer* buf = gst_buffer_new_memdup(m_clockImage.constBits(), gsize(m_clockImage.sizeInBytes()));
+    gst_app_src_push_buffer(GST_APP_SRC(src), buf);     // przejmuje bufor
+    gst_object_unref(src);
 }
 
 // ---------------------------------------------------------------- nagrywanie
@@ -632,6 +824,16 @@ bool Channel::startRecording(const QString& session, int index) {
         g_object_set(mkv, "offset-to-zero", TRUE, nullptr);
     g_object_set(mux, "muxer", mkv, "async-finalize", FALSE, "start-index", 1,
                  "location", location.toUtf8().constData(), nullptr);
+    // Nazwe i folder kazdej czesci podaje program (a nie wzorzec location) - dzieki temu kolejna czesc moze trafic
+    // do innego folderu ("Split to new folder").
+    {
+        std::lock_guard<std::mutex> lock(m_locMutex);
+        m_recDir = dir;
+        m_recPattern = pattern;
+        m_recExt = ext;
+    }
+    m_partCounter = 0;
+    g_signal_connect(mux, "format-location", G_CALLBACK(&Channel::onFormatLocation), this);
     // Auto-split: po czasie albo po rozmiarze. Ciecie zawsze na klatce kluczowej (GOP = 1 s).
     if (m_cfg.out.splitSeconds > 0)
         g_object_set(mux, "max-size-time", guint64(m_cfg.out.splitSeconds) * GST_SECOND, "send-keyframe-requests", TRUE, nullptr);
@@ -829,6 +1031,28 @@ void Channel::resumeRecording(quint64 clockNs) {
     emit notice(T("%1: recording resumed").arg(m_cfg.name));
 }
 
+// Watek streamingu: sciezka kolejnej czesci pliku.
+gchar* Channel::onFormatLocation(GstElement*, guint, gpointer user) {
+    auto* self = static_cast<Channel*>(user);
+    const int part = ++self->m_partCounter;
+    std::lock_guard<std::mutex> lock(self->m_locMutex);
+    const QString path = QDir(self->m_recDir).filePath(FileNameTemplate::withPart(self->m_recPattern, part) + self->m_recExt);
+    return g_strdup(QDir::toNativeSeparators(path).toUtf8().constData());
+}
+
+void Channel::splitToFolder(const QString& dir) {
+    if (m_state != ChannelState::Recording || !m_recBin) return;
+    if (!QDir().mkpath(dir)) {
+        emit notice(T("%1: cannot write to folder %2").arg(m_cfg.name, QDir::toNativeSeparators(dir)));
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lock(m_locMutex);
+        m_recDir = dir;
+    }
+    split();
+}
+
 // Split: wymus klatke kluczowa w enkoderze i kaz splitmuxsink zamknac plik na najblizszej klatce kluczowej.
 void Channel::split() {
     if (m_state != ChannelState::Recording || !m_recBin) return;
@@ -854,7 +1078,8 @@ void Channel::writeSidecar(bool clean, const QString& reason) const {
     int n = 0;
     for (const RecordPart& p : m_parts) {
         QJsonObject o{{QStringLiteral("part"), ++n},
-                      {QStringLiteral("file"), QFileInfo(p.file).fileName()},
+                      // sciezka wzgledem pliku opisu: czesci moga lezec w podfolderach ("Split to new folder")
+                      {QStringLiteral("file"), QDir(QFileInfo(m_recSidecar).absolutePath()).relativeFilePath(p.file)},
                       {QStringLiteral("startMs"), double(p.startNs) / 1e6},
                       {QStringLiteral("bytes"), double(QFileInfo(p.file).size())}};
         if (p.endNs >= 0) o.insert(QStringLiteral("endMs"), double(p.endNs) / 1e6);

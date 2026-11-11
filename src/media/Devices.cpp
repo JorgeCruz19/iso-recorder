@@ -19,6 +19,7 @@ Devices::All scan() {
     gst_device_monitor_add_filter(mon, "Video/Source", nullptr);
     gst_device_monitor_add_filter(mon, "Source/Video", nullptr);
     gst_device_monitor_add_filter(mon, "Audio/Source", nullptr);
+    gst_device_monitor_add_filter(mon, "Audio/Sink", nullptr);
     GList* devices = gst_device_monitor_get_devices(mon);
     for (GList* l = devices; l; l = l->next) {
         GstDevice* d = GST_DEVICE(l->data);
@@ -59,6 +60,12 @@ Devices::All scan() {
                 for (const auto& sz : sizes) modes << QStringLiteral("%1x%2").arg(sz.first).arg(sz.second);
                 out.cameras.append({name, path, {}, modes});
             }
+        } else if (klass == QLatin1String("Audio/Sink")) {
+            // wyjscia dzwieku (odsluch); urzadzenie domyslne ma w ustawieniach wlasna pozycje
+            gboolean def = FALSE;
+            gst_structure_get_boolean(p, "device.default", &def);
+            const QString id = str(p, "device.id");
+            if (!def && !id.isEmpty()) out.audioOutputs.append({name, id, {}, {}});
         } else if (klass.contains(QLatin1String("Audio")) && p && gst_structure_has_field(p, "wasapi2.device.loopback")) {
             gboolean loopback = FALSE, def = FALSE;
             gst_structure_get_boolean(p, "wasapi2.device.loopback", &loopback);

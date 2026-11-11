@@ -102,6 +102,14 @@ Awarie źródeł i log — stan po wersji 2.0:
 - **Głośność wejścia**: element `volume name=avol` w torze dźwięku; zmiana samej głośności lub reakcji na zanik nie restartuje kanału i działa podczas nagrywania.
 - **Log zdarzeń** (`src/core/EventLog`): wszystko, co idzie sygnałem `ChannelManager::notice`, plus start programu; plik dzienny `logs\events_RRRR-MM-DD.log` w katalogu danych programu, otwierany na każdy wpis; w trybach testowych tylko pamięć (`--dump-log plik` zapisuje ją na koniec).
 
+Ustawienia, odsłuch, foldery — stan po wersji 2.2:
+
+- **Settings** (`src/app/SettingsDialog`, `src/core/AppSettings`): wartości w rejestrze obok języka i listy ostatnich plików. Domyślne parametry nagrywania dostaje każdy kanał dodany przyciskiem ADD SOURCE (tylko przy zwykłym uruchomieniu; tryby testowe mają wartości wbudowane).
+- **Odsłuch** to **osobny pipeline** (`appsrc → audioconvert → audioresample → wasapi2sink sync=false`), zasilany płytkimi kopiami buforów z sondy na padzie `fakesink name=afake` w torze dźwięku kanału. Pierwsza wersja była gałęzią dopinaną do `tee` z `errorignore` — awaria karty dźwiękowej zatrzymywała wtedy tor dźwięku kanału i psuła nagranie (`errorignore` nie zamienia FLUSHING). Wniosek ogólny: wyjście, którego awaria nie może dotknąć nagrania, musi być osobnym pipeline'em, nie gałęzią.
+- Odsłuch jest wyłączny (`ChannelManager::setMonitored`), kartę podaje `AppSettings::monitorDevice()`; po restarcie kanału odsłuch wraca sam.
+- **Położenie części pliku** podaje sygnał `format-location` splitmuxsink (`Channel::onFormatLocation`), a nie wzorzec `location`: folder bieżącej części jest pod muteksem i można go zmienić przed splitem (`splitToFolder`). Numer części liczy własny licznik. Plik opisu zapisuje ścieżki części względem siebie.
+- **Zegary testowe** (wzory 100 i 101): klatki rysuje program (`Channel::pushClockFrame`, QPainter) i podaje przez `appsrc name=gen`; timer w wątku okna, `videorate` za źródłem wyrównuje odstępy. Zegar cyfrowy pokazuje numer klatki i pasek sekundy.
+
 ### 3.1a Nagrywanie — stan po wersji 0.5
 
 - Gałąź zapisu (`queue → konwersja → enkoder → h264parse` oraz `queue → audioconvert → avenc_aac → aacparse` → `splitmuxsink` z `matroskamux`) jest dopinana do działającego pipeline'u przy Rec i odpinana po Stop; podgląd nie przerywa.
@@ -364,12 +372,15 @@ Każda wersja: działający program, commit, tag, push. Kryterium = to, co da si
 | **1.9** | Widok listy: większe miniatury (wiersze dopasowane do wysokości, 16 bez przewijania), „zaznacz wszystkie” i przyciski grupowe w nagłówku | **wydana** |
 | **2.0** | Reakcja na zanik sygnału do wyboru (trwa / pauza / nowa część), przechwytywanie okna, tryby kamery, głośność wejścia; automatyczny restart źródła ze wznowieniem nagrywania; log zdarzeń; przeciąganie wierszy w widoku listy; README; **pierwszy Release na GitHubie** | **wydana** — `tests\net_test.ps1 -Loss`, `tests\rec_test.ps1 -Source window` |
 | **2.1** | Start zmaksymalizowany, README po angielsku, paczka bez wtyczek GPL | **wydana** |
-| **2.2** | Wejście NDI: lista źródeł z sieci (discovery), odbiór obrazu i dźwięku, zanik sygnału i ponowne łączenie jak przy SRT/RTSP | NDI z NDI Tools (Test Patterns, Screen Capture) i z własnego wyjścia NDI innego kanału |
-| **2.3** | Scheduler: reguły startu, stopu i splitu (jednorazowe, dzienne, tygodniowe), catch‑up po starcie programu, zmiana czasu (DST), blokada uśpienia komputera | testy reguł; nagranie startujące i kończące się o zadanej godzinie |
-| **2.4** | DeckLink; kodeki H.265/AV1/ProRes/DNxHR wg dostępności; MOV/MP4; folder zapasowy | DeckLink — niesprawdzone na sprzęcie |
-| **2.5** | WHEP, WHIP, odzyskiwanie plików po awarii, instalator Inno Setup | instalacja na czystym Windows; test 24 h |
+| **2.2** | Okno Settings (domyślne parametry nagrywania, karta odsłuchu, szablon folderu), odsłuch kanału na osobnej karcie dźwiękowej, split do nowego folderu, zegary testowe (cyfrowy, analogowy), opcje logu, potwierdzanie usuwania, podpowiedź zmiennych szablonu | **wydana** — `tests\rec_test.ps1 -SplitFolderEvery / -Pattern` |
+| **2.3** | Wejście NDI: lista źródeł z sieci (discovery), odbiór obrazu i dźwięku, zanik sygnału i ponowne łączenie jak przy SRT/RTSP | NDI z NDI Tools i z własnego wyjścia NDI innego kanału |
+| **2.4** | Scheduler: reguły startu, stopu i splitu nagrywania (jednorazowe, dzienne, tygodniowe), catch‑up po starcie programu, zmiana czasu (DST), blokada uśpienia. **Wyjście na żywo w harmonogramie**: tryb „jak w harmonogramie nagrywania” (wyjście włącza się i wyłącza razem z nagraniem) albo „cały czas” | testy reguł; nagranie i wyjście startujące i kończące się o zadanej godzinie |
+| **2.5** | Wiele lokalizacji zapisu: folder zapasowy („gdy na dysku zostaje mniej niż X MB/GB, kolejna część trafia do folderu zapasowego”) i zapis podwójny (to samo nagranie równocześnie w dwóch folderach) | zapełnienie dysku testowego → przejście na folder zapasowy bez utraty klatek; dwa identyczne komplety plików |
+| **2.6** | Zapis bez ponownego kodowania („stream copy”) dla SRT/RTSP jako opcja enkodera, z opisem w Settings | plik zgodny ze strumieniem; split na klatce kluczowej źródła |
+| **2.7** | DeckLink; kodeki H.265/AV1/ProRes/DNxHR wg dostępności; MOV/MP4 | DeckLink — niesprawdzone na sprzęcie |
+| **2.8** | WHEP, WHIP, odzyskiwanie plików po awarii, instalator Inno Setup | instalacja na czystym Windows; test 24 h |
 
-**Decyzje właściciela z 2026‑11‑11 (zmieniają wcześniejsze rozdziały):** (1) zapis strumienia bez ponownego kodowania („passthrough” z `instrukcja.md`, D4, 3.1) **nie będzie robiony** — właściciel rozumie passthrough jako przekazanie sygnału dalej, a to robi wyjście na żywo (5.9); (2) wyjście na wirtualną kamerę nie będzie robione (wystarcza NDI + NDI Webcam); (3) hasło RTSP zostaje w adresie; (4) wejście SRT już jest (1.6), potrzebne są jeszcze wejście NDI i scheduler — stąd kolejność 2.2 i 2.3.
+**Decyzje właściciela z 2026‑11‑11 (zmieniają wcześniejsze rozdziały):** (1) słowo „passthrough” właściciel rozumie jako przekazanie sygnału dalej — to robi wyjście na żywo (5.9). Zapis strumienia **bez ponownego kodowania** najpierw wypadł z planu, a tego samego dnia wrócił jako **opcja enkodera** („No re-encoding (stream copy)”, etap 2.6), pod warunkiem jasnego opisu, co użytkownik dostaje, a co traci — opis jest w oknie Settings; (2) wyjście na wirtualną kamerę nie będzie robione (wystarcza NDI + NDI Webcam); (3) hasło RTSP zostaje w adresie; (4) wejście SRT już jest (1.6), potrzebne są jeszcze wejście NDI i scheduler — stąd kolejność 2.2 i 2.3.
 
 Każda runda poprawek po uwagach właściciela dostaje własny numer, więc pozycje poniżej bieżącej wersji przesuwają się o jedną. Numery wersji, od których zapowiadane funkcje będą dostępne, są w kodzie w jednym miejscu: `Roadmap` w `src/core/Lang.h`.
 
@@ -398,5 +409,5 @@ iso-recorder/
 
 ## 8. Otwarte pytania do właściciela projektu
 
-1. Docelowy sprzęt nagrywający (GPU, karty HDMI) — od tego zależy, czy 2.4 (DeckLink) i profil 16 kanałów da się w ogóle potwierdzić.
-2. Czy WHIP jako serwer w aplikacji jest wymagany, czy wystarczy WHEP + SRT/RTSP (wtedy 2.5 jest wyraźnie prostsze).
+1. Docelowy sprzęt nagrywający (GPU, karty HDMI) — od tego zależy, czy 2.7 (DeckLink) i profil 16 kanałów da się w ogóle potwierdzić.
+2. Czy WHIP jako serwer w aplikacji jest wymagany, czy wystarczy WHEP + SRT/RTSP (wtedy 2.8 jest wyraźnie prostsze).

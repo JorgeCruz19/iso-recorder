@@ -59,6 +59,10 @@
 //   --loss pause|split    reakcja kanalow --demo na zanik sygnalu sieciowego
 //   --input window --window tytul  kanaly --demo przechwytuja okno o tym tytule (albo zawierajace ten tekst)
 //   --shot-log plik       otworz okno logu zdarzen po 6 s, zapisz jego zrzut i wyjdz
+//   --shot-settings plik  otworz okno ustawien po 3 s, zapisz jego zrzut i wyjdz
+//   --pattern N           wzor generatora dla kanalow --demo (100 zegar cyfrowy, 101 analogowy)
+//   --monitor N           wlacz odsluch kanalu N (od 1) po 4 s
+//   --split-folder-every S  w --rec-test: co S sekund split wszystkich kanalow do nowego folderu
 //   --live ndi|srt [port] wyjscie na zywo dla kanalow --demo: NDI o nazwie "ISO <kanal>" albo SRT na portach port+1, port+2...
 //   --auto-split S        auto-split co S sekund dla kanalow --demo
 //   --split-every S       w --rec-test: reczny split wszystkich kanalow co S sekund
@@ -101,7 +105,7 @@ int main(int argc, char* argv[]) {
     QApplication::setApplicationVersion(QStringLiteral(APP_VERSION));
     const QStringList args = app.arguments();
     // Uruchomienie sterowane argumentami (zrzuty, testy) konczy sie samo - bez pytan o zapis listy.
-    for (const char* a : {"--screenshot", "--save-list", "--save-list-real", "--rec-test", "--shot-big", "--shot-disks", "--drag-test", "--shot-combo", "--shot-log"})
+    for (const char* a : {"--screenshot", "--save-list", "--save-list-real", "--rec-test", "--shot-big", "--shot-disks", "--drag-test", "--shot-combo", "--shot-log", "--shot-settings"})
         if (args.contains(QLatin1String(a))) app.setProperty("automation", true);
 
     if (args.contains(QStringLiteral("--check-env"))) {
@@ -479,6 +483,34 @@ int main(int argc, char* argv[]) {
                     QTimer::singleShot(200, [] { QApplication::quit(); });
                 });
             });
+        }
+        if (const QString shot = argAfter("--shot-settings"); !shot.isEmpty()) {
+            app.setProperty("shotSettings", shot);
+            QTimer::singleShot(3000, &manager, [&w] {
+                w->openSettings();
+                QTimer::singleShot(200, [] { QApplication::quit(); });
+            });
+        }
+        if (const int pat = argAfter("--pattern").toInt(); pat > 0)
+            for (Channel* c : manager.channels()) c->setPattern(pat);
+        if (const int mon = argAfter("--monitor").toInt(); mon > 0)
+            QTimer::singleShot(4000, &manager, [&manager, mon] {
+                // --monitor-device id: karta podana wprost (test na wirtualnej karcie, zeby nic nie zagralo z glosnikow)
+                const QStringList av = QApplication::arguments();
+                const int devAt = int(av.indexOf(QStringLiteral("--monitor-device")));
+                if (mon <= manager.count()) {
+                    if (devAt >= 0 && devAt + 1 < av.size()) manager.channels().at(mon - 1)->setMonitor(true, av.at(devAt + 1));
+                    else manager.setMonitored(manager.channels().at(mon - 1));
+                }
+                Channel* m = mon <= manager.count() && manager.channels().at(mon - 1)->monitorOn() ? manager.channels().at(mon - 1) : nullptr;
+                const QByteArray line = QStringLiteral("monitor=%1\n").arg(m ? m->config().name : QStringLiteral("none")).toUtf8();
+                fwrite(line.constData(), 1, size_t(line.size()), stdout);
+                fflush(stdout);
+            });
+        if (const int every = argAfter("--split-folder-every").toInt(); every > 0) {
+            auto* t = new QTimer(&manager);
+            QObject::connect(t, &QTimer::timeout, &manager, [&manager] { manager.splitToNewFolder(manager.channels()); });
+            QTimer::singleShot(3000, t, [t, every] { t->start(every * 1000); });
         }
         if (const QString shot = argAfter("--shot-log"); !shot.isEmpty()) {
             app.setProperty("shotLog", shot);

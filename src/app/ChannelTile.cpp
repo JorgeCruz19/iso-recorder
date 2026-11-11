@@ -176,8 +176,11 @@ void ChannelTile::paintEvent(QPaintEvent*) {
         p.setPen(Qt::white);
         p.drawText(rr.adjusted(18, 0, -6, 0), Qt::AlignVCenter | Qt::AlignLeft, t);
     }
+    // ikona odsluchu nad miernikiem audio
+    const QRect mon(r.vid.right() - 8 - 17, r.vid.top() + 29, 18, 15);
+    Theme::paintHeadphones(p, mon, m_ch->monitorOn());
     // miernik audio
-    const QRectF am(r.vid.right() - 8 - 11, r.vid.top() + 30, 12, r.vid.height() - 30 - 8);
+    const QRectF am(r.vid.right() - 8 - 11, r.vid.top() + 49, 12, r.vid.height() - 49 - 8);
     if (am.height() > 10) {
         Theme::paintMeter(p, QRectF(am.left(), am.top(), 5, am.height()), m_ch->level(0), true, QColor(0, 0, 0, 166));
         Theme::paintMeter(p, QRectF(am.left() + 7, am.top(), 5, am.height()), m_ch->level(1), true, QColor(0, 0, 0, 166));
@@ -244,6 +247,10 @@ void ChannelTile::mousePressEvent(QMouseEvent* e) {
             return;
         }
     }
+    if (QRect(r.vid.right() - 8 - 17, r.vid.top() + 29, 18, 15).adjusted(-4, -4, 4, 4).contains(pt)) {     // sluchawki = odsluch kanalu
+        m_mgr->setMonitored(m_ch);
+        return;
+    }
     if (r.selBox.adjusted(-5, -5, 5, 5).contains(pt) || (e->modifiers() & Qt::ControlModifier)) {
         m_ch->setSelected(!m_ch->isSelected());
         return;
@@ -278,7 +285,8 @@ void ChannelTile::mouseDoubleClickEvent(QMouseEvent* e) {
     const QPoint pt = e->position().toPoint();
     m_pressed = false;
     if (!r.label.contains(pt)) {        // dwuklik w obraz (poza polem zaznaczenia) = duzy podglad
-        if (r.vid.contains(pt) && !r.selBox.adjusted(-5, -5, 5, 5).contains(pt) && e->button() == Qt::LeftButton)
+        if (r.vid.contains(pt) && !r.selBox.adjusted(-5, -5, 5, 5).contains(pt) && e->button() == Qt::LeftButton &&
+            !QRect(r.vid.right() - 8 - 17, r.vid.top() + 29, 18, 15).adjusted(-4, -4, 4, 4).contains(pt))
             PreviewDialog::open(m_mgr, m_ch, m_number, window());
         return;
     }
@@ -292,7 +300,7 @@ bool ChannelTile::confirmRemove(QWidget* parent, const QList<Channel*>& list) {
     if (list.isEmpty()) return false;
     bool recording = false;
     for (Channel* c : list) recording = recording || c->isRecording();
-    if (list.size() == 1 && !recording) return true;
+    // usuniecie kanalu zawsze wymaga potwierdzenia - takze jednego, ktory nie nagrywa
     QString text = list.size() == 1 ? T("Remove channel %1?").arg(list.first()->config().name)
                                     : T("Remove selected channels (%1)?").arg(list.size());
     if (recording) text += QStringLiteral("\n\n") + T("Recordings in progress will be finished and saved first.");

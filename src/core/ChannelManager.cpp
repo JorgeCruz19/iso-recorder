@@ -1,9 +1,13 @@
 #include "ChannelManager.h"
 
+#include "AppSettings.h"
 #include "DiskMonitor.h"
+#include "util/FileNameTemplate.h"
 #include "Lang.h"
 
+#include <QDateTime>
 #include <QDir>
+#include <QRegularExpression>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -53,6 +57,7 @@ Channel* ChannelManager::addChannel() {
     cfg.name = QStringLiteral("TEST %1").arg(++m_nameCounter);
     cfg.pattern = patterns[(m_nameCounter - 1) % 8];
     cfg.audioVolume = 0.03 + 0.03 * ((m_nameCounter - 1) % 8);
+    if (m_persist) cfg.out = AppSettings::defaultOutput();      // domyslne parametry nagrywania z okna Settings
     return addChannel(cfg);
 }
 
@@ -88,6 +93,7 @@ void ChannelManager::removeChannel(Channel* ch) {
         return;
     }
     m_channels.removeAt(i);
+    if (m_monitored == ch) m_monitored = nullptr;
     if (m_active == ch) {
         m_active = m_channels.isEmpty() ? nullptr : m_channels.at(std::min(i, count() - 1));
         emit activeChanged();
@@ -219,6 +225,35 @@ void ChannelManager::checkDisks() {
             emit notice(T("Disk %1 is filling up: about %2 of recording left").arg(v.name(), DiskMonitor::formatLeft(v.secondsLeft)));
         }
     }
+}
+
+void ChannelManager::splitToNewFolder(const QList<Channel*>& list) {
+    const QDateTime when = QDateTime::currentDateTime();
+    const QString tmpl = AppSettings::splitFolderTemplate();
+    int n = 0;
+    QString shown;
+    for (Channel* c : list) {
+        if (c->state() != ChannelState::Recording) continue;
+        FileNameTemplate::Vars vars{sessionForFiles(), c->config().name, c->sourceText(), indexOf(c) + 1, when};
+        QString name = FileNameTemplate::expand(tmpl, vars);
+        name.remove(QRegularExpression(QStringLiteral("_?%0\\dd")));      // {part} nie ma sensu w nazwie folderu
+        if (name.isEmpty()) name = when.toString(QStringLiteral("yyyy-MM-dd_HH-mm-ss"));
+        c->splitToFolder(QDir(c->outputDir()).filePath(name));
+        shown = name;
+        ++n;
+    }
+    if (n > 0) emit notice(T("Split to new folder: %1 (%2 channels)").arg(shown).arg(n));
+}
+
+void ChannelManager::setMonitored(Channel* ch) {
+    if (m_monitored && m_channels.contains(m_monitored)) m_monitored->setMonitor(false);
+    const bool off = !ch || ch == m_monitored;
+    m_monitored = nullptr;
+    if (!off) {
+        ch->setMonitor(true, AppSettings::monitorDevice());
+        if (ch->monitorOn()) m_monitored = ch;
+    }
+    emit selectionChanged();
 }
 
 void ChannelManager::stopAllRecording() {
@@ -360,6 +395,7 @@ void ChannelManager::clearChannels() {
     m_channels.clear();
     m_removeAfterStop.clear();
     m_active = nullptr;
+    m_monitored = nullptr;
     for (Channel* c : old) {
         c->stopPreview();
         c->deleteLater();

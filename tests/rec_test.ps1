@@ -7,11 +7,12 @@
 #   koniec obrazu i dzwieku w tym samym miejscu, liczba pauz w pliku opisu.
 # -LiveCycle S [-LiveType srt|ndi] : w trakcie nagrania wyjscie na zywo jest co S sekund wlaczane i wylaczane -
 #   nagranie musi pozostac ciagle (te same kontrole co zwykle).
+# -SplitFolderEvery S : co S sekund split wszystkich kanalow do nowego folderu;  -Pattern N : wzor generatora (100 / 101 = zegary).
 # -Source window -Window "tytul" : przechwytywanie okna o tym tytule.
 # -Source screen : kanaly biora obraz z ekranu zamiast z generatora;  -Audio loopback|device|none : zrodlo dzwieku z WASAPI.
 # Kod wyjscia 0 = wszystko poprawne.
 param([int]$Channels = 4, [int]$Seconds = 10, [int]$Cycles = 1, [int]$SplitEvery = 0, [int]$AutoSplit = 0,
-      [string]$Container = 'mkv', [int]$PauseAt = 0, [int]$PauseFor = 0, [int]$PauseCount = 1, [int]$LiveCycle = 0, [string]$LiveType = 'srt', [string]$Source = '', [string]$Audio = '', [string]$Window = '', [string]$Exe)
+      [string]$Container = 'mkv', [int]$PauseAt = 0, [int]$PauseFor = 0, [int]$PauseCount = 1, [int]$LiveCycle = 0, [string]$LiveType = 'srt', [string]$Source = '', [string]$Audio = '', [string]$Window = '', [int]$SplitFolderEvery = 0, [int]$Pattern = 0, [string]$Exe)
 $ErrorActionPreference = 'Stop'
 $inv = [cultureinfo]::InvariantCulture
 $root = Split-Path $PSScriptRoot
@@ -32,6 +33,8 @@ if ($AutoSplit -gt 0) { $a += @('--auto-split', $AutoSplit) }
 if ($LiveCycle -gt 0) { $a += @('--live', $LiveType, 9750, '--live-cycle', $LiveCycle) }
 if ($Source) { $a += @('--input', $Source) }
 if ($Audio) { $a += @('--audio', $Audio) }
+if ($SplitFolderEvery -gt 0) { $a += @('--split-folder-every', $SplitFolderEvery) }
+if ($Pattern -gt 0) { $a += @('--pattern', $Pattern) }
 if ($Window) { $a += @('--window', "`"$Window`"") }
 $pauses = 0
 if ($PauseAt -gt 0 -and $PauseFor -gt 0) { $pauses = $PauseCount; $a += @('--pause-at', $PauseAt, '--pause-for', $PauseFor, '--pause-count', $PauseCount) }
@@ -40,7 +43,7 @@ $p = Start-Process $Exe -ArgumentList $a -PassThru
 if (-not $p.WaitForExit(($Seconds + 6) * $Cycles * 1000 + 60000)) { $p.Kill(); throw 'Program nie zakonczyl sie w oczekiwanym czasie.' }
 
 $fail = 0
-$split = ($SplitEvery -gt 0) -or ($AutoSplit -gt 0)
+$split = ($SplitEvery -gt 0) -or ($AutoSplit -gt 0) -or ($SplitFolderEvery -gt 0)
 $sidecars = Get-ChildItem $out -Filter *.json
 $expected = $Channels * $Cycles
 if ($sidecars.Count -ne $expected) { "BLAD: nagran (plikow .json) $($sidecars.Count), oczekiwano $expected"; $fail++ }
@@ -49,6 +52,11 @@ foreach ($sc in $sidecars) {
     $frames = 0; $total = 0.0; $bad = @(); $avMax = 0.0
     if (-not $info.clean) { $bad += 'nagranie nie zakonczone poprawnie' }
     if ($split -and $info.parts.Count -lt 2) { $bad += 'brak podzialu na czesci' }
+    # split do nowego folderu: kazda kolejna czesc lezy w innym podfolderze
+    if ($SplitFolderEvery -gt 0) {
+        $dirs = @($info.parts | ForEach-Object { Split-Path $_.file } | Select-Object -Unique)
+        if ($dirs.Count -ne $info.parts.Count) { $bad += "czesci $($info.parts.Count), folderow $($dirs.Count)" }
+    }
     if (-not $split -and $info.parts.Count -ne 1) { $bad += "czesci: $($info.parts.Count)" }
     foreach ($part in $info.parts) {
         $f = Join-Path $out $part.file

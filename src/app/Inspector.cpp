@@ -15,6 +15,7 @@
 #include <QStandardItemModel>
 #include <QVBoxLayout>
 
+#include "SettingsDialog.h"
 #include "Widgets.h"
 #include "core/ChannelManager.h"
 #include "core/DiskMonitor.h"
@@ -42,7 +43,7 @@ QGridLayout* form(QVBoxLayout* into) {
     return g;
 }
 
-void row(QGridLayout* g, const QString& label, QWidget* field) {
+QLabel* row(QGridLayout* g, const QString& label, QWidget* field) {
     const int r = g->rowCount();
     auto* l = new QLabel(label);
     l->setObjectName(QStringLiteral("fl"));
@@ -51,6 +52,7 @@ void row(QGridLayout* g, const QString& label, QWidget* field) {
     l->setFixedWidth(104);
     g->addWidget(l, r, 0);
     g->addWidget(field, r, 1);
+    return l;
 }
 
 QWidget* placeholder(const QString& text) {
@@ -176,6 +178,8 @@ QWidget* Inspector::buildInputPage() {
         {"SMPTE bars", 0}, {"SMPTE bars 75%", 13}, {"SMPTE bars 100%", 19}, {"Ball", 18}, {"Pinwheel", 21},
         {"Spokes", 22}, {"Circles", 11}, {"Gradient", 23}, {"Snow", 1}, {"Black", 2}};
     for (const auto& pt : patterns) m_pattern->addItem(T(pt.name), pt.id);
+    m_pattern->addItem(T("Digital clock"), Channel::ClockDigital);
+    m_pattern->addItem(T("Analog clock"), Channel::ClockAnalog);
     row(g, T("Pattern"), m_pattern);
     m_format = new QComboBox;
     const struct { int w, h; const char* ratio; } formats[] = {
@@ -260,8 +264,9 @@ QWidget* Inspector::buildOutputPage() {
     row(g, T("Folder"), dirRow);
     m_outTemplate = new QLineEdit;
     m_outTemplate->setPlaceholderText(QLatin1String(FileNameTemplate::kDefault));
-    m_outTemplate->setToolTip(QStringLiteral("{session} {channel} {source} {index:02} {date} {time} {part:03}"));
-    row(g, T("Name template"), m_outTemplate);
+    // spis zmiennych w podpowiedzi - po najechaniu na etykiete i na pole
+    row(g, T("Name template"), m_outTemplate)->setToolTip(nameTemplateHelp());
+    m_outTemplate->setToolTip(nameTemplateHelp());
     m_outContainer = new QComboBox;
     m_outContainer->addItem(QStringLiteral("MKV (Matroska)"), QStringLiteral("mkv"));
     m_outContainer->addItem(QStringLiteral("MPEG-TS"), QStringLiteral("ts"));

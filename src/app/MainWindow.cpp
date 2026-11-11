@@ -11,7 +11,9 @@
 #include <QFileInfo>
 #include <QInputDialog>
 #include <QSettings>
+#include <QSignalBlocker>
 #include <QHBoxLayout>
+#include <QCheckBox>
 #include <QCloseEvent>
 #include <QKeyEvent>
 #include <QLabel>
@@ -34,6 +36,7 @@
 #include "ChannelTile.h"
 #include "DisksDialog.h"
 #include "Inspector.h"
+#include "SettingsDialog.h"
 #include "Theme.h"
 #include "Widgets.h"
 #include "core/ChannelManager.h"
@@ -254,6 +257,7 @@ QWidget* MainWindow::buildHeader() {
         a->setChecked(code == Lang::current());
     }
     menu->addAction(T("Disks…"), this, &MainWindow::showDisks);
+    menu->addAction(T("Settings…"), this, &MainWindow::showSettings);
     menu->addAction(T("Event log…"), this, &MainWindow::showEventLog);
     menu->addAction(T("Diagnostics…"), this, &MainWindow::showDiagnostics);
     menu->addAction(T("About"), this, [this] {
@@ -309,7 +313,7 @@ QWidget* MainWindow::buildControlPanel() {
     v->setContentsMargins(1, 1, 0, 0);
     v->setSpacing(0);
 
-    auto group = [&](QLabel* caption, std::initializer_list<KeyButton*> buttons, QWidget* right = nullptr) {
+    auto group = [&](QLabel* caption, std::initializer_list<KeyButton*> buttons, QWidget* right = nullptr, QWidget* below = nullptr) {
         auto* f = new QFrame;
         f->setObjectName(QStringLiteral("grp"));
         auto* gv = new QVBoxLayout(f);
@@ -324,6 +328,7 @@ QWidget* MainWindow::buildControlPanel() {
         hb->setSpacing(6);
         for (KeyButton* b : buttons) hb->addWidget(b, 1);
         gv->addLayout(hb);
+        if (below) gv->addWidget(below);
         v->addWidget(f);
     };
 
@@ -334,8 +339,12 @@ QWidget* MainWindow::buildControlPanel() {
         connect(m_btnTransport[i], &KeyButton::clicked, this, [this, i] { transportSelected(Transport(i)); });
     }
     m_btnTransport[0]->setRed(true);
+    // split z przejsciem do nowego folderu - nazwa folderu z szablonu w ustawieniach
+    m_btnSplitFolder = new KeyButton(T("SPLIT TO NEW FOLDER"), KeyButton::None, true);
+    m_btnSplitFolder->setCompact();
+    connect(m_btnSplitFolder, &KeyButton::clicked, this, [this] { m_mgr->splitToNewFolder(m_mgr->selected()); });
     group(m_selCap = cap(T("Selected channels (%1)").arg(0)),
-          {m_btnTransport[0], m_btnTransport[1], m_btnTransport[2], m_btnTransport[3]});
+          {m_btnTransport[0], m_btnTransport[1], m_btnTransport[2], m_btnTransport[3]}, nullptr, m_btnSplitFolder);
 
     // Zaznaczenie i akcje na zaznaczonych - male przyciski w jednym wierszu
     const char* const selNames[5] = {"ALL", "NONE", "INVERT", "DUPLICATE", "REMOVE"};
@@ -402,6 +411,9 @@ void MainWindow::refreshCounts() {
     const int n = m_mgr->count(), sel = m_mgr->selectedCount();
     m_selCap->setText(T("Selected channels (%1)").arg(sel).toUpper());
     for (KeyButton* b : m_btnTransport) b->setEnabled(sel > 0);
+    bool selRecording = false;
+    for (const Channel* c : m_mgr->selected()) selRecording = selRecording || c->state() == ChannelState::Recording;
+    m_btnSplitFolder->setEnabled(selRecording);
     m_btnSelect[0]->setEnabled(n > 0 && sel < n);
     m_btnSelect[1]->setEnabled(sel > 0);
     m_btnSelect[2]->setEnabled(n > 0);
@@ -544,28 +556,81 @@ bool MainWindow::eventFilter(QObject* watched, QEvent* e) {
 }
 
 // Log zdarzen: wpisy z tego uruchomienia; starsze sa w plikach dziennych (przycisk otwiera folder).
+void MainWindow::showSettings() {
+    SettingsDialog dlg(this);
+    if (qApp->property("shotSettings").isValid()) {      // zrzut okna do dokumentacji / testu
+        const QString path = qApp->property("shotSettings").toString();
+        QTimer::singleShot(600, &dlg, [&dlg, path] { dlg.grab().save(path); dlg.reject(); });
+    }
+    dlg.exec();
+}
+
 void MainWindow::showEventLog() {
     QDialog dlg(this);
     dlg.setWindowTitle(T("Event log"));
-    dlg.resize(820, 560);
+    dlg.resize(860, 580);
     auto* v = new QVBoxLayout(&dlg);
-    auto* text = new QPlainTextEdit(EventLog::recent().join(QLatin1Char('\n')));
+    auto* text = new QPlainTextEdit;
     text->setReadOnly(true);
-    text->setLineWrapMode(QPlainTextEdit::NoWrap);
     v->addWidget(text);
+    QSettings settings(ChannelManager::settingsOrg(), QStringLiteral("IsoRecorder"));
+    auto* wrap = new QCheckBox(T("Wrap lines"));
+    auto* lines = new QCheckBox(T("Line between entries"));
+    wrap->setChecked(settings.value(QStringLiteral("log/wrap"), false).toBool());
+    lines->setChecked(settings.value(QStringLiteral("log/lines"), false).toBool());
+    // Kreska miedzy wpisami i zawijanie dlugich wierszy - dla czytelnosci; wybor jest pamietany.
+    auto fill = [text, wrap, lines] {
+        const QStringList entries = EventLog::recent();
+        text->setLineWrapMode(wrap->isChecked() ? QPlainTextEdit::WidgetWidth : QPlainTextEdit::NoWrap);
+        text->setPlainText(lines->isChecked() ? entries.join(QStringLiteral("\n") + QString(96, QChar(0x2500)) + QStringLiteral("\n"))
+                                              : entries.join(QLatin1Char('\n')));
+        text->moveCursor(QTextCursor::End);
+    };
+    connect(wrap, &QCheckBox::toggled, &dlg, [fill, wrap](bool) {
+        QSettings(ChannelManager::settingsOrg(), QStringLiteral("IsoRecorder")).setValue(QStringLiteral("log/wrap"), wrap->isChecked());
+        fill();
+    });
+    connect(lines, &QCheckBox::toggled, &dlg, [fill, lines](bool) {
+        QSettings(ChannelManager::settingsOrg(), QStringLiteral("IsoRecorder")).setValue(QStringLiteral("log/lines"), lines->isChecked());
+        fill();
+    });
     auto* h = new QHBoxLayout;
+    h->addWidget(wrap);
+    h->addSpacing(12);
+    h->addWidget(lines);
+    h->addStretch(1);
+    auto* exportBtn = new QPushButton(T("Export…"));
+    connect(exportBtn, &QPushButton::clicked, &dlg, [this, &dlg] {
+        const QString suggested = QDir(QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation))
+                                      .filePath(QStringLiteral("IsoRecorder_log_%1.txt").arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd_HH-mm"))));
+        const QString path = QFileDialog::getSaveFileName(&dlg, T("Export event log"), suggested, T("Text file") + QStringLiteral(" (*.txt)"));
+        if (path.isEmpty()) return;
+        QFile f(path);
+        if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            f.write(EventLog::recent().join(QLatin1Char('\n')).toUtf8());
+            notice(T("Event log exported — %1").arg(QFileInfo(path).fileName()));
+        } else {
+            QMessageBox::warning(&dlg, QStringLiteral("ISO Recorder"), f.errorString());
+        }
+    });
+    h->addWidget(exportBtn);
     auto* folder = new QPushButton(T("Open log folder"));
     folder->setEnabled(!EventLog::dir().isEmpty());
     connect(folder, &QPushButton::clicked, &dlg, [] { QDesktopServices::openUrl(QUrl::fromLocalFile(EventLog::dir())); });
     h->addWidget(folder);
-    h->addStretch(1);
     auto* close = new QPushButton(T("Close"));
     connect(close, &QPushButton::clicked, &dlg, &QDialog::accept);
     h->addWidget(close);
     v->addLayout(h);
-    text->moveCursor(QTextCursor::End);
+    fill();
     if (qApp->property("shotLog").isValid()) {      // zrzut okna do dokumentacji / testu
         const QString path = qApp->property("shotLog").toString();
+        {                               // zrzut pokazuje obie opcje, ale nie zapisuje ich w ustawieniach
+            const QSignalBlocker b1(wrap), b2(lines);
+            wrap->setChecked(true);
+            lines->setChecked(true);
+        }
+        fill();
         QTimer::singleShot(600, &dlg, [&dlg, path] { dlg.grab().save(path); dlg.accept(); });
     }
     dlg.exec();

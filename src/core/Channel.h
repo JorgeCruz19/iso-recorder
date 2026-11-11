@@ -13,6 +13,7 @@
 #include <vector>
 
 #include <gst/app/gstappsink.h>
+#include <gst/app/gstappsrc.h>
 #include <gst/gst.h>
 
 enum class ChannelState { Idle, Preview, Recording, Paused, Finalizing, Waiting, Reconnecting, Error };
@@ -66,7 +67,7 @@ struct InputConfig {
 
 struct ChannelConfig {
     QString name;
-    int pattern = 0;        // videotestsrc pattern
+    int pattern = 0;        // videotestsrc pattern; 100 = zegar cyfrowy, 101 = zegar analogowy (rysowane przez program)
     int audioWave = 0;      // audiotestsrc wave: 0 sinus, 8 tiki, 4 cisza
     double audioVolume = 0.1;
     int width = 1280;
@@ -134,6 +135,11 @@ public:
     void pauseRecording(quint64 clockNs = 0);    // plik zostaje otwarty, klatki z czasu pauzy nie trafiaja do pliku
     void resumeRecording(quint64 clockNs = 0);   // dalszy ciag w tym samym pliku, bez przerwy w znacznikach czasu
     void split();                    // zamknij biezacy plik i zacznij nastepny (na klatce kluczowej)
+    void splitToFolder(const QString& dir);      // jak split, ale nastepna czesc trafia do podanego folderu
+    // Odsluch: dzwiek kanalu idzie dodatkowo na wskazana karte dzwiekowa (puste id = domyslne wyjscie systemu).
+    void setMonitor(bool on, const QString& deviceId = {});
+    bool monitorOn() const { return m_monitorPipe != nullptr; }
+    static constexpr int ClockDigital = 100, ClockAnalog = 101;
     int recordPart() const { return int(m_parts.size()); }
     qint64 recordMs() const;         // czas nagranego materialu (bez pauz)
     QString recordFile() const { return m_recFile; }
@@ -179,6 +185,8 @@ private:
     void attachLive();
     void detachLive();
     void liveError(const QString& text);
+    void pushClockFrame();                  // generator "zegar": jedna klatka do appsrc
+    static gchar* onFormatLocation(GstElement* mux, guint fragment, gpointer user);
     void finishRecording(bool clean, const QString& reason = {});
     void writeSidecar(bool clean, const QString& reason) const;
 
@@ -207,6 +215,21 @@ private:
     std::atomic<int> m_liveSerial{0};                   // numer kolejnego podpiecia wyjscia
     GstPad* m_liveTeeVideo = nullptr;
     GstPad* m_liveTeeAudio = nullptr;
+    // Odsluch to osobny, niezalezny pipeline (appsrc -> karta dzwiekowa), zasilany kopiami buforow z sondy na torze
+    // dzwieku kanalu. Dzieki temu zadna awaria karty dzwiekowej nie moze zatrzymac kanalu ani nagrania.
+    GstElement* m_monitorPipe = nullptr;                // watek GUI
+    GstElement* m_monitorSrc = nullptr;                 // appsrc; uzywany w sondzie pod m_monMutex
+    bool m_monCapsSet = false;
+    std::mutex m_monMutex;
+    std::atomic<int> m_monSerial{0};
+    static GstPadProbeReturn onMonitorTap(GstPad* pad, GstPadProbeInfo* info, gpointer user);
+    static GstBusSyncReply onMonitorBus(GstBus* bus, GstMessage* msg, gpointer user);
+    QString m_monitorDevice;
+    QTimer m_clockTimer;                    // generator "zegar"
+    QImage m_clockImage;
+    std::mutex m_locMutex;                  // folder i wzorzec nazwy kolejnych czesci (czytane w watku streamingu)
+    QString m_recDir, m_recPattern, m_recExt;
+    std::atomic<int> m_partCounter{0};
     bool m_liveNoticed = false;             // komunikat o awarii biezacego podpiecia juz poszedl
     void applyPreviewSize();
 

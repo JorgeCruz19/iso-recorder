@@ -21,6 +21,7 @@ public:
 
     Inspector* inspector() const { return m_inspector; }
     void openEventLog() { showEventLog(); }
+    void openSettings() { showSettings(); }
     void setView(int view);                 // 2, 3, 4 = siatka n x n; 0 = lista
 
 signals:
@@ -45,6 +46,7 @@ private:
     void showDiagnostics();
     void showDisks();
     void showEventLog();
+    void showSettings();
     // lista kanalow
     void refreshSession();
     void renameSession();
@@ -85,6 +87,7 @@ private:
     KeyButton* m_btnTransport[4]{};
     KeyButton* m_btnSelect[5]{};
     KeyButton* m_btnAdd;
+    KeyButton* m_btnSplitFolder = nullptr;
     KeyButton* m_btnUp;
     KeyButton* m_btnDown;
     QLabel* m_count;

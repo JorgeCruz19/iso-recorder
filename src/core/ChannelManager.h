@@ -43,6 +43,11 @@ public:
     // Grupa kanalow ze wspolna chwila T: start, pauza, wznowienie i stop wypadaja we wszystkich kanalach w tym samym momencie.
     void transportGroup(const QList<Channel*>& list, Transport t);
     void stopAllRecording();
+    // Split z przejsciem do nowego folderu: nazwa folderu z szablonu w ustawieniach, wspolna dla calej grupy.
+    void splitToNewFolder(const QList<Channel*>& list);
+    // Odsluch: najwyzej jeden kanal naraz gra na karcie wybranej w ustawieniach.
+    Channel* monitored() const { return m_monitored; }
+    void setMonitored(Channel* ch);         // nullptr = wylacz; ten sam kanal ponownie = wylacz
 
     // --- Sesja i lista kanalow (plik <sesja>.isorec.json) ---
     void setSession(const QString& name);
@@ -79,6 +84,7 @@ private:
     QList<Channel*> m_channels;
     QList<Channel*> m_removeAfterStop;
     Channel* m_active = nullptr;
+    Channel* m_monitored = nullptr;
     int m_nameCounter = 0;
     QString m_session;
     QStringList m_warnedVolumes;    // wolumeny, o ktorych juz ostrzegalismy

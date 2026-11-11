@@ -356,9 +356,11 @@ void ChannelRow::paintEvent(QPaintEvent*) {
         p.drawText(lr, Qt::AlignCenter, lt);
     }
     // mierniki L / R
-    const int mw = c.buttons - c.meter - 14;
-    Theme::paintMeter(p, QRectF(c.meter, height() / 2.0 - 7, mw, 5), m_ch->level(0), false, QColor(0x11, 0x11, 0x11));
-    Theme::paintMeter(p, QRectF(c.meter, height() / 2.0 + 1, mw, 5), m_ch->level(1), false, QColor(0x11, 0x11, 0x11));
+    // ikona odsluchu obok miernikow
+    Theme::paintHeadphones(p, QRectF(c.meter, height() / 2.0 - 8, 18, 15), m_ch->monitorOn());
+    const int mw = c.buttons - c.meter - 14 - 24;
+    Theme::paintMeter(p, QRectF(c.meter + 24, height() / 2.0 - 7, mw, 5), m_ch->level(0), false, QColor(0x11, 0x11, 0x11));
+    Theme::paintMeter(p, QRectF(c.meter + 24, height() / 2.0 + 1, mw, 5), m_ch->level(1), false, QColor(0x11, 0x11, 0x11));
 
     // przyciski transportu - te same reguly co na kaflu
     p.setRenderHint(QPainter::Antialiasing);
@@ -397,6 +399,10 @@ void ChannelRow::mousePressEvent(QMouseEvent* e) {
             if (ChannelTile::transportEnabled(m_ch->state(), i)) m_mgr->transport(m_ch, Transport(i));
             return;
         }
+    }
+    if (pt.x() >= c.meter - 4 && pt.x() < c.meter + 22) {       // sluchawki = odsluch kanalu
+        m_mgr->setMonitored(m_ch);
+        return;
     }
     if (pt.x() < c.num || (e->modifiers() & Qt::ControlModifier)) {
         m_ch->setSelected(!m_ch->isSelected());

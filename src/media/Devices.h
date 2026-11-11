@@ -13,7 +13,7 @@ struct Info {
     QStringList modes;  // kamera: dostepne rozmiary obrazu "WxH", od najwiekszego
 };
 struct All {
-    QList<Info> screens, cameras, audioInputs, audioLoopbacks;
+    QList<Info> screens, cameras, audioInputs, audioLoopbacks, audioOutputs;
 };
 // Wynik jest pamietany; refresh = true wymusza ponowne przeszukanie (trwa do kilkuset ms).
 const All& list(bool refresh = false);

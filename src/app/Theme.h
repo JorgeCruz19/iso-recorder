@@ -34,6 +34,27 @@ inline void paintMeter(QPainter& p, const QRectF& r, double frac, bool vertical,
     }
 }
 
+// Ikona sluchawek (odsluch kanalu): wlaczona - pomaranczowa, wylaczona - ciemna z jasnym rysunkiem.
+inline void paintHeadphones(QPainter& p, const QRectF& r, bool on) {
+    p.save();
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setPen(Qt::NoPen);
+    p.setBrush(on ? orange : QColor(0, 0, 0, 178));
+    p.drawRoundedRect(r, 3, 3);
+    const QColor fg = on ? QColor(0x14, 0x0a, 0x00) : QColor(0xd6, 0xd6, 0xd6);
+    const double w = r.width(), h = r.height();
+    const QRectF band(r.left() + w * 0.24, r.top() + h * 0.20, w * 0.52, h * 0.80);
+    p.setPen(QPen(fg, qMax(1.4, h / 9.0)));
+    p.setBrush(Qt::NoBrush);
+    p.drawArc(band, 0, 180 * 16);
+    p.setPen(Qt::NoPen);
+    p.setBrush(fg);
+    const double cupW = qMax(3.0, w * 0.18), cupH = h * 0.36, cupY = r.top() + h * 0.50;
+    p.drawRoundedRect(QRectF(band.left() - cupW / 2, cupY, cupW, cupH), 1.5, 1.5);
+    p.drawRoundedRect(QRectF(band.right() - cupW / 2, cupY, cupW, cupH), 1.5, 1.5);
+    p.restore();
+}
+
 // arrow / arrowOff: sciezki do obrazkow strzalki listy rozwijanej (QSS nie umie jej narysowac sam - trik z ramkami
 // dawal kwadracik), tworzonych przy starcie programu.
 inline QString styleSheet(const QString& arrow = {}, const QString& arrowOff = {}) {

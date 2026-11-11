@@ -1,6 +1,6 @@
 # ISO Recorder — stan projektu i instrukcje dla kolejnego modelu
 
-Ten plik jest punktem wejścia. Przeczytaj go w całości, zanim cokolwiek zmienisz. Stan na 2026‑11‑11, wersja **2.1**. Wydania od 2.0 są publikowane jako Release na GitHubie.
+Ten plik jest punktem wejścia. Przeczytaj go w całości, zanim cokolwiek zmienisz. Stan na 2026‑11‑11, wersja **2.2**. Wydania od 2.0 są publikowane jako Release na GitHubie.
 
 ## 1. Co to jest
 
@@ -23,7 +23,7 @@ z tłumaczeniami PL, DE, ES, IT, FR.
 | `mockup/`, `interfejs.png` | wzorzec wyglądu |
 | `docs/zrzut_<wersja>.png` | zrzut okna na każdą wersję |
 
-## 3. Co działa (2.1)
+## 3. Co działa (2.2)
 
 - **Wejścia**: generator testowy, ekran i pojedyncze okno (`d3d11screencapturesrc`), kamera z wyborem rozmiaru obrazu
   (`mfvideosrc`), SRT i RTSP (`fallbacksrc`); dźwięk: sygnał testowy, cisza, dźwięk systemowy (loopback) i wejścia
@@ -35,7 +35,10 @@ z tłumaczeniami PL, DE, ES, IT, FR.
 - **Zanik sygnału sieciowego**: do wyboru — nagranie trwa (ostatnia klatka → czarny obraz), pauza albo nowa część;
   automatyczne ponowne łączenie.
 - **Awaria źródła**: automatyczny restart kanału (5, 10, 20, potem co 30 s) i wznowienie nagrywania w nowym pliku.
-- **Log zdarzeń**: plik dzienny w `%LOCALAPPDATA%\IsoRecorder\logs` i okno w programie.
+- **Log zdarzeń**: plik dzienny w `%LOCALAPPDATA%\IsoRecorder\logs` i okno w programie (zawijanie, kreski, eksport).
+- **Settings**: domyślne parametry nagrywania nowych kanałów, karta odsłuchu, szablon folderu splitu.
+- **Odsłuch** jednego kanału na wybranej karcie dźwiękowej (ikona słuchawek na kaflu, w liście, w dużym podglądzie).
+- **Split do nowego folderu** dla zaznaczonych kanałów; **zegary testowe** (cyfrowy z numerem klatki, analogowy).
 - **Sesja i listy kanałów**: zapis / wczytanie `.isorec.json`, autozapis, przywracanie po awarii, ostatnie listy.
 - **Interfejs**: kafle 2×2 / 3×3 / 4×4 i widok listy, inspektor (Input / Output), panel sterowania, duży podgląd
   (dwuklik), przeciąganie kafli i wierszy listy, okno Disks z testem prędkości zapisu, 6 języków.
@@ -45,15 +48,18 @@ z tłumaczeniami PL, DE, ES, IT, FR.
 
 | Wersja | Zakres |
 |---|---|
-| **2.2** | Wejście NDI: lista źródeł z sieci, odbiór obrazu i dźwięku, zanik sygnału i ponowne łączenie |
-| **2.3** | Scheduler: reguły startu / stopu / splitu, catch‑up, zmiana czasu, blokada uśpienia |
-| **2.4** | DeckLink; kodeki H.265 / AV1 / ProRes / DNxHR; MOV / MP4; folder zapasowy |
-| **2.5** | WebRTC (WHEP, WHIP), odzyskiwanie plików po awarii, instalator |
+| **2.3** | Wejście NDI: lista źródeł z sieci, odbiór obrazu i dźwięku, zanik sygnału i ponowne łączenie |
+| **2.4** | Scheduler: reguły startu / stopu / splitu, catch‑up, zmiana czasu, blokada uśpienia; **wyjście na żywo w harmonogramie**: „jak w harmonogramie nagrywania” albo „cały czas” |
+| **2.5** | Wiele lokalizacji zapisu: folder zapasowy przy małej ilości miejsca i zapis podwójny |
+| **2.6** | Zapis bez ponownego kodowania (stream copy) dla SRT/RTSP jako opcja enkodera |
+| **2.7** | DeckLink; kodeki H.265 / AV1 / ProRes / DNxHR; MOV / MP4 |
+| **2.8** | WebRTC (WHEP, WHIP), odzyskiwanie plików po awarii, instalator |
 
 Decyzje właściciela (2026‑11‑11) — **nie wracać do tych tematów**:
 - wyjście na wirtualną kamerę nie będzie robione: wystarcza wyjście NDI + „Webcam” z NDI Tools;
-- „passthrough” w znaczeniu zapisu strumienia bez ponownego kodowania **nie będzie robiony**: właściciel rozumie
-  passthrough jako przekazanie sygnału dalej, a to robi wyjście na żywo (NDI, SRT);
+- słowo „passthrough” właściciel rozumie jako przekazanie sygnału dalej (robi to wyjście na żywo). Zapis **bez
+  ponownego kodowania** wrócił do planu jako opcja enkodera (2.6) — nazywaj go „stream copy”, nie „passthrough”,
+  i zawsze z opisem, co użytkownik dostaje i co traci (tekst jest w oknie Settings);
 - hasło RTSP zostaje w adresie (to standard w tego typu oprogramowaniu), bez magazynu poświadczeń dla RTSP.
 
 Znane braki: źródło, które w ogóle nie odpowiada (limit czasu startu), nie jest ponawiane automatycznie;
@@ -126,6 +132,13 @@ samo jak przy SRT/RTSP. Do testów: własne wyjście NDI innego kanału programu
 10. **Odbiornik NDI potrzebuje ok. 4 s** na znalezienie źródła; test, który czeka krócej, daje fałszywy błąd.
 11. **Wynik testu to nie dowód.** Dwa razy „test przeszedł”, bo przez błąd parametru badał coś innego niż miał.
     Gdy wynik jest podejrzanie dobry albo sprzeczny z innym — zrób ślad (jasność klatek co sekundę, znaczniki czasu).
+13. **Gałąź z `errorignore` nie izoluje awarii sinka**: błąd karty dźwiękowej w gałęzi odsłuchu zatrzymał tor dźwięku
+    kanału i zepsuł nagranie (FLUSHING nie jest zamieniany). Wyjście, którego awaria nie może dotknąć nagrania, rób jako
+    osobny pipeline zasilany z sondy (`appsrc`), tak jak odsłuch od 2.2.
+14. **Zrzuty i testy nie mogą zapisywać ustawień.** Okna otwierane do zrzutu (`--shot-*`) działają na prawdziwym
+    profilu, jeśli nie ustawisz `ISOREC_PROFILE`; przełączniki zmieniane kodem blokuj `QSignalBlocker`.
+15. **Odsłuch w testach gra z głośników właściciela.** Testuj z `--audio none` (cisza) albo z kartą podaną przez
+    `--monitor-device`.
 12. **Szyna GStreamera**: handler synchroniczny zwraca `GST_BUS_DROP` i przekazuje wynik do wątku okna przez
     `QMetaObject::invokeMethod(..., Qt::QueuedConnection)`; nigdzie nie wolno używać `gst_bus_pop` na tej szynie.
 

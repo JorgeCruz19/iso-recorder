@@ -1,5 +1,6 @@
 #include "PreviewDialog.h"
 
+#include <QAbstractButton>
 #include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QMouseEvent>
@@ -157,6 +158,28 @@ PreviewDialog::PreviewDialog(ChannelManager* mgr, Channel* ch, int number, QWidg
         h->addWidget(m_btn[i]);
     }
     m_btn[0]->setRed(true);
+    // odsluch tego kanalu - obok miernikow
+    class MonitorButton : public QAbstractButton {
+    public:
+        MonitorButton(Channel* c, QWidget* parent) : QAbstractButton(parent), m_c(c) {
+            setFixedSize(40, 30);
+            setCursor(Qt::PointingHandCursor);
+            setFocusPolicy(Qt::NoFocus);
+            connect(c, &Channel::changed, this, qOverload<>(&QWidget::update));
+        }
+    protected:
+        void paintEvent(QPaintEvent*) override {
+            QPainter p(this);
+            Theme::paintHeadphones(p, QRectF(rect()).adjusted(4, 3, -4, -3), m_c && m_c->monitorOn());
+        }
+    private:
+        QPointer<Channel> m_c;
+    };
+    auto* monitor = new MonitorButton(ch, bar);
+    monitor->setToolTip(T("Listen to this channel"));
+    connect(monitor, &QAbstractButton::clicked, this, [this, mgr] { if (m_ch) mgr->setMonitored(m_ch); });
+    h->addSpacing(6);
+    h->addWidget(monitor);
     auto* meters = new MeterPane(bar);
     meters->setChannel(ch);
     h->addWidget(meters, 1);
