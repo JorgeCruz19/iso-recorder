@@ -12,7 +12,7 @@ material from every source must be kept in full for later editing.
 - a whole screen or a single application window,
 - a USB camera / capture card that shows up in Windows as a camera,
 - SRT and RTSP network streams,
-- NDI sources found on the network,
+- NDI sources found on the network (NDI|HX included),
 - system sound, a microphone or a line input,
 - a test generator (picture and tone) for rehearsals.
 

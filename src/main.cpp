@@ -1,6 +1,8 @@
 #include <QApplication>
 #include <QFile>
 #include <QMessageBox>
+#include <QCheckBox>
+#include <QPushButton>
 #include <QDir>
 #include <QAbstractItemView>
 #include <QComboBox>
@@ -105,7 +107,7 @@ int main(int argc, char* argv[]) {
     QApplication::setApplicationVersion(QStringLiteral(APP_VERSION));
     const QStringList args = app.arguments();
     // Uruchomienie sterowane argumentami (zrzuty, testy) konczy sie samo - bez pytan o zapis listy.
-    for (const char* a : {"--screenshot", "--save-list", "--save-list-real", "--rec-test", "--shot-big", "--shot-disks", "--drag-test", "--shot-combo", "--shot-log", "--shot-settings", "--list-ndi"})
+    for (const char* a : {"--screenshot", "--save-list", "--save-list-real", "--rec-test", "--shot-big", "--shot-disks", "--drag-test", "--shot-combo", "--shot-log", "--shot-settings", "--list-ndi", "--shot-rename"})
         if (args.contains(QLatin1String(a))) app.setProperty("automation", true);
 
     if (args.contains(QStringLiteral("--check-env"))) {
@@ -496,6 +498,36 @@ int main(int argc, char* argv[]) {
                 });
             });
         }
+        // --shot-rename plik [check|no]: po 3 s wybiera w inspektorze typ wejscia "Screen grab" tak jak klikniecie w liste,
+        // zapisuje zrzut pytania o zmiane nazwy (albo "no dialog"), odpowiada Yes ("no": No; "check": z "Don't ask again")
+        // i wypisuje nazwe kanalu
+        if (const int rnAt = int(args.indexOf(QStringLiteral("--shot-rename"))); rnAt >= 0 && rnAt + 1 < args.size()) {
+            const QString path = args.at(rnAt + 1);
+            const QString how = rnAt + 2 < args.size() ? args.at(rnAt + 2) : QString();
+            QTimer::singleShot(3000, &manager, [&w, &manager, path, how] {
+                for (QComboBox* c : w->findChildren<QComboBox*>()) {
+                    const int i = c->findData(QStringLiteral("screen"));
+                    if (i < 0 || c->findData(QStringLiteral("srt")) < 0) continue;
+                    c->setCurrentIndex(i);
+                    emit c->activated(i);
+                }
+                QTimer::singleShot(700, &manager, [&w, &manager, path, how] {
+                    QMessageBox* box = w->findChild<QMessageBox*>();
+                    QByteArray line = box ? "dialog\n" : "no dialog\n";
+                    if (box) {
+                        box->grab().save(path);
+                        if (how == QLatin1String("check") && box->checkBox()) box->checkBox()->setChecked(true);
+                        box->button(how == QLatin1String("no") ? QMessageBox::No : QMessageBox::Yes)->click();
+                    }
+                    QTimer::singleShot(300, &manager, [&manager, line] {
+                        const QByteArray out = line + "name=" + manager.channels().first()->config().name.toUtf8() + "\n";
+                        fwrite(out.constData(), 1, size_t(out.size()), stdout);
+                        fflush(stdout);
+                        QApplication::quit();
+                    });
+                });
+            });
+        }
         if (const QString shot = argAfter("--shot-settings"); !shot.isEmpty()) {
             app.setProperty("shotSettings", shot);
             QTimer::singleShot(3000, &manager, [&w] {
@@ -560,10 +592,10 @@ int main(int argc, char* argv[]) {
     }   // kanaly i pipeline'y sa zamykane tutaj, przed gst_deinit
     // Jesli jakies zrodlo nie odpowiedzialo i jego pipeline zostal porzucony, jego watki moga wisiec bez konca -
     // zwykle zamykanie GStreamera i procesu czekaloby na nie. Wszystkie pliki sa juz zamkniete, wiec konczymy proces od razu.
-    if (Channel::abandonedPipelines() > 0) {
-        fflush(nullptr);
-        TerminateProcess(GetCurrentProcess(), UINT(rc));
-    }
-    gst_deinit();
+    // To samo po nagrywaniu ze zdalnego zrodla NDI: zwykle wyjscie (wyladowywanie bibliotek po ExitProcess) potrafi
+    // zawisnac na zawsze - po programie zostaje proces z jednym watkiem, ktorego nie da sie zabic i ktory blokuje plik EXE.
+    // Dlatego proces konczy sie zawsze od razu, bez gst_deinit i bez wyladowywania bibliotek.
+    fflush(nullptr);
+    TerminateProcess(GetCurrentProcess(), UINT(rc));
     return rc;
 }

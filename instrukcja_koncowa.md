@@ -377,13 +377,14 @@ Każda wersja: działający program, commit, tag, push. Kryterium = to, co da si
 | **2.3** | Usunięcie MOVE UP / MOVE DOWN — kolejność tylko przeciąganiem | **wydana** |
 | **2.4** | „Split to folder” w wierszu przycisków transportu; przycisk Recordings (foldery nagrań) w górnym pasku | **wydana** |
 | **2.5** | Wejście NDI (typ „NDI”, lista źródeł z sieci, zanik i ponowne łączenie jak przy SRT/RTSP) | **wydana** — `tests\net_test.ps1 -Type ndi` |
-| **2.6** | Scheduler: reguły startu, stopu i splitu nagrywania (jednorazowe, dzienne, tygodniowe), catch‑up po starcie programu, zmiana czasu (DST), blokada uśpienia. **Wyjście na żywo w harmonogramie**: tryb „jak w harmonogramie nagrywania” (wyjście włącza się i wyłącza razem z nagraniem) albo „cały czas” | testy reguł; nagranie i wyjście startujące i kończące się o zadanej godzinie |
-| **2.7** | Wiele lokalizacji zapisu: folder zapasowy („gdy na dysku zostaje mniej niż X MB/GB, kolejna część trafia do folderu zapasowego”) i zapis podwójny (to samo nagranie równocześnie w dwóch folderach) | zapełnienie dysku testowego → przejście na folder zapasowy bez utraty klatek; dwa identyczne komplety plików |
-| **2.8** | Zapis bez ponownego kodowania („stream copy”) dla SRT/RTSP jako opcja enkodera, z opisem w Settings | plik zgodny ze strumieniem; split na klatce kluczowej źródła |
-| **2.9** | DeckLink; kodeki H.265/AV1/ProRes/DNxHR wg dostępności; MOV/MP4 | DeckLink — niesprawdzone na sprzęcie |
-| **3.0** | WHEP, WHIP, odzyskiwanie plików po awarii, instalator Inno Setup | instalacja na czystym Windows; test 24 h |
+| **2.6** | Pytanie o nazwę kanału wg źródła (z „Nie pytaj ponownie” i ustawieniem w Settings), poprawne zamykanie procesu po nagrywaniu ze zdalnego NDI, komunikat „connected to the source”, NDI\|HX sprawdzone | **wydana** |
+| **2.7** | Scheduler: reguły startu, stopu i splitu nagrywania (jednorazowe, dzienne, tygodniowe), catch‑up po starcie programu, zmiana czasu (DST), blokada uśpienia. **Wyjście na żywo w harmonogramie**: tryb „jak w harmonogramie nagrywania” (wyjście włącza się i wyłącza razem z nagraniem) albo „cały czas” | testy reguł; nagranie i wyjście startujące i kończące się o zadanej godzinie |
+| **2.8** | Wiele lokalizacji zapisu: folder zapasowy („gdy na dysku zostaje mniej niż X MB/GB, kolejna część trafia do folderu zapasowego”) i zapis podwójny (to samo nagranie równocześnie w dwóch folderach) | zapełnienie dysku testowego → przejście na folder zapasowy bez utraty klatek; dwa identyczne komplety plików |
+| **2.9** | Zapis bez ponownego kodowania („stream copy”) dla SRT/RTSP jako opcja enkodera, z opisem w Settings | plik zgodny ze strumieniem; split na klatce kluczowej źródła |
+| **3.0** | DeckLink; kodeki H.265/AV1/ProRes/DNxHR wg dostępności; MOV/MP4 | DeckLink — niesprawdzone na sprzęcie |
+| **3.1** | WHEP, WHIP, odzyskiwanie plików po awarii, instalator Inno Setup | instalacja na czystym Windows; test 24 h |
 
-**Decyzje właściciela z 2026‑11‑11 (zmieniają wcześniejsze rozdziały):** (1) słowo „passthrough” właściciel rozumie jako przekazanie sygnału dalej — to robi wyjście na żywo (5.9). Zapis strumienia **bez ponownego kodowania** najpierw wypadł z planu, a tego samego dnia wrócił jako **opcja enkodera** („No re-encoding (stream copy)”, etap 2.8), pod warunkiem jasnego opisu, co użytkownik dostaje, a co traci — opis jest w oknie Settings; (2) wyjście na wirtualną kamerę nie będzie robione (wystarcza NDI + NDI Webcam); (3) hasło RTSP zostaje w adresie; (4) wejście SRT już jest (1.6), potrzebne są jeszcze wejście NDI i scheduler — stąd kolejność 2.2 i 2.3.
+**Decyzje właściciela z 2026‑11‑11 (zmieniają wcześniejsze rozdziały):** (1) słowo „passthrough” właściciel rozumie jako przekazanie sygnału dalej — to robi wyjście na żywo (5.9). Zapis strumienia **bez ponownego kodowania** najpierw wypadł z planu, a tego samego dnia wrócił jako **opcja enkodera** („No re-encoding (stream copy)”, etap 2.9), pod warunkiem jasnego opisu, co użytkownik dostaje, a co traci — opis jest w oknie Settings; (2) wyjście na wirtualną kamerę nie będzie robione (wystarcza NDI + NDI Webcam); (3) hasło RTSP zostaje w adresie; (4) wejście SRT już jest (1.6), potrzebne są jeszcze wejście NDI i scheduler — stąd kolejność 2.2 i 2.3.
 
 Każda runda poprawek po uwagach właściciela dostaje własny numer, więc pozycje poniżej bieżącej wersji przesuwają się o jedną. Numery wersji, od których zapowiadane funkcje będą dostępne, są w kodzie w jednym miejscu: `Roadmap` w `src/core/Lang.h`.
 
@@ -412,5 +413,5 @@ iso-recorder/
 
 ## 8. Otwarte pytania do właściciela projektu
 
-1. Docelowy sprzęt nagrywający (GPU, karty HDMI) — od tego zależy, czy 2.9 (DeckLink) i profil 16 kanałów da się w ogóle potwierdzić.
-2. Czy WHIP jako serwer w aplikacji jest wymagany, czy wystarczy WHEP + SRT/RTSP (wtedy 3.0 jest wyraźnie prostsze).
+1. Docelowy sprzęt nagrywający (GPU, karty HDMI) — od tego zależy, czy 3.0 (DeckLink) i profil 16 kanałów da się w ogóle potwierdzić.
+2. Czy WHIP jako serwer w aplikacji jest wymagany, czy wystarczy WHEP + SRT/RTSP (wtedy 3.1 jest wyraźnie prostsze).

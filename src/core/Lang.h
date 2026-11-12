@@ -18,8 +18,8 @@ namespace Roadmap {
 inline constexpr const char* localInputs = "1.5";
 inline constexpr const char* network = "1.6";
 inline constexpr const char* ndi = "2.5";
-inline constexpr const char* scheduler = "2.6";
-inline constexpr const char* streamCopy = "2.8";
-inline constexpr const char* decklink = "2.9";
-inline constexpr const char* webrtc = "3.0";
+inline constexpr const char* scheduler = "2.7";
+inline constexpr const char* streamCopy = "2.9";
+inline constexpr const char* decklink = "3.0";
+inline constexpr const char* webrtc = "3.1";
 }

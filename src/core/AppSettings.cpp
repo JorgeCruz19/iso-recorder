@@ -42,4 +42,10 @@ QString AppSettings::splitFolderTemplate() {
     const QString t = store().value(QStringLiteral("splitFolderTemplate")).toString().trimmed();
     return t.isEmpty() ? QString::fromLatin1(kSplitFolderDefault) : t;
 }
+QString AppSettings::renameOnSource() {
+    const QString m = store().value(QStringLiteral("renameOnSource")).toString();
+    return m == QLatin1String("always") || m == QLatin1String("never") ? m : QStringLiteral("ask");
+}
+void AppSettings::setRenameOnSource(const QString& mode) { store().setValue(QStringLiteral("renameOnSource"), mode); }
+
 void AppSettings::setSplitFolderTemplate(const QString& tmpl) { store().setValue(QStringLiteral("splitFolderTemplate"), tmpl.trimmed()); }

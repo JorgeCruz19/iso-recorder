@@ -15,4 +15,7 @@ void setMonitorDevice(const QString& id);
 inline const char* const kSplitFolderDefault = "{session}_{date}_{time}";
 QString splitFolderTemplate();
 void setSplitFolderTemplate(const QString& tmpl);
+// Zmiana nazwy kanalu o domyslnej nazwie po zmianie zrodla: "ask" (pytaj), "always", "never".
+QString renameOnSource();
+void setRenameOnSource(const QString& mode);
 }

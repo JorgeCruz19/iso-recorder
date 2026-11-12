@@ -161,6 +161,22 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     row(T("Folder name"), m_folderTemplate, nameTemplateHelp());
     v->addLayout(g);
 
+    // ---- nazwa kanalu wg zrodla
+    v->addWidget(heading(T("Channel names")));
+    v->addWidget(note(T("A channel that still has its default name (TEST 1, TEST 2 …) can take the name of its source, for example "
+                        "\"NDI - STUDIO (Cam 1)\". \"Ask\" also brings the question back after \"Don't ask again\".")));
+    g = new QGridLayout;
+    g->setColumnStretch(1, 1);
+    g->setHorizontalSpacing(12);
+    r = 0;
+    m_rename = new QComboBox;
+    m_rename->addItem(T("Ask"), QStringLiteral("ask"));
+    m_rename->addItem(T("Always rename"), QStringLiteral("always"));
+    m_rename->addItem(T("Never rename"), QStringLiteral("never"));
+    m_rename->setCurrentIndex(qMax(0, m_rename->findData(AppSettings::renameOnSource())));
+    row(T("After a source change"), m_rename);
+    v->addLayout(g);
+
     v->addSpacing(8);
     auto* box = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     connect(box, &QDialogButtonBox::accepted, this, [this] { save(); accept(); });
@@ -182,4 +198,5 @@ void SettingsDialog::save() {
     AppSettings::setDefaultOutput(o);
     AppSettings::setMonitorDevice(m_monitor->currentData().toString());
     AppSettings::setSplitFolderTemplate(m_folderTemplate->text());
+    AppSettings::setRenameOnSource(m_rename->currentData().toString());
 }

@@ -1,6 +1,6 @@
 # ISO Recorder — stan projektu i instrukcje dla kolejnego modelu
 
-Ten plik jest punktem wejścia. Przeczytaj go w całości, zanim cokolwiek zmienisz. Stan na 2026‑11‑12, wersja **2.5**. Wydania od 2.0 są publikowane jako Release na GitHubie.
+Ten plik jest punktem wejścia. Przeczytaj go w całości, zanim cokolwiek zmienisz. Stan na 2026‑11‑12, wersja **2.6**. Wydania od 2.0 są publikowane jako Release na GitHubie.
 
 ## 1. Co to jest
 
@@ -23,7 +23,7 @@ z tłumaczeniami PL, DE, ES, IT, FR.
 | `mockup/`, `interfejs.png` | wzorzec wyglądu |
 | `docs/zrzut_<wersja>.png` | zrzut okna na każdą wersję |
 
-## 3. Co działa (2.5)
+## 3. Co działa (2.6)
 
 - **Wejścia**: generator testowy, ekran i pojedyncze okno (`d3d11screencapturesrc`), kamera z wyborem rozmiaru obrazu
   (`mfvideosrc`), SRT, RTSP i NDI (`fallbacksrc`; NDI: lista źródeł z sieci w polu Device); dźwięk: sygnał testowy, cisza, dźwięk systemowy (loopback) i wejścia
@@ -48,16 +48,16 @@ z tłumaczeniami PL, DE, ES, IT, FR.
 
 | Wersja | Zakres |
 |---|---|
-| **2.6** | Scheduler: reguły startu / stopu / splitu, catch‑up, zmiana czasu, blokada uśpienia; **wyjście na żywo w harmonogramie**: „jak w harmonogramie nagrywania” albo „cały czas” |
-| **2.7** | Wiele lokalizacji zapisu: folder zapasowy przy małej ilości miejsca i zapis podwójny |
-| **2.8** | Zapis bez ponownego kodowania (stream copy) dla SRT/RTSP jako opcja enkodera |
-| **2.9** | DeckLink; kodeki H.265 / AV1 / ProRes / DNxHR; MOV / MP4 |
-| **3.0** | WebRTC (WHEP, WHIP), odzyskiwanie plików po awarii, instalator |
+| **2.7** | Scheduler: reguły startu / stopu / splitu, catch‑up, zmiana czasu, blokada uśpienia; **wyjście na żywo w harmonogramie**: „jak w harmonogramie nagrywania” albo „cały czas” |
+| **2.8** | Wiele lokalizacji zapisu: folder zapasowy przy małej ilości miejsca i zapis podwójny |
+| **2.9** | Zapis bez ponownego kodowania (stream copy) dla SRT/RTSP jako opcja enkodera |
+| **3.0** | DeckLink; kodeki H.265 / AV1 / ProRes / DNxHR; MOV / MP4 |
+| **3.1** | WebRTC (WHEP, WHIP), odzyskiwanie plików po awarii, instalator |
 
 Decyzje właściciela (2026‑11‑11) — **nie wracać do tych tematów**:
 - wyjście na wirtualną kamerę nie będzie robione: wystarcza wyjście NDI + „Webcam” z NDI Tools;
 - słowo „passthrough” właściciel rozumie jako przekazanie sygnału dalej (robi to wyjście na żywo). Zapis **bez
-  ponownego kodowania** wrócił do planu jako opcja enkodera (2.8) — nazywaj go „stream copy”, nie „passthrough”,
+  ponownego kodowania** wrócił do planu jako opcja enkodera (2.9) — nazywaj go „stream copy”, nie „passthrough”,
   i zawsze z opisem, co użytkownik dostaje i co traci (tekst jest w oknie Settings);
 - hasło RTSP zostaje w adresie (to standard w tego typu oprogramowaniu), bez magazynu poświadczeń dla RTSP.
 
@@ -71,7 +71,18 @@ połączeniu — łączy je własna obsługa `pad-added`, łączenie z opisu tek
 jest konieczne, bo `ndisrc` po zaniku kończy strumień (EOS), a nie zgłasza błędu; (3) o zaniku decyduje tylko przełącznik
 obrazu — źródło bez dźwięku stale dostaje ciszę zastępczą; (4) nazwa źródła siedzi w `InputConfig::uri`; (5) listę źródeł
 daje `Devices::ndiSources()` — stale uruchomiony `GstDeviceMonitor` z filtrem `Source/Network`, źródła pojawiają się po
-kilku sekundach. Niesprawdzone: NDI|HX (obraz skompresowany — `videoconvert` w binie go nie przyjmie).
+kilku sekundach. NDI|HX działa (sprawdzone 2026‑11‑12 na NDI Screen Capture HX):
+środowisko NDI samo rozpakowuje obraz i `ndisrc` oddaje UYVY — ta kompilacja wtyczki nie ma trybu obrazu skompresowanego.
+
+Zamykanie procesu (2.6): `main()` kończy się zawsze przez `TerminateProcess` po zamknięciu kanałów i zapisaniu ustawień.
+Zwykłe wyjście (wyładowywanie bibliotek po `ExitProcess`) po nagrywaniu ze zdalnego źródła NDI zawieszało się na zawsze:
+zostawał proces „zombie” (HasExited = true, 1 wątek, `taskkill /F` odpowiada „brak działającego wystąpienia”), który
+blokuje plik EXE do wylogowania. Taki proces da się obejść tylko zmianą nazwy zablokowanego pliku. W testach nie ufaj
+`WaitForExit` — sprawdzaj, czy proces zniknął z listy (`Get-CimInstance Win32_Process`).
+
+Nazwa kanału wg źródła (2.6): `Inspector::commitInput` → `suggestedName` / `offerRename`; ustawienie
+`AppSettings::renameOnSource()` (ask / always / never). Domyślna nazwa = `TEST n` albo nazwa nadana automatycznie w tej
+sesji (`m_autoNames`). Pierwszy człon to krótka nazwa typu (Screen / Window / Camera / SRT / RTSP / NDI).
 
 ## 5. Stałe zasady pracy (ustalone z właścicielem)
 

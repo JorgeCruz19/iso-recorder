@@ -168,6 +168,37 @@ const Row rows[] = {
      "%1: señal perdida — reconectando", "%1: segnale perso — riconnessione", "%1 : signal perdu — reconnexion"},
     {"%1: signal restored", "%1: sygnał wrócił", "%1: Signal wiederhergestellt", "%1: señal restablecida", "%1: segnale ripristinato",
      "%1 : signal rétabli"},
+    {"%1: connected to the source", "%1: połączono ze źródłem", "%1: mit der Quelle verbunden", "%1: conectado a la fuente",
+     "%1: collegato alla sorgente", "%1 : connecté à la source"},
+    {"Screen", "Ekran", "Bildschirm", "Pantalla", "Schermo", "Écran"},
+    {"Window", "Okno", "Fenster", "Ventana", "Finestra", "Fenêtre"},
+    {"Rename the channel \"%1\" to \"%2\"?", "Zmienić nazwę kanału „%1” na „%2”?", "Kanal „%1“ in „%2“ umbenennen?",
+     "¿Cambiar el nombre del canal «%1» a «%2»?", "Rinominare il canale «%1» in «%2»?", "Renommer le canal « %1 » en « %2 » ?"},
+    {"Don't ask again", "Nie pytaj ponownie", "Nicht mehr fragen", "No volver a preguntar", "Non chiedere più", "Ne plus demander"},
+    {"The answer will be used every time. You can change it in Settings.",
+     "Ta odpowiedź będzie stosowana za każdym razem. Można to zmienić w Ustawieniach.",
+     "Die Antwort wird jedes Mal verwendet. Sie lässt sich in den Einstellungen ändern.",
+     "La respuesta se usará siempre. Se puede cambiar en Ajustes.",
+     "La risposta verrà usata ogni volta. Si può cambiare nelle Impostazioni.",
+     "La réponse sera utilisée à chaque fois. Elle se modifie dans les Paramètres."},
+    {"Channel names", "Nazwy kanałów", "Kanalnamen", "Nombres de los canales", "Nomi dei canali", "Noms des canaux"},
+    {"A channel that still has its default name (TEST 1, TEST 2 …) can take the name of its source, for example "
+     "\"NDI - STUDIO (Cam 1)\". \"Ask\" also brings the question back after \"Don't ask again\".",
+     "Kanał, który ma jeszcze domyślną nazwę (TEST 1, TEST 2 …), może przejąć nazwę swojego źródła, na przykład "
+     "„NDI - STUDIO (Cam 1)”. „Pytaj” przywraca też pytanie po zaznaczeniu „Nie pytaj ponownie”.",
+     "Ein Kanal, der noch seinen Standardnamen hat (TEST 1, TEST 2 …), kann den Namen seiner Quelle übernehmen, zum Beispiel "
+     "„NDI - STUDIO (Cam 1)“. „Fragen“ bringt auch die Frage nach „Nicht mehr fragen“ zurück.",
+     "Un canal que aún tiene su nombre predeterminado (TEST 1, TEST 2 …) puede tomar el nombre de su fuente, por ejemplo "
+     "«NDI - STUDIO (Cam 1)». «Preguntar» también recupera la pregunta tras «No volver a preguntar».",
+     "Un canale che ha ancora il nome predefinito (TEST 1, TEST 2 …) può prendere il nome della sua sorgente, per esempio "
+     "«NDI - STUDIO (Cam 1)». «Chiedi» ripristina anche la domanda dopo «Non chiedere più».",
+     "Un canal qui porte encore son nom par défaut (TEST 1, TEST 2 …) peut prendre le nom de sa source, par exemple "
+     "« NDI - STUDIO (Cam 1) ». « Demander » rétablit aussi la question après « Ne plus demander »."},
+    {"Ask", "Pytaj", "Fragen", "Preguntar", "Chiedi", "Demander"},
+    {"Always rename", "Zawsze zmieniaj nazwę", "Immer umbenennen", "Cambiar siempre", "Rinomina sempre", "Toujours renommer"},
+    {"Never rename", "Nigdy nie zmieniaj nazwy", "Nie umbenennen", "No cambiar nunca", "Non rinominare mai", "Ne jamais renommer"},
+    {"After a source change", "Po zmianie źródła", "Nach Quellenwechsel", "Tras cambiar la fuente", "Dopo il cambio di sorgente",
+     "Après un changement de source"},
     {"the source does not respond", "źródło nie odpowiada", "die Quelle antwortet nicht", "la fuente no responde",
      "la sorgente non risponde", "la source ne répond pas"},
     {"%1: the source does not respond", "%1: źródło nie odpowiada", "%1: die Quelle antwortet nicht", "%1: la fuente no responde",

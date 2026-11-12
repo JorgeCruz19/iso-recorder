@@ -1,4 +1,5 @@
 #pragma once
+#include <QHash>
 #include <QWidget>
 
 class Channel;
@@ -43,6 +44,9 @@ private:
     void fillCameraModes(const QString& cameraPath);
     void fillDevices(const QString& type);
     void commitInput();
+    QString suggestedName(Channel* ch) const;
+    void offerRename(Channel* ch, const QString& name);
+    QHash<Channel*, QString> m_autoNames;       // nazwy nadane kanalom automatycznie (wg zrodla) w tej sesji
     QComboBox* m_pattern;
     QComboBox* m_wave;
     QComboBox* m_format;

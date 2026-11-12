@@ -1303,7 +1303,8 @@ void Channel::pollSource() {
         }
     } else {
         if (isRecording() && m_recLosses > 0) m_recLostMs += m_lostClock.elapsed();
-        emit notice(T("%1: signal restored").arg(m_cfg.name));
+        // pierwszy sygnal po starcie kanalu to polaczenie, a nie powrot po zaniku
+        emit notice((seenBefore ? T("%1: signal restored") : T("%1: connected to the source")).arg(m_cfg.name));
         if (m_autoPaused && m_state == ChannelState::Paused) {
             resumeRecording();
         } else if (m_cfg.in.lossPolicy == QLatin1String("split") && m_state == ChannelState::Recording && seenBefore) {

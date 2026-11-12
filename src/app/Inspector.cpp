@@ -2,6 +2,10 @@
 
 #include <QButtonGroup>
 #include <QAbstractItemView>
+#include <QCheckBox>
+#include <QMessageBox>
+#include <QPointer>
+#include <QRegularExpression>
 #include <QComboBox>
 #include <QDir>
 #include <QFileDialog>
@@ -17,6 +21,7 @@
 
 #include "SettingsDialog.h"
 #include "Widgets.h"
+#include "core/AppSettings.h"
 #include "core/ChannelManager.h"
 #include "core/DiskMonitor.h"
 #include "core/Lang.h"
@@ -425,6 +430,7 @@ void Inspector::commitInput() {
     Channel* ch = m_mgr->active();
     if (!ch) return;
     InputConfig in = ch->config().in;
+    const InputConfig before = in;
     in.gainDb = m_gain->currentData().toInt();          // glosnosc i reakcja na zanik dzialaja takze podczas nagrywania
     in.lossPolicy = m_loss->currentData().toString();
     if (!ch->canEdit()) {
@@ -456,6 +462,73 @@ void Inspector::commitInput() {
     in.audioName = au.value(2);
     if (in.audioType == QLatin1String("test")) ch->setAudioWave(au.value(3).toInt());
     ch->setInput(in);
+    // Kanal o domyslnej nazwie (TEST n albo nadanej tu automatycznie) dostaje propozycje nazwy wg nowego zrodla.
+    const bool sourceChanged = before.type != in.type || before.screenIndex != in.screenIndex || before.cameraPath != in.cameraPath ||
+                               before.windowTitle != in.windowTitle || before.uri != in.uri;
+    static const QRegularExpression defaultName(QStringLiteral("^TEST \\d+$"));
+    const QString current = ch->config().name;
+    if (!sourceChanged || !(ch->config().in == in) || (!defaultName.match(current).hasMatch() && m_autoNames.value(ch) != current)) return;
+    const QString name = suggestedName(ch);
+    if (name.isEmpty() || name == current) return;
+    QPointer<Channel> guard(ch);
+    QTimer::singleShot(0, this, [this, guard, name] {       // po zamknieciu listy rozwijanej
+        if (guard) offerRename(guard, name);
+    });
+}
+
+// "Typ - urzadzenie", np. "NDI - STUDIO (Cam 1)", "Screen - 1 DELL U2412M", "SRT - 192.168.1.20:9000".
+// Dla generatora testowego i zrodla jeszcze niewybranego (pusty adres) propozycji nie ma.
+QString Inspector::suggestedName(Channel* ch) const {
+    const InputConfig& in = ch->config().in;
+    const QStringList dev = m_device->currentData().toStringList();
+    QString kind, what;
+    if (in.type == QLatin1String("screen")) {
+        kind = T("Screen");
+        what = QStringLiteral("%1 %2").arg(in.screenIndex + 1).arg(dev.value(1));
+    } else if (in.type == QLatin1String("camera")) {
+        kind = T("Camera");
+        what = in.cameraName;
+    } else if (in.type == QLatin1String("window")) {
+        kind = T("Window");
+        what = in.windowTitle;
+    } else if (in.type == QLatin1String("ndi")) {
+        kind = QStringLiteral("NDI");
+        what = in.uri;
+    } else if (in.isNetwork() && !in.uri.trimmed().isEmpty()) {
+        kind = in.type.toUpper();
+        what = ch->sourceText().section(QLatin1Char(' '), 1);       // adres bez loginu i hasla
+    }
+    what = what.simplified();
+    if (what.size() > 48) what = what.left(47).trimmed() + QStringLiteral("…");
+    return what.isEmpty() ? QString() : kind + QStringLiteral(" - ") + what;
+}
+
+void Inspector::offerRename(Channel* ch, const QString& name) {
+    const QString mode = AppSettings::renameOnSource();
+    if (mode == QLatin1String("never")) return;
+    if (mode == QLatin1String("always")) {
+        m_autoNames.insert(ch, name);
+        ch->setName(name);
+        return;
+    }
+    auto* box = new QMessageBox(QMessageBox::Question, QStringLiteral("ISO Recorder"),
+                                T("Rename the channel \"%1\" to \"%2\"?").arg(ch->config().name, name),
+                                QMessageBox::Yes | QMessageBox::No, window());
+    box->setAttribute(Qt::WA_DeleteOnClose);
+    box->setDefaultButton(QMessageBox::Yes);
+    auto* again = new QCheckBox(T("Don't ask again"));
+    again->setToolTip(T("The answer will be used every time. You can change it in Settings."));
+    box->setCheckBox(again);
+    QPointer<Channel> guard(ch);
+    connect(box, &QMessageBox::finished, this, [this, guard, name, again](int result) {
+        const bool yes = result == QMessageBox::Yes;
+        if (again->isChecked()) AppSettings::setRenameOnSource(yes ? QStringLiteral("always") : QStringLiteral("never"));
+        if (yes && guard) {
+            m_autoNames.insert(guard, name);
+            guard->setName(name);
+        }
+    });
+    box->open();
 }
 
 void Inspector::commitLive() {

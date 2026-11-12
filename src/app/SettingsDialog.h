@@ -23,6 +23,7 @@ private:
     QComboBox* m_audioRate;
     QComboBox* m_monitor;
     QLineEdit* m_folderTemplate;
+    QComboBox* m_rename;
 };
 
 // Opis zmiennych szablonu nazwy (podpowiedz przy etykietach "Name template").

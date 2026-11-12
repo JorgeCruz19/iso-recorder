@@ -2,6 +2,22 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 2.6
+
+- **Nazwa kanału wg źródła.** Gdy kanał ma jeszcze domyślną nazwę (TEST 1, TEST 2 …) i w inspektorze zmieni się jego
+  źródło, program pyta, czy zmienić nazwę na „typ - urządzenie” (np. „NDI - STUDIO (Cam 1)”, „Ekran - 1 DELL U2412M”,
+  „SRT - 192.168.1.20:9000”; adres bez loginu i hasła). Pytanie ma pole „Nie pytaj ponownie” — zapamiętuje wtedy
+  udzieloną odpowiedź. W Settings jest nowa sekcja „Channel names”: Ask / Always rename / Never rename („Ask” przywraca
+  pytanie). Nazwa nadana w ten sposób też liczy się jako domyślna, więc kolejna zmiana źródła znów ją proponuje.
+- **Program zamyka się do końca po nagrywaniu ze zdalnego źródła NDI.** Po takim nagraniu proces potrafił zostać w
+  systemie na zawsze (zakończony, z jednym zablokowanym wątkiem, nie do zabicia) i blokował plik EXE. Pliki nagrań
+  były przy tym poprawnie zamknięte. Proces kończy się teraz od razu po zamknięciu kanałów, bez wyładowywania bibliotek.
+- Pasek stanu: pierwsze połączenie ze źródłem sieciowym zgłasza „connected to the source” zamiast mylącego „signal
+  restored” (ten komunikat zostaje dla powrotu po zaniku).
+- NDI sprawdzone na prawdziwych źródłach w sieci: dwa z innego komputera i dwa z NDI Screen Capture HX (NDI|HX) —
+  obraz rozpakowuje środowisko NDI, program dostaje go już rozpakowany, nagrania są ciągłe.
+- Argument testowy `--shot-rename plik [check|no]`.
+
 ## 2.5
 
 - **Wejście NDI.** Nowy typ wejścia „NDI”: w polu „Device” jest lista źródeł NDI widocznych w sieci (odświeża się sama),
