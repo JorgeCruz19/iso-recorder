@@ -190,7 +190,7 @@ Wnioski: profil „16 × 1080p50 z enkodowaniem” jest na tej maszynie nieosią
 
 ### 3.8 Drobne
 
-- Repo: w `.gitignore` — `build/`, `dist/`, `out/`, `*.user`, katalog nagrań; `media/` i `mockup/` zostają w repo (mockup bez nich nie działa).
+- Repo: w `.gitignore` — `build/`, `dist/`, `out/`, `*.user`, katalog nagrań; `mockup/` zostaje w repo; `/media/` (zdjęcia Pixabay do makiety) od 2026‑11‑12 jest tylko lokalnie — repo jest publiczne, a licencja zdjęć nie pozwala rozdawać ich osobno (makieta bez nich pokazuje puste kafle).
 - `SetDefaultDllDirectories(APPLICATION_DIR | SYSTEM32)` z 12.21 blokuje ładowanie NDI Runtime z jego własnego katalogu → używać `LOAD_LIBRARY_SEARCH_DEFAULT_DIRS` + `AddDllDirectory` dla katalogu aplikacji.
 - Autosave „przy każdej zmianie” → z opóźnieniem 2 s (debounce), inaczej przeciąganie suwaka zapisuje plik kilkadziesiąt razy na sekundę.
 - Stop grupowy z potwierdzeniem (6.3) — potwierdzenie tylko gdy zatrzymywane są ≥ 2 nagrywające kanały; pojedynczy Stop na kaflu działa od razu.

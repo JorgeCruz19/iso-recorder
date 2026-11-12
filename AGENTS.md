@@ -83,7 +83,7 @@ kilku sekundach. Niesprawdzone: NDI|HX (obraz skompresowany — `videoconvert` w
    - wpis w `CHANGELOG.md` (po polsku, dla użytkownika: co się zmieniło, test, czego jeszcze nie ma);
    - aktualizacja `instrukcja_koncowa.md` (plan + opis mechanizmu, jeśli doszedł nowy);
    - zrzut okna do `docs/zrzut_<wersja>.png` — **bez zawartości ekranu właściciela** (używaj generatora testowego);
-   - commit `Wersja x.y: …`, tag `vx.y`, `git push origin main --tags` (repo prywatne `studiokrause/iso-recorder`);
+   - commit `Wersja x.y: …`, tag `vx.y`, `git push origin main --tags` (repo **publiczne** `studiokrause/iso-recorder`, zdalne `origin`; dawne repo z historią sprzed 2026‑11‑12 jest prywatne jako `studiokrause/iso-recorder-private`, zdalne `old` — nic tam nie wypychaj). Repo jest publiczne: przed każdym pushem sprawdź, że w commitach nie ma danych prywatnych; folder `/media/` (zdjęcia Pixabay do makiety) jest tylko lokalny i ignorowany;
    - od 2.0 także **Release na GitHubie**: `dist\IsoRecorder` spakowane do `IsoRecorder-<wersja>-win64.zip`,
      `gh release create vx.y <zip> --title "ISO Recorder x.y" --notes-file <notatki>` (notatki = wpis z CHANGELOG);
    - `scripts\package.ps1` → `dist\IsoRecorder\` (poza repo), potem testy na paczce z `-Exe dist\IsoRecorder\IsoRecorder.exe`.

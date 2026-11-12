@@ -11,3 +11,5 @@ CMakeUserPresets.json
 *.obj
 Thumbs.db
 *.log
+# zdjecia do makiety (Pixabay) - tylko lokalnie, nie sa publikowane
+/media/
