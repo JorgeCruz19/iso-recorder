@@ -12,6 +12,7 @@ material from every source must be kept in full for later editing.
 - a whole screen or a single application window,
 - a USB camera / capture card that shows up in Windows as a camera,
 - SRT and RTSP network streams,
+- NDI sources found on the network,
 - system sound, a microphone or a line input,
 - a test generator (picture and tone) for rehearsals.
 
@@ -42,7 +43,7 @@ material from every source must be kept in full for later editing.
 
 - Windows 10 (version 1903 or later) or Windows 11, 64-bit,
 - a graphics card with an H.264 encoder (recommended); without one a slower software encoder is used,
-- for NDI output: NDI Tools or the NDI Runtime installed.
+- for NDI input and output: NDI Tools or the NDI Runtime installed.
 
 Performance depends on the encoder. On the test machine (6 threads, Intel Quick Sync) 8 channels of 720p25 take about
 2.3 CPU cores, and 16 channels is the limit.

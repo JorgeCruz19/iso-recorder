@@ -49,13 +49,13 @@ struct RecordPart {
 
 // Zrodlo obrazu i dzwieku kanalu.
 struct InputConfig {
-    QString type = QStringLiteral("test");        // "test" generator, "screen" ekran, "window" okno, "camera" kamera, "srt", "rtsp"
+    QString type = QStringLiteral("test");        // "test" generator, "screen" ekran, "window" okno, "camera" kamera, "srt", "rtsp", "ndi"
     QString windowTitle;                          // okno: tytul (uchwyt jest szukany przy starcie kanalu)
     QString cameraMode;                           // kamera: rozmiar obrazu "WxH"; puste = wybor sterownika
     QString lossPolicy = QStringLiteral("continue");   // zanik sygnalu sieciowego: "continue", "pause", "split"
     int gainDb = 0;                               // glosnosc wejscia dzwieku, dB
-    QString uri;                                  // srt / rtsp: adres strumienia
-    bool isNetwork() const { return type == QLatin1String("srt") || type == QLatin1String("rtsp"); }
+    QString uri;                                  // srt / rtsp: adres strumienia; ndi: nazwa zrodla "KOMPUTER (nazwa)"
+    bool isNetwork() const { return type == QLatin1String("srt") || type == QLatin1String("rtsp") || type == QLatin1String("ndi"); }
     int screenIndex = 0;                          // ekran: numer monitora
     QString cameraPath;                           // kamera: sciezka urzadzenia
     QString cameraName;
@@ -152,6 +152,7 @@ public:
     // Zrodlo sieciowe nie podaje sygnalu: kanal gra dalej (czarny obraz, cisza), nagranie trwa, zrodlo laczy sie ponownie.
     bool signalLost() const { return m_signalLost; }
     QString networkUri() const;
+    GstElement* makeNdiSource() const;      // odbiornik NDI jako zrodlo dla fallbacksrc (pady "video" i "audio")
 
 signals:
     void frameChanged();

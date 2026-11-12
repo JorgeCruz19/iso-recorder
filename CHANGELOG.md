@@ -2,6 +2,19 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 2.5
+
+- **Wejście NDI.** Nowy typ wejścia „NDI”: w polu „Device” jest lista źródeł NDI widocznych w sieci (odświeża się sama),
+  kanał odbiera obraz i dźwięk źródła. Źródło bez dźwięku nagrywa się z ciszą.
+- Zanik źródła NDI działa tak jak przy SRT i RTSP: nagranie trwa dalej (ostatnia klatka, potem czarny obraz), kanał sam
+  łączy się ponownie, a reakcje „pauza” i „nowa część pliku” działają bez zmian. Zapamiętane źródło, którego chwilowo
+  nie ma w sieci, zostaje na liście i kanał czeka na jego powrót.
+- Wymaga środowiska NDI na komputerze (NDI Tools albo NDI Runtime) — tak jak wyjście NDI. Źródła NDI|HX (obraz
+  skompresowany) nie były sprawdzane.
+- Poprawka: przy reakcji „nowa część pliku” pierwszy sygnał po starcie kanału (źródło łączyło się dopiero po
+  rozpoczęciu nagrywania) był traktowany jak powrót po zaniku i dzielił plik po ułamku sekundy. Dotyczyło też SRT/RTSP.
+- Test: `tests\net_test.ps1 -Type ndi` (także z `-Loss pause|split`); argument testowy `--list-ndi plik`.
+
 ## 2.4
 
 - Przycisk splitu do nowego folderu stoi teraz w jednym wierszu z REC / PAUSE / STOP / SPLIT i nazywa się

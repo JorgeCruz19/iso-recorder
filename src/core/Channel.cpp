@@ -336,6 +336,7 @@ QString Channel::networkUri() const {
 }
 
 QString Channel::sourceText() const {
+    if (m_cfg.in.type == QLatin1String("ndi")) return QStringLiteral("NDI ") + m_cfg.in.uri.trimmed();
     if (m_cfg.in.isNetwork()) {
         QString a = networkUri();
         a = a.mid(a.indexOf(QLatin1String("://")) + 3);
@@ -417,6 +418,15 @@ QString Channel::sourceDescription() const {
     };
     const QString size = QStringLiteral("width=%1,height=%2,pixel-aspect-ratio=1/1").arg(m_cfg.width).arg(m_cfg.height);
     const QString gain = QStringLiteral(" ! volume name=avol volume=%1").arg(QString::number(std::pow(10.0, m_cfg.in.gainDb / 20.0), 'f', 4));
+    if (m_cfg.in.type == QLatin1String("ndi")) {
+        // NDI: ten sam tor co SRT/RTSP, ale zrodlem fallbacksrc jest odbiornik NDI (makeNdiSource), ustawiany
+        // w startPreview - wlasciwosci "source" nie da sie podac w opisie tekstowym.
+        return QStringLiteral("fallbacksrc name=fs timeout=2000000000 restart-timeout=3000000000 retry-timeout=86400000000000 "
+                              "enable-dummy=true immediate-fallback=true restart-on-eos=true "
+                              "fs. ! queue ! videoconvertscale add-borders=true ! videorate ! video/x-raw,%1,framerate=%2/1 ! tee name=tv "
+                              "fs. ! queue ! audioconvert ! audioresample%3 ! audio/x-raw,rate=48000,channels=2 ")
+            .arg(size).arg(m_cfg.fps).arg(gain);
+    }
     if (m_cfg.in.isNetwork()) {
         // fallbacksrc sam dekoduje strumien, a przy zaniku podaje czarny obraz i cisze i laczy sie ponownie -
         // dalsza czesc pipeline'u (takze nagrywanie) nie widzi przerwy.
@@ -470,9 +480,64 @@ QString Channel::sourceDescription() const {
     return video + QStringLiteral(" ! tee name=tv ") + audio + gain + QStringLiteral(" ! audio/x-raw,rate=48000,channels=2 ");
 }
 
+// Odbiornik NDI w postaci, ktorej oczekuje fallbacksrc: element ze stalymi padami "video" i "audio" z surowym
+// obrazem i dzwiekiem. Zrodlo NDI bez dzwieku zostawia pad "audio" pusty - fallbacksrc podaje wtedy cisze.
+GstElement* Channel::makeNdiSource() const {
+    GError* err = nullptr;
+    // Pady "video" i "audio" demuksera pojawiaja sie od nowa po kazdym ponownym polaczeniu, wiec laczy je wlasna
+    // obsluga "pad-added" (laczenie z opisu tekstowego dziala tylko za pierwszym razem).
+    GstElement* bin = gst_parse_bin_from_description(
+        "ndisrc name=ndi timeout=3000 connect-timeout=8000 ! ndisrcdemux name=d "
+        "queue name=vq ! videoconvert name=vout queue name=aq ! audioconvert name=aout", FALSE, &err);
+    if (!bin || err) {
+        g_clear_error(&err);
+        if (bin) gst_object_unref(bin);
+        return nullptr;
+    }
+    if (GstElement* src = gst_bin_get_by_name(GST_BIN(bin), "ndi")) {
+        g_object_set(src, "ndi-name", m_cfg.in.uri.trimmed().toUtf8().constData(), "receiver-ndi-name",
+                     (QStringLiteral("ISO Recorder ") + m_cfg.name).toUtf8().constData(), nullptr);
+        gst_object_unref(src);
+    }
+    if (GstElement* demux = gst_bin_get_by_name(GST_BIN(bin), "d")) {
+        g_signal_connect(demux, "pad-added", G_CALLBACK(+[](GstElement* d, GstPad* pad, gpointer) {
+            GstObject* parent = gst_element_get_parent(d);
+            if (!parent) return;
+            gchar* name = gst_pad_get_name(pad);
+            GstElement* q = gst_bin_get_by_name(GST_BIN(parent), g_strcmp0(name, "video") == 0 ? "vq" : "aq");
+            g_free(name);
+            if (q) {
+                GstPad* sink = gst_element_get_static_pad(q, "sink");
+                if (GstPad* old = gst_pad_get_peer(sink)) {     // pad z poprzedniego polaczenia
+                    gst_pad_unlink(old, sink);
+                    gst_object_unref(old);
+                }
+                gst_pad_link(pad, sink);
+                gst_object_unref(sink);
+                gst_object_unref(q);
+            }
+            gst_object_unref(parent);
+        }), nullptr);
+        gst_object_unref(demux);
+    }
+    const struct { const char* element; const char* pad; } outs[] = {{"vout", "video"}, {"aout", "audio"}};
+    for (const auto& o : outs) {
+        GstElement* el = gst_bin_get_by_name(GST_BIN(bin), o.element);
+        GstPad* target = gst_element_get_static_pad(el, "src");
+        gst_element_add_pad(bin, gst_ghost_pad_new(o.pad, target));
+        gst_object_unref(target);
+        gst_object_unref(el);
+    }
+    return bin;
+}
+
 void Channel::startPreview() {
     if (m_pipeline) return;
     // tee "tv"/"ta" sa punktami zaczepienia galezi nagrywania.
+    if (m_cfg.in.type == QLatin1String("ndi") && m_cfg.in.uri.trimmed().isEmpty()) {
+        setState(ChannelState::Error, T("no NDI source selected"));      // bez ponawiania: czeka na wybor zrodla
+        return;
+    }
     const QString source = sourceDescription();
     if (source.isEmpty()) {              // np. okno o zapamietanym tytule nie istnieje
         setState(ChannelState::Error, T("window not found"));
@@ -502,6 +567,18 @@ void Channel::startPreview() {
     // EOS galezi nagrywania nie moze czekac na EOS calego pipeline'u (podglad gra dalej) -
     // pipeline przekazuje go od razu jako komunikat "GstBinForwarded".
     g_object_set(m_pipeline, "message-forward", TRUE, nullptr);
+    if (m_cfg.in.type == QLatin1String("ndi")) {
+        GstElement* fs = gst_bin_get_by_name(GST_BIN(m_pipeline), "fs");
+        GstElement* ndi = makeNdiSource();
+        if (fs && ndi) g_object_set(fs, "source", ndi, nullptr);
+        if (fs) gst_object_unref(fs);
+        if (!ndi) {         // brak wtyczki NDI albo bibliotek NDI w systemie
+            gst_object_unref(m_pipeline);
+            m_pipeline = nullptr;
+            setState(ChannelState::Error, T("NDI is not available (install NDI Tools or the NDI Runtime)"));
+            return;
+        }
+    }
     // Jeden zegar dla wszystkich kanalow (nie zegar urzadzenia audio) - warunek wspolnego startu, pauzy i stopu grupy.
     GstClock* sys = gst_system_clock_obtain();
     gst_pipeline_use_clock(GST_PIPELINE(m_pipeline), sys);
@@ -1174,6 +1251,7 @@ void Channel::pollSource() {
     // priorytet 0, zastepcze - wyzszy.
     bool lost = false;
     int switches = 0;
+    const bool videoOnly = m_cfg.in.type == QLatin1String("ndi");
     GstIterator* it = gst_bin_iterate_recurse(GST_BIN(fs));
     GValue item = G_VALUE_INIT;
     while (gst_iterator_next(it, &item) == GST_ITERATOR_OK) {
@@ -1188,7 +1266,19 @@ void Channel::pollSource() {
                 g_object_get(active, "priority", &prio, nullptr);
                 gst_object_unref(active);
             }
-            lost = lost || prio > 0;
+            bool counts = true;
+            if (videoOnly) {            // NDI: zrodlo bez dzwieku stale dostaje cisze zastepcza - o zaniku mowi tylko obraz
+                counts = false;
+                if (GstPad* srcPad = gst_element_get_static_pad(el, "src")) {
+                    if (GstCaps* caps = gst_pad_get_current_caps(srcPad)) {
+                        counts = g_str_has_prefix(gst_structure_get_name(gst_caps_get_structure(caps, 0)), "video/");
+                        gst_caps_unref(caps);
+                    }
+                    gst_object_unref(srcPad);
+                }
+                if (!counts) --switches;
+            }
+            if (counts) lost = lost || prio > 0;
         }
         g_value_reset(&item);
     }
@@ -1196,6 +1286,7 @@ void Channel::pollSource() {
     gst_iterator_free(it);
     gst_object_unref(fs);
     if (switches == 0) lost = true;     // zrodlo jeszcze sie nie zbudowalo
+    const bool seenBefore = m_signalSeen;       // pierwszy sygnal po starcie kanalu to nie "powrot"
     if (!lost) m_signalSeen = true;
     if (lost == m_signalLost) return;
     m_signalLost = lost;
@@ -1215,7 +1306,7 @@ void Channel::pollSource() {
         emit notice(T("%1: signal restored").arg(m_cfg.name));
         if (m_autoPaused && m_state == ChannelState::Paused) {
             resumeRecording();
-        } else if (m_cfg.in.lossPolicy == QLatin1String("split") && m_state == ChannelState::Recording && m_signalSeen) {
+        } else if (m_cfg.in.lossPolicy == QLatin1String("split") && m_state == ChannelState::Recording && seenBefore) {
             split();                    // reakcja "nowa czesc": material po powrocie trafia do osobnego pliku
         }
         m_autoPaused = false;

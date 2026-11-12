@@ -55,7 +55,7 @@
 //   Zmienna ISOREC_PROFILE=nazwa: osobny profil ustawien i autozapisu (testy nie dotykaja prawdziwych ustawien).
 //   --container ts|mkv    kontener dla kanalow --demo
 //   --input screen [--audio loopback|device|none]  kanaly --demo biora obraz z ekranu (kolejne monitory) i dzwiek z WASAPI
-//   --input srt|rtsp --uri adres   kanaly --demo odbieraja strumien sieciowy (wszystkie ten sam adres)
+//   --input srt|rtsp|ndi --uri adres   kanaly --demo odbieraja strumien sieciowy (wszystkie ten sam adres; ndi: nazwa zrodla)
 //   --loss pause|split    reakcja kanalow --demo na zanik sygnalu sieciowego
 //   --input window --window tytul  kanaly --demo przechwytuja okno o tym tytule (albo zawierajace ten tekst)
 //   --shot-log plik       otworz okno logu zdarzen po 6 s, zapisz jego zrzut i wyjdz
@@ -105,7 +105,7 @@ int main(int argc, char* argv[]) {
     QApplication::setApplicationVersion(QStringLiteral(APP_VERSION));
     const QStringList args = app.arguments();
     // Uruchomienie sterowane argumentami (zrzuty, testy) konczy sie samo - bez pytan o zapis listy.
-    for (const char* a : {"--screenshot", "--save-list", "--save-list-real", "--rec-test", "--shot-big", "--shot-disks", "--drag-test", "--shot-combo", "--shot-log", "--shot-settings"})
+    for (const char* a : {"--screenshot", "--save-list", "--save-list-real", "--rec-test", "--shot-big", "--shot-disks", "--drag-test", "--shot-combo", "--shot-log", "--shot-settings", "--list-ndi"})
         if (args.contains(QLatin1String(a))) app.setProperty("automation", true);
 
     if (args.contains(QStringLiteral("--check-env"))) {
@@ -217,6 +217,18 @@ int main(int argc, char* argv[]) {
                 manager.loadList(last);
             }
         }
+        // --list-ndi plik: po 7 s zapisuje do pliku nazwy zrodel NDI widocznych w sieci i konczy program (test wyszukiwania)
+        if (const int ndiAt = int(args.indexOf(QStringLiteral("--list-ndi"))); ndiAt >= 0 && ndiAt + 1 < args.size()) {
+            Devices::ndiSources();
+            const QString path = args.at(ndiAt + 1);
+            QTimer::singleShot(7000, &app, [path] {
+                QFile f(path);
+                if (f.open(QIODevice::WriteOnly))
+                    for (const Devices::Info& d : Devices::ndiSources()) f.write(d.name.toUtf8() + '\n');
+                f.close();
+                QCoreApplication::quit();
+            });
+        }
         if (const int listAt = int(args.indexOf(QStringLiteral("--list"))); listAt >= 0 && listAt + 1 < args.size()) {
             QString err;
             if (!manager.loadList(args.at(listAt + 1), &err)) {
@@ -250,7 +262,7 @@ int main(int argc, char* argv[]) {
                 c->setInput(in);
             }
         }
-        if (argAfter("--input") == QLatin1String("srt") || argAfter("--input") == QLatin1String("rtsp")) {
+        if (argAfter("--input") == QLatin1String("srt") || argAfter("--input") == QLatin1String("rtsp") || argAfter("--input") == QLatin1String("ndi")) {
             for (Channel* c : manager.channels()) {
                 InputConfig in = c->config().in;
                 in.type = argAfter("--input");

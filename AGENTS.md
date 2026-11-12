@@ -1,6 +1,6 @@
 # ISO Recorder — stan projektu i instrukcje dla kolejnego modelu
 
-Ten plik jest punktem wejścia. Przeczytaj go w całości, zanim cokolwiek zmienisz. Stan na 2026‑11‑11, wersja **2.4**. Wydania od 2.0 są publikowane jako Release na GitHubie.
+Ten plik jest punktem wejścia. Przeczytaj go w całości, zanim cokolwiek zmienisz. Stan na 2026‑11‑12, wersja **2.5**. Wydania od 2.0 są publikowane jako Release na GitHubie.
 
 ## 1. Co to jest
 
@@ -23,10 +23,10 @@ z tłumaczeniami PL, DE, ES, IT, FR.
 | `mockup/`, `interfejs.png` | wzorzec wyglądu |
 | `docs/zrzut_<wersja>.png` | zrzut okna na każdą wersję |
 
-## 3. Co działa (2.4)
+## 3. Co działa (2.5)
 
 - **Wejścia**: generator testowy, ekran i pojedyncze okno (`d3d11screencapturesrc`), kamera z wyborem rozmiaru obrazu
-  (`mfvideosrc`), SRT i RTSP (`fallbacksrc`); dźwięk: sygnał testowy, cisza, dźwięk systemowy (loopback) i wejścia
+  (`mfvideosrc`), SRT, RTSP i NDI (`fallbacksrc`; NDI: lista źródeł z sieci w polu Device); dźwięk: sygnał testowy, cisza, dźwięk systemowy (loopback) i wejścia
   WASAPI, z regulacją głośności.
 - **Nagrywanie**: H.264 + AAC do MKV lub MPEG‑TS; enkoder wybierany próbą (NVENC → Quick Sync → AMF → MF → OpenH264);
   split ręczny i automatyczny; pauza w tym samym pliku; plik opisu `.json` obok nagrania.
@@ -48,7 +48,6 @@ z tłumaczeniami PL, DE, ES, IT, FR.
 
 | Wersja | Zakres |
 |---|---|
-| **2.5** | Wejście NDI: lista źródeł z sieci, odbiór obrazu i dźwięku, zanik sygnału i ponowne łączenie |
 | **2.6** | Scheduler: reguły startu / stopu / splitu, catch‑up, zmiana czasu, blokada uśpienia; **wyjście na żywo w harmonogramie**: „jak w harmonogramie nagrywania” albo „cały czas” |
 | **2.7** | Wiele lokalizacji zapisu: folder zapasowy przy małej ilości miejsca i zapis podwójny |
 | **2.8** | Zapis bez ponownego kodowania (stream copy) dla SRT/RTSP jako opcja enkodera |
@@ -65,10 +64,14 @@ Decyzje właściciela (2026‑11‑11) — **nie wracać do tych tematów**:
 Znane braki: źródło, które w ogóle nie odpowiada (limit czasu startu), nie jest ponawiane automatycznie;
 sortowanie po kolumnach w widoku listy; wybór klatkażu kamery (jest tylko rozmiar).
 
-Wskazówki do 2.5 (wejście NDI): elementy `ndisrc` + `ndisrcdemux` są w GStreamerze; odbiornik potrzebuje ok. 4 s na
-znalezienie źródła; nazwa źródła ma postać `KOMPUTER (nazwa)`; listę źródeł daje dostawca urządzeń NDI
-(`GstDeviceMonitor`). Najprościej podać `ndisrc` jako `source` elementu `fallbacksrc`, żeby zanik i powrót działały tak
-samo jak przy SRT/RTSP. Do testów: własne wyjście NDI innego kanału programu.
+Jak działa wejście NDI (2.5): `Channel::makeNdiSource()` buduje bin `ndisrc ! ndisrcdemux` + kolejki + konwertery ze
+stałymi padami „video” i „audio” i podaje go jako `source` elementu `fallbacksrc` (ustawiane w `startPreview`, bo tej
+właściwości nie da się wpisać w opis tekstowy). Pułapki: (1) pady demuksera pojawiają się od nowa po każdym ponownym
+połączeniu — łączy je własna obsługa `pad-added`, łączenie z opisu tekstowego działa tylko raz; (2) `restart-on-eos=true`
+jest konieczne, bo `ndisrc` po zaniku kończy strumień (EOS), a nie zgłasza błędu; (3) o zaniku decyduje tylko przełącznik
+obrazu — źródło bez dźwięku stale dostaje ciszę zastępczą; (4) nazwa źródła siedzi w `InputConfig::uri`; (5) listę źródeł
+daje `Devices::ndiSources()` — stale uruchomiony `GstDeviceMonitor` z filtrem `Source/Network`, źródła pojawiają się po
+kilku sekundach. Niesprawdzone: NDI|HX (obraz skompresowany — `videoconvert` w binie go nie przyjmie).
 
 ## 5. Stałe zasady pracy (ustalone z właścicielem)
 
@@ -149,7 +152,7 @@ samo jak przy SRT/RTSP. Do testów: własne wyjście NDI innego kanału programu
 | `tests\rec_test.ps1` | nagrywanie: `-Channels -Seconds -Cycles`, split (`-SplitEvery`, `-AutoSplit`), `-Container ts`, pauza (`-PauseAt -PauseFor -PauseCount`), przełączanie wyjścia (`-LiveCycle`), źródła (`-Source screen`, `-Audio loopback`) |
 | `tests\sync_test.ps1` | wspólny start / pauza / stop grupy, domyślnie 16 kanałów |
 | `tests\live_test.ps1` | odbiór wyjścia SRT (ffprobe) i NDI w trakcie nagrania |
-| `tests\net_test.ps1` | wejście SRT / RTSP z zanikiem i powrotem nadajnika (`build\rtsp_test_server.exe`) |
+| `tests\net_test.ps1` | wejście SRT / RTSP / NDI z zanikiem i powrotem nadajnika (`build\rtsp_test_server.exe`; NDI: gst-launch) |
 | `tests\list_test.ps1` | lista kanałów: zapis → wczytanie → identyczny plik; autozapis, przywracanie, ostatnia lista |
 
 Każdy skrypt przyjmuje `-Exe` (test paczki). Przed wydaniem uruchom przynajmniej: `rec_test` z pauzą i splitem,

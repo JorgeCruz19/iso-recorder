@@ -110,6 +110,38 @@ quint64 Devices::findWindow(const QString& title) {
     return 0;
 }
 
+QList<Devices::Info> Devices::ndiSources() {
+    static GstDeviceMonitor* mon = nullptr;
+    static bool tried = false;
+    if (!tried) {
+        tried = true;
+        mon = gst_device_monitor_new();
+        gst_device_monitor_add_filter(mon, "Source/Network", nullptr);
+        if (!gst_device_monitor_start(mon)) {       // brak wtyczki NDI albo bibliotek NDI
+            gst_object_unref(mon);
+            mon = nullptr;
+        }
+    }
+    QList<Info> out;
+    if (!mon) return out;
+    GList* devices = gst_device_monitor_get_devices(mon);
+    for (GList* l = devices; l; l = l->next) {
+        GstDevice* d = GST_DEVICE(l->data);
+        GstStructure* p = gst_device_get_properties(d);
+        gchar* nameC = gst_device_get_display_name(d);
+        QString name = str(p, "ndi-name");
+        if (name.isEmpty()) name = QString::fromUtf8(nameC);
+        g_free(nameC);
+        if (p) gst_structure_free(p);
+        bool have = false;
+        for (const Info& i : out) have = have || i.id == name;
+        if (!name.isEmpty() && !have) out.append({name, name, {}, {}});
+    }
+    g_list_free_full(devices, gst_object_unref);
+    std::sort(out.begin(), out.end(), [](const Info& a, const Info& b) { return a.name.compare(b.name, Qt::CaseInsensitive) < 0; });
+    return out;
+}
+
 const Devices::All& Devices::list(bool refresh) {
     static Devices::All cache;
     static bool have = false;

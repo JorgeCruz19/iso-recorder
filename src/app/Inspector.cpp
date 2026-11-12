@@ -21,6 +21,7 @@
 #include "core/DiskMonitor.h"
 #include "core/Lang.h"
 #include <QStorageInfo>
+#include <QTimer>
 #include "media/Devices.h"
 #include "media/EncoderFactory.h"
 #include "util/FileNameTemplate.h"
@@ -151,9 +152,9 @@ QWidget* Inspector::buildInputPage() {
     m_type->addItem(T("Camera (UVC, capture card)"), QStringLiteral("camera"));
     m_type->addItem(QStringLiteral("SRT"), QStringLiteral("srt"));
     m_type->addItem(QStringLiteral("RTSP"), QStringLiteral("rtsp"));
+    m_type->addItem(QStringLiteral("NDI"), QStringLiteral("ndi"));
     const int firstFuture = m_type->count();
     const struct { QString name; const char* from; } types[] = {
-        {QStringLiteral("NDI"), Roadmap::ndi},
         {QStringLiteral("HDMI — Blackmagic DeckLink"), Roadmap::decklink},
         {QStringLiteral("WebRTC WHEP"), Roadmap::webrtc},
         {QStringLiteral("WebRTC WHIP"), Roadmap::webrtc}};
@@ -163,6 +164,21 @@ QWidget* Inspector::buildInputPage() {
     row(g, T("Input type"), m_type);
     m_device = new QComboBox;
     row(g, T("Device"), m_device);
+    // zrodla NDI pojawiaja sie w sieci i znikaja - lista odswieza sie sama, gdy nie jest rozwinieta
+    auto* ndiTimer = new QTimer(this);
+    connect(ndiTimer, &QTimer::timeout, this, [this] {
+        Channel* ch = m_mgr->active();
+        if (!ch || ch->config().in.type != QLatin1String("ndi") || m_device->view()->isVisible()) return;
+        QStringList now, shown;
+        for (const Devices::Info& d : Devices::ndiSources()) now << d.id;
+        for (int i = 0; i < m_device->count(); ++i) shown << m_device->itemData(i).toStringList().value(0);
+        if (!ch->config().in.uri.isEmpty() && !now.contains(ch->config().in.uri)) now << ch->config().in.uri;
+        if (now == shown) return;
+        m_device->setProperty("forType", QString());
+        refresh();
+    });
+    ndiTimer->start(2000);
+    QTimer::singleShot(0, this, [] { Devices::ndiSources(); });     // wyszukiwanie zrodel NDI rusza od razu
     m_uri = new QLineEdit;
     row(g, T("Address"), m_uri);
     m_camMode = new QComboBox;
@@ -387,6 +403,8 @@ void Inspector::fillDevices(const QString& type) {
         for (const Devices::Info& d : Devices::list(true).cameras) m_device->addItem(d.name, QStringList{d.id, d.name});
     } else if (type == QLatin1String("window")) {
         for (const Devices::Info& d : Devices::windows()) m_device->addItem(d.name, QStringList{d.name, d.name});
+    } else if (type == QLatin1String("ndi")) {
+        for (const Devices::Info& d : Devices::ndiSources()) m_device->addItem(d.name, QStringList{d.id, d.name});
     }
     for (int i = 0; i < m_device->count(); ++i) m_device->setItemData(i, m_device->itemText(i), Qt::ToolTipRole);
     m_device->setProperty("forType", type);
@@ -424,7 +442,14 @@ void Inspector::commitInput() {
         in.cameraMode = sameCamera ? m_camMode->currentData().toString() : QString();
     }
     if (in.type == QLatin1String("window") && !dev.value(0).isEmpty()) in.windowTitle = dev.value(0);
-    in.uri = m_uri->text().trimmed();
+    if (in.type == QLatin1String("ndi")) {
+        if (ch->config().in.type != QLatin1String("ndi")) in.uri.clear();      // adres SRT/RTSP nie jest nazwa zrodla NDI
+        if (m_device->property("forType").toString() == QLatin1String("ndi") && !dev.value(0).isEmpty()) in.uri = dev.value(0);
+    } else if (ch->config().in.type == QLatin1String("ndi")) {
+        in.uri.clear();
+    } else {
+        in.uri = m_uri->text().trimmed();
+    }
     const QStringList au = m_wave->currentData().toStringList();
     in.audioType = au.value(0, QStringLiteral("test"));
     in.audioDevice = au.value(1);
@@ -501,7 +526,12 @@ void Inspector::refresh() {
     for (int i = 0; i < m_device->count(); ++i) {
         const QString id = m_device->itemData(i).toStringList().value(0);
         if ((in.type == QLatin1String("screen") && id.toInt() == in.screenIndex) || (in.type == QLatin1String("camera") && id == in.cameraPath) ||
-            (in.type == QLatin1String("window") && id == in.windowTitle)) devIndex = i;
+            (in.type == QLatin1String("window") && id == in.windowTitle) || (in.type == QLatin1String("ndi") && id == in.uri)) devIndex = i;
+    }
+    if (in.type == QLatin1String("ndi") && devIndex < 0 && !in.uri.isEmpty()) {       // zapamietane zrodlo nie jest teraz widoczne w sieci
+        const QSignalBlocker block(m_device);
+        m_device->addItem(in.uri, QStringList{in.uri, in.uri});
+        devIndex = m_device->count() - 1;
     }
     if (in.type == QLatin1String("window") && devIndex < 0 && !in.windowTitle.isEmpty()) {     // okno z listy zniknelo albo zmienilo tytul
         const QSignalBlocker block(m_device);
@@ -509,7 +539,8 @@ void Inspector::refresh() {
         devIndex = m_device->count() - 1;
     }
     m_device->setCurrentIndex(devIndex);
-    m_device->setEnabled(editable && (in.type == QLatin1String("screen") || in.type == QLatin1String("camera") || in.type == QLatin1String("window")));
+    m_device->setEnabled(editable && (in.type == QLatin1String("screen") || in.type == QLatin1String("camera") || in.type == QLatin1String("window") ||
+                                      in.type == QLatin1String("ndi")));
     if (in.type == QLatin1String("camera") && m_camMode->property("forCamera").toString() != in.cameraPath) fillCameraModes(in.cameraPath);
     if (in.type != QLatin1String("camera") && m_camMode->count() != 1) fillCameraModes(QString());
     m_camMode->setCurrentIndex(qMax(0, m_camMode->findData(in.cameraMode)));
@@ -517,8 +548,9 @@ void Inspector::refresh() {
     m_loss->setCurrentIndex(qMax(0, m_loss->findData(in.lossPolicy)));
     m_loss->setEnabled(in.isNetwork());
     m_gain->setCurrentIndex(qMax(0, m_gain->findData(in.gainDb)));
-    if (!m_uri->hasFocus()) m_uri->setText(in.uri);
-    m_uri->setEnabled(editable && in.isNetwork());
+    const bool hasAddress = in.isNetwork() && in.type != QLatin1String("ndi");
+    if (!m_uri->hasFocus()) m_uri->setText(hasAddress ? in.uri : QString());
+    m_uri->setEnabled(editable && hasAddress);
     m_uri->setPlaceholderText(in.type == QLatin1String("srt") ? QStringLiteral("host:9000   |   :9000")
                               : in.type == QLatin1String("rtsp") ? QStringLiteral("rtsp://host:554/stream") : QString());
     m_uri->setToolTip(in.type == QLatin1String("srt")

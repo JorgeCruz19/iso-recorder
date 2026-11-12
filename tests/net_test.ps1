@@ -3,7 +3,8 @@
 # Sprawdzane: plik poprawnie zamkniety, jedna czesc, ciagle znaczniki obrazu (bez przerw mimo zaniku), czas zgodny,
 # w pliku opisu dokladnie jeden zanik sygnalu, obraz przed zanikiem i po powrocie nie jest czarny, a w trakcie zaniku jest.
 # Nadajnik: SRT - ffmpeg (listener na porcie), RTSP - build\rtsp_test_server.exe.
-# Uzycie:  tests\net_test.ps1 [-Type srt|rtsp] [-Port 9950] [-NoBreak] [-Exe build\IsoRecorder.exe]
+# NDI: nadajnikiem jest gst-launch (zrodlo "ISOTEST <port>" na tym komputerze).
+# Uzycie:  tests\net_test.ps1 [-Type srt|rtsp|ndi] [-Port 9950] [-NoBreak] [-Exe build\IsoRecorder.exe]
 # -Loss pause|split : reakcja kanalu na zanik; sprawdzane jest wtedy, czy nagranie ma jedna pauze (pause) albo dwie czesci (split).
 # Kod wyjscia 0 = wszystko poprawne.
 param([string]$Type = 'srt', [int]$Port = 9950, [switch]$NoBreak, [string]$Loss = '', [string]$Exe)
@@ -23,6 +24,11 @@ function Start-Sender {
         $a = "-hide_banner -loglevel error -re -f lavfi -i testsrc2=size=1280x720:rate=25 -f lavfi -i sine=frequency=440:sample_rate=48000 " +
              "-c:v libx264 -preset ultrafast -tune zerolatency -g 25 -b:v 3M -c:a aac -b:a 128k -f mpegts `"srt://127.0.0.1:$($Port)?mode=listener`""
         Start-Process ffmpeg -ArgumentList $a -PassThru -WindowStyle Hidden
+    } elseif ($Type -eq 'ndi') {
+        # zrodlo NDI "ISOTEST <port>" z gst-launch: obraz testowy + ton
+        $a = "-q videotestsrc is-live=true pattern=smpte ! video/x-raw,format=UYVY,width=1280,height=720,framerate=25/1 ! ndisinkcombiner name=c ! " +
+             "ndisink ndi-name=`"ISOTEST $Port`" audiotestsrc is-live=true ! audio/x-raw,format=F32LE,rate=48000,channels=2 ! c.audio"
+        Start-Process "$gstBin\gst-launch-1.0.exe" -ArgumentList $a -PassThru -WindowStyle Hidden
     } else {
         $env:PATH = "$gstBin;$savedPath"
         $p = Start-Process "$root\build\rtsp_test_server.exe" -ArgumentList $Port -PassThru -WindowStyle Hidden
@@ -30,14 +36,14 @@ function Start-Sender {
         $p
     }
 }
-$uri = if ($Type -eq 'srt') { "srt://127.0.0.1:$Port" } else { "rtsp://127.0.0.1:$Port/test" }
+$uri = if ($Type -eq 'srt') { "srt://127.0.0.1:$Port" } elseif ($Type -eq 'ndi') { "`"$env:COMPUTERNAME (ISOTEST $Port)`"" } else { "rtsp://127.0.0.1:$Port/test" }
 $out = Join-Path $env:TEMP "isorec_net_$(Get-Date -Format 'HHmmss')"
 New-Item -ItemType Directory $out | Out-Null
 
 # Przebieg (sekundy od startu programu): 0 nadajnik i program, 3 start nagrania, 13 nadajnik stop, 20 nadajnik start, 31 koniec nagrania.
 $seconds = 28
 $sender = Start-Sender
-Start-Sleep 1
+Start-Sleep $(if ($Type -eq 'ndi') { 3 } else { 1 })
 if ($Exe -like "*\build\*") { $env:PATH = "$qt\bin;$gstBin;$savedPath" }
 $appArgs = @('--demo', 1, '--lang', 'en', '--out', $out, '--input', $Type, '--uri', $uri, '--rec-test', $seconds)
 if ($Loss) { $appArgs += @('--loss', $Loss) }
@@ -86,12 +92,12 @@ function Luma($t) {
 }
 Check 'nagranie poprawnie zamkniete, jedna czesc' ($j.clean -and $j.parts.Count -eq 1) ''
 # RTSP: zrodlo ma 2 s bufora i przy ponownym polaczeniu zaczyna nowa os czasu - dopuszczalna jedna luka do 2,5 s
-$maxGap = if ($Type -eq 'rtsp' -and -not $NoBreak) { 2.5 } else { 0.061 }
+$maxGap = if ($Type -ne 'srt' -and -not $NoBreak) { 2.5 } else { 0.061 }
 $span = $pts[$pts.Count - 1] - $pts[0]
 Check 'czas nagrania zgodny' ($span -ge $seconds - 1.5 -and $span -le $seconds + 1) ("({0:N1} s, {1} klatek)" -f $span, $pts.Count)
 Check 'znaczniki obrazu bez przerw ponad dopuszczalna' ($gap -lt $maxGap) ("(najwieksza przerwa {0:N3} s, dopuszczalna {1})" -f $gap, $maxGap)
 $t0 = [datetime]::Parse($j.startedUtc, $inv, [Globalization.DateTimeStyles]::AdjustToUniversal -bor [Globalization.DateTimeStyles]::AssumeUniversal)
-$before = Luma 2
+$before = Luma $(if ($Type -eq 'ndi') { 7 } else { 2 })     # odbiornik NDI potrzebuje kilku sekund na znalezienie zrodla
 Check 'obraz ze strumienia przed zanikiem' ($before -gt 40) ("(jasnosc {0:N0})" -f $before)
 if ($NoBreak) {
     Check 'brak zanikow sygnalu w opisie' ($j.signalLosses -eq 0) "($($j.signalLosses))"

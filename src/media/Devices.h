@@ -21,4 +21,7 @@ const All& list(bool refresh = false);
 QList<Info> windows();
 // Uchwyt okna o danym tytule (dokladnie, a gdy takiego nie ma - zawierajacego ten tekst); 0 = nie znaleziono.
 quint64 findWindow(const QString& title);
+// Zrodla NDI widoczne w sieci (name = id = "KOMPUTER (nazwa)"). Pierwsze wywolanie uruchamia wyszukiwanie w tle;
+// zrodla pojawiaja sie po kilku sekundach, wiec liste trzeba odpytywac ponownie.
+QList<Info> ndiSources();
 }
