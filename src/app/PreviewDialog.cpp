@@ -48,7 +48,7 @@ protected:
             p.setPen(Qt::white);
             p.setFont(Theme::font(22, QFont::Bold, 1));
             p.drawText(vid, Qt::AlignCenter, st == ChannelState::Error ? T("ERROR")
-                                           : st == ChannelState::Idle ? T("NO SIGNAL") : T("RECONNECTING"));
+                                           : st == ChannelState::Idle ? (m_ch->inputOff() ? T("INPUT OFF") : T("NO SIGNAL")) : T("RECONNECTING"));
         }
         // ramka stanu - te same kolory co na kaflu
         QColor frame = Theme::idle;

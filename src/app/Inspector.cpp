@@ -151,6 +151,7 @@ QWidget* Inspector::buildInputPage() {
     m_name = new QLineEdit;
     row(g, T("Channel name"), m_name);
     m_type = new QComboBox;
+    m_type->addItem(T("None (input off)"), QStringLiteral("none"));
     m_type->addItem(T("Test generator"), QStringLiteral("test"));
     m_type->addItem(T("Screen grab"), QStringLiteral("screen"));
     m_type->addItem(T("Window capture"), QStringLiteral("window"));
@@ -629,7 +630,10 @@ void Inspector::refresh() {
     m_uri->setToolTip(in.type == QLatin1String("srt")
         ? T("host:9000 — this computer connects to the sender;  :9000 — this computer waits for the sender on port 9000")
         : in.type == QLatin1String("rtsp") ? T("rtsp://host:554/stream — use rtspt:// to force TCP") : QString());
-    m_wave->setEnabled(editable && !in.isNetwork());      // dzwiek pochodzi ze strumienia
+    const bool off = in.type == QLatin1String("none");      // wejscie wylaczone: nie ma czego ustawiac
+    m_wave->setEnabled(editable && !in.isNetwork() && !off);      // dzwiek pochodzi ze strumienia
+    m_gain->setEnabled(!off);
+    m_format->setEnabled(editable && !off);
     m_pattern->setEnabled(editable && in.type == QLatin1String("test"));
     int auIndex = 0;
     for (int i = 0; i < m_wave->count(); ++i) {

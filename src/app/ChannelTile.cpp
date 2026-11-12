@@ -106,7 +106,7 @@ void ChannelTile::paintEvent(QPaintEvent*) {
         p.setPen(Qt::white);
         p.setFont(Theme::font(13, QFont::Bold, 1));
         const QString head = st == ChannelState::Error ? T("ERROR")
-                           : st == ChannelState::Idle ? T("NO SIGNAL") : T("RECONNECTING");
+                           : st == ChannelState::Idle ? (m_ch->inputOff() ? T("INPUT OFF") : T("NO SIGNAL")) : T("RECONNECTING");
         Q_UNUSED(lost);
         p.drawText(r.vid.adjusted(8, 0, -8, st == ChannelState::Error ? -16 : 0), Qt::AlignCenter, head);
         if (st == ChannelState::Error) {

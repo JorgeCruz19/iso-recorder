@@ -336,6 +336,7 @@ QString Channel::networkUri() const {
 }
 
 QString Channel::sourceText() const {
+    if (inputOff()) return T("Input off");
     if (m_cfg.in.type == QLatin1String("ndi")) return QStringLiteral("NDI ") + m_cfg.in.uri.trimmed();
     if (m_cfg.in.isNetwork()) {
         QString a = networkUri();
@@ -401,7 +402,8 @@ void Channel::applyGain() {
 
 void Channel::restart() {
     // zmiana ustawien: takze kanal w stanie bledu startuje od nowa, a licznik ponowien sie zeruje
-    const bool was = m_pipeline != nullptr || m_state == ChannelState::Error;
+    const bool was = m_pipeline != nullptr || m_state == ChannelState::Error || m_wantPreview;
+    m_wantPreview = false;
     m_retry.stop();
     m_retryCount = 0;
     m_autoRecord = false;
@@ -533,6 +535,15 @@ GstElement* Channel::makeNdiSource() const {
 
 void Channel::startPreview() {
     if (m_pipeline) return;
+    if (inputOff()) {       // wejscie wylaczone: kanal nie ma pipeline'u, nic nie pobiera i nie da sie go nagrywac
+        m_wantPreview = true;
+        m_frame = QImage();
+        m_level = {0.0, 0.0};
+        setState(ChannelState::Idle);
+        emit frameChanged();
+        emit levelsChanged();
+        return;
+    }
     // tee "tv"/"ta" sa punktami zaczepienia galezi nagrywania.
     if (m_cfg.in.type == QLatin1String("ndi") && m_cfg.in.uri.trimmed().isEmpty()) {
         setState(ChannelState::Error, T("no NDI source selected"));      // bez ponawiania: czeka na wybor zrodla
@@ -847,6 +858,10 @@ void Channel::pushClockFrame() {
 // ---------------------------------------------------------------- nagrywanie
 
 bool Channel::startRecording(const QString& session, int index) {
+    if (inputOff()) {
+        emit notice(T("%1: the input is off — nothing to record").arg(m_cfg.name));
+        return false;
+    }
     if (m_state != ChannelState::Preview || m_recBin || !m_pipeline) return false;
 
     const EncoderFactory::Choice enc =

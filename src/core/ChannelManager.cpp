@@ -302,7 +302,7 @@ ChannelConfig channelFromJson(const QJsonObject& j, int number) {
     const QJsonObject in = j.value(QStringLiteral("input")).toObject();
     const QString it = in.value(QStringLiteral("type")).toString();
     c.in.type = it == QLatin1String("screen") || it == QLatin1String("window") || it == QLatin1String("camera") ||
-                        it == QLatin1String("srt") || it == QLatin1String("rtsp") || it == QLatin1String("ndi")
+                        it == QLatin1String("srt") || it == QLatin1String("rtsp") || it == QLatin1String("ndi") || it == QLatin1String("none")
                     ? it : QStringLiteral("test");
     c.in.uri = in.value(QStringLiteral("uri")).toString();
     const QString lp = in.value(QStringLiteral("lossPolicy")).toString();

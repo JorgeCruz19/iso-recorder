@@ -264,7 +264,8 @@ int main(int argc, char* argv[]) {
                 c->setInput(in);
             }
         }
-        if (argAfter("--input") == QLatin1String("srt") || argAfter("--input") == QLatin1String("rtsp") || argAfter("--input") == QLatin1String("ndi")) {
+        if (argAfter("--input") == QLatin1String("srt") || argAfter("--input") == QLatin1String("rtsp") || argAfter("--input") == QLatin1String("ndi") ||
+            argAfter("--input") == QLatin1String("none")) {
             for (Channel* c : manager.channels()) {
                 InputConfig in = c->config().in;
                 in.type = argAfter("--input");
@@ -519,8 +520,9 @@ int main(int argc, char* argv[]) {
                         if (how == QLatin1String("check") && box->checkBox()) box->checkBox()->setChecked(true);
                         box->button(how == QLatin1String("no") ? QMessageBox::No : QMessageBox::Yes)->click();
                     }
-                    QTimer::singleShot(300, &manager, [&manager, line] {
-                        const QByteArray out = line + "name=" + manager.channels().first()->config().name.toUtf8() + "\n";
+                    QTimer::singleShot(1500, &manager, [&manager, line] {
+                        const QByteArray out = line + "name=" + manager.channels().first()->config().name.toUtf8() + "\n" +
+                                               "state=" + QByteArray::number(int(manager.channels().first()->state())) + "\n";
                         fwrite(out.constData(), 1, size_t(out.size()), stdout);
                         fflush(stdout);
                         QApplication::quit();

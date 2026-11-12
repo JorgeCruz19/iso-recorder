@@ -13,6 +13,7 @@ material from every source must be kept in full for later editing.
 - a USB camera / capture card that shows up in Windows as a camera,
 - SRT and RTSP network streams,
 - NDI sources found on the network (NDI|HX included),
+- a channel can also be switched off (input type "None"),
 - system sound, a microphone or a line input,
 - a test generator (picture and tone) for rehearsals.
 

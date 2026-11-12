@@ -1,6 +1,6 @@
 # ISO Recorder — stan projektu i instrukcje dla kolejnego modelu
 
-Ten plik jest punktem wejścia. Przeczytaj go w całości, zanim cokolwiek zmienisz. Stan na 2026‑11‑12, wersja **2.6**. Wydania od 2.0 są publikowane jako Release na GitHubie.
+Ten plik jest punktem wejścia. Przeczytaj go w całości, zanim cokolwiek zmienisz. Stan na 2026‑11‑12, wersja **2.7**. Wydania od 2.0 są publikowane jako Release na GitHubie.
 
 ## 1. Co to jest
 
@@ -23,7 +23,7 @@ z tłumaczeniami PL, DE, ES, IT, FR.
 | `mockup/`, `interfejs.png` | wzorzec wyglądu |
 | `docs/zrzut_<wersja>.png` | zrzut okna na każdą wersję |
 
-## 3. Co działa (2.6)
+## 3. Co działa (2.7)
 
 - **Wejścia**: generator testowy, ekran i pojedyncze okno (`d3d11screencapturesrc`), kamera z wyborem rozmiaru obrazu
   (`mfvideosrc`), SRT, RTSP i NDI (`fallbacksrc`; NDI: lista źródeł z sieci w polu Device); dźwięk: sygnał testowy, cisza, dźwięk systemowy (loopback) i wejścia
@@ -48,16 +48,16 @@ z tłumaczeniami PL, DE, ES, IT, FR.
 
 | Wersja | Zakres |
 |---|---|
-| **2.7** | Scheduler: reguły startu / stopu / splitu, catch‑up, zmiana czasu, blokada uśpienia; **wyjście na żywo w harmonogramie**: „jak w harmonogramie nagrywania” albo „cały czas” |
-| **2.8** | Wiele lokalizacji zapisu: folder zapasowy przy małej ilości miejsca i zapis podwójny |
-| **2.9** | Zapis bez ponownego kodowania (stream copy) dla SRT/RTSP jako opcja enkodera |
-| **3.0** | DeckLink; kodeki H.265 / AV1 / ProRes / DNxHR; MOV / MP4 |
-| **3.1** | WebRTC (WHEP, WHIP), odzyskiwanie plików po awarii, instalator |
+| **2.8** | Scheduler: reguły startu / stopu / splitu, catch‑up, zmiana czasu, blokada uśpienia; **wyjście na żywo w harmonogramie**: „jak w harmonogramie nagrywania” albo „cały czas” |
+| **2.9** | Wiele lokalizacji zapisu: folder zapasowy przy małej ilości miejsca i zapis podwójny |
+| **3.0** | Zapis bez ponownego kodowania (stream copy) dla SRT/RTSP jako opcja enkodera |
+| **3.1** | DeckLink; kodeki H.265 / AV1 / ProRes / DNxHR; MOV / MP4 |
+| **3.2** | WebRTC (WHEP, WHIP), odzyskiwanie plików po awarii, instalator |
 
 Decyzje właściciela (2026‑11‑11) — **nie wracać do tych tematów**:
 - wyjście na wirtualną kamerę nie będzie robione: wystarcza wyjście NDI + „Webcam” z NDI Tools;
 - słowo „passthrough” właściciel rozumie jako przekazanie sygnału dalej (robi to wyjście na żywo). Zapis **bez
-  ponownego kodowania** wrócił do planu jako opcja enkodera (2.9) — nazywaj go „stream copy”, nie „passthrough”,
+  ponownego kodowania** wrócił do planu jako opcja enkodera (3.0) — nazywaj go „stream copy”, nie „passthrough”,
   i zawsze z opisem, co użytkownik dostaje i co traci (tekst jest w oknie Settings);
 - hasło RTSP zostaje w adresie (to standard w tego typu oprogramowaniu), bez magazynu poświadczeń dla RTSP.
 
@@ -79,6 +79,9 @@ Zwykłe wyjście (wyładowywanie bibliotek po `ExitProcess`) po nagrywaniu ze zd
 zostawał proces „zombie” (HasExited = true, 1 wątek, `taskkill /F` odpowiada „brak działającego wystąpienia”), który
 blokuje plik EXE do wylogowania. Taki proces da się obejść tylko zmianą nazwy zablokowanego pliku. W testach nie ufaj
 `WaitForExit` — sprawdzaj, czy proces zniknął z listy (`Get-CimInstance Win32_Process`).
+
+Wejście wyłączone (2.7): typ `"none"` (`Channel::inputOff()`). `startPreview` nie buduje wtedy pipeline'u — kanał zostaje
+w stanie Idle z flagą `m_wantPreview`, dzięki której `restart()` uruchomi go po zmianie typu wejścia.
 
 Nazwa kanału wg źródła (2.6): `Inspector::commitInput` → `suggestedName` / `offerRename`; ustawienie
 `AppSettings::renameOnSource()` (ask / always / never). Domyślna nazwa = `TEST n` albo nazwa nadana automatycznie w tej

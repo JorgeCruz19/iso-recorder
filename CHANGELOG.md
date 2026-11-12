@@ -2,6 +2,14 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 2.7
+
+- **Typ wejścia „None (input off)”.** Całkowicie wyłącza sygnał kanału: kanał nie ma wtedy pipeline'u, niczego nie
+  pobiera ani nie koduje, kafel i wiersz listy pokazują „INPUT OFF”, a przyciski nagrywania są nieaktywne (próba
+  nagrania z grupy daje komunikat „the input is off — nothing to record”). Wybranie innego typu wejścia uruchamia kanał
+  od razu. Typ zapisuje się w liście kanałów (`"type": "none"`).
+- Argument testowy `--input none`.
+
 ## 2.6
 
 - **Nazwa kanału wg źródła.** Gdy kanał ma jeszcze domyślną nazwę (TEST 1, TEST 2 …) i w inspektorze zmieni się jego

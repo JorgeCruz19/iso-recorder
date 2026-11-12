@@ -49,7 +49,7 @@ struct RecordPart {
 
 // Zrodlo obrazu i dzwieku kanalu.
 struct InputConfig {
-    QString type = QStringLiteral("test");        // "test" generator, "screen" ekran, "window" okno, "camera" kamera, "srt", "rtsp", "ndi"
+    QString type = QStringLiteral("test");        // "test" generator, "screen" ekran, "window" okno, "camera" kamera, "srt", "rtsp", "ndi", "none" wylaczone
     QString windowTitle;                          // okno: tytul (uchwyt jest szukany przy starcie kanalu)
     QString cameraMode;                           // kamera: rozmiar obrazu "WxH"; puste = wybor sterownika
     QString lossPolicy = QStringLiteral("continue");   // zanik sygnalu sieciowego: "continue", "pause", "split"
@@ -112,6 +112,7 @@ public:
         return m_state == ChannelState::Recording || m_state == ChannelState::Paused || m_state == ChannelState::Finalizing;
     }
     bool canEdit() const { return !isRecording(); }
+    bool inputOff() const { return m_cfg.in.type == QLatin1String("none"); }     // typ wejscia "None": kanal bez sygnalu
 
     const QImage& frame() const { return m_frame; }
     double level(int ch) const { return m_level[size_t(ch & 1)]; }   // 0..1 (-60..0 dBFS)
@@ -199,6 +200,7 @@ private:
     std::array<double, 2> m_level{0.0, 0.0};
     GstElement* m_pipeline = nullptr;
     bool m_largePreview = false;
+    bool m_wantPreview = false;             // kanal mial ruszyc, ale wejscie jest wylaczone - ruszy po zmianie typu wejscia
     bool m_signalLost = false;
     bool m_autoPaused = false;              // pauza wlaczona automatycznie przez zanik sygnalu
     QTimer m_retry;                         // ponawianie startu kanalu po awarii zrodla

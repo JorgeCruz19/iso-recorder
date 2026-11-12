@@ -29,7 +29,7 @@ QString stateText(const Channel* ch) {
     case ChannelState::Preview: return QStringLiteral("PREVIEW");
     case ChannelState::Error: return T("ERROR");
     case ChannelState::Reconnecting: return T("RECONNECTING");
-    default: return T("NO SIGNAL");
+    default: return ch->inputOff() ? T("INPUT OFF") : T("NO SIGNAL");
     }
 }
 
