@@ -2,11 +2,17 @@
 #include <QHash>
 #include <QWidget>
 
+#include "core/Schedule.h"
+
 class Channel;
 class ChannelManager;
 class MeterPane;
 class PreviewPane;
+class QCheckBox;
 class QComboBox;
+class QDateEdit;
+class QListWidget;
+class QTimeEdit;
 class QLabel;
 class QLineEdit;
 class QPushButton;
@@ -24,6 +30,26 @@ private:
     void refresh();
     QWidget* buildInputPage();
     QWidget* buildOutputPage();
+    QWidget* buildSchedulePage();
+    void commitSchedule();          // edytor reguly -> kanal
+    void refreshSchedule();         // kanal -> lista regul, edytor, status
+    void fillRuleEditor();
+    QString ruleText(const ScheduleRule& r) const;
+    QLabel* m_schedStatus = nullptr;
+    QListWidget* m_ruleList = nullptr;
+    QPushButton* m_ruleAdd = nullptr;
+    QPushButton* m_ruleDel = nullptr;
+    QWidget* m_ruleEditor = nullptr;
+    QComboBox* m_ruleRepeat = nullptr;
+    QPushButton* m_ruleDays[7]{};
+    QDateEdit* m_ruleDate = nullptr;
+    QTimeEdit* m_ruleStart = nullptr;
+    QTimeEdit* m_ruleStop = nullptr;
+    QComboBox* m_ruleSplit = nullptr;
+    QCheckBox* m_catchUp = nullptr;
+    ScheduleConfig m_schedShown;    // reguly pokazane na liscie
+    Channel* m_schedFor = nullptr;
+    bool m_schedFilling = false;
     void commitOutput();
     void commitLive();
     QMetaObject::Connection m_conn;
@@ -65,4 +91,5 @@ private:
     QLineEdit* m_liveNdi;
     QLineEdit* m_liveSrt;
     QComboBox* m_liveRate;
+    QComboBox* m_liveWhen;
 };

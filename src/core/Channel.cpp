@@ -166,6 +166,30 @@ void Channel::setOutput(const OutputConfig& out) {
 
 // Wyjscie mozna wlaczyc, wylaczyc i zmienic w kazdej chwili, takze podczas nagrywania: galaz jest dopinana
 // do dzialajacego pipeline'u tak samo jak galaz nagrywania i nie dotyka ani zrodla, ani pliku.
+void Channel::setLiveGate(bool open) {
+    if (open == m_liveGate) return;
+    m_liveGate = open;
+    if (m_cfg.live.when != QLatin1String("schedule") || !liveOn()) return;
+    if (m_pipeline) {
+        if (open) attachLive(); else detachLive();
+    }
+    emit changed();
+}
+
+void Channel::setSchedule(const ScheduleConfig& sched) {
+    if (sched == m_cfg.sched) return;
+    m_cfg.sched = sched;
+    emit changed();
+    emit configChanged();
+}
+
+void Channel::setScheduleStatus(const QDateTime& next, const QDateTime& until) {
+    if (next == m_schedNext && until == m_schedUntil) return;
+    m_schedNext = next;
+    m_schedUntil = until;
+    emit changed();
+}
+
 void Channel::setLive(const LiveConfig& live) {
     if (live == m_cfg.live && !m_liveFailed) return;
     m_cfg.live = live;
@@ -221,7 +245,7 @@ QString Channel::liveDescription() {
 }
 
 void Channel::attachLive() {
-    if (!m_pipeline || m_liveBin || !liveOn() || m_liveFailed) return;
+    if (!m_pipeline || m_liveBin || !liveActive() || m_liveFailed) return;
     ++m_liveSerial;
     m_liveNoticed = false;
     const QString desc = liveDescription();

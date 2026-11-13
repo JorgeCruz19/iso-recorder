@@ -1,4 +1,5 @@
 #pragma once
+#include <QHash>
 #include <QJsonObject>
 #include <QList>
 #include <QObject>
@@ -102,4 +103,16 @@ private:
     QTimer m_autosave;
     QTime m_autosavedAt;
     QTimer m_poll;
+    // --- Scheduler: co 250 ms porownuje zegar scienny z regulami kanalow (odporne na uspienie i zmiane czasu) ---
+    struct SchedState {
+        QDateTime handled;      // poczatek okna, ktore zostalo juz obsluzone (start wykonany, pominiety albo zignorowany)
+        QDateTime stopAt;       // koniec tego okna: wtedy Stop; niewazne = nic do zatrzymania
+        qint64 lastSplit = 0;   // numer ostatniego wykonanego podzialu w oknie
+        QDateTime retryAfter;   // nieudany start: nastepna proba
+        QDateTime stopArmed;    // koniec okna, dla ktorego dokladny Stop jest juz nastawiony
+    };
+    QHash<Channel*, SchedState> m_sched;
+    QTimer m_schedTick;
+    bool m_sleepBlocked = false;
+    void schedulerTick();
 };

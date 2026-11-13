@@ -430,7 +430,7 @@ void MainWindow::refreshCounts() {
         switch (c->state()) {
         case ChannelState::Recording: case ChannelState::Reconnecting: case ChannelState::Finalizing: ++rec; break;
         case ChannelState::Paused: ++pau; break;
-        case ChannelState::Preview: ++prv; break;
+        case ChannelState::Preview: if (c->waitingForSchedule()) ++wait; else ++prv; break;
         case ChannelState::Waiting: ++wait; break;
         case ChannelState::Error: ++err; break;
         default: break;

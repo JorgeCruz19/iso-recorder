@@ -16,6 +16,8 @@
 #include <gst/app/gstappsrc.h>
 #include <gst/gst.h>
 
+#include "Schedule.h"
+
 enum class ChannelState { Idle, Preview, Recording, Paused, Finalizing, Waiting, Reconnecting, Error };
 
 // Ustawienia zapisu kanalu (zakladka Output).
@@ -37,6 +39,7 @@ struct LiveConfig {
     QString ndiName;                        // puste = nazwa kanalu
     QString srtAddress;                     // ":9001" = ten komputer czeka na odbiorce; "host:9001" = laczy sie z odbiorca
     int srtKbps = 6000;
+    QString when = QStringLiteral("always");  // "always" caly czas, "schedule" tylko w oknach harmonogramu nagrywania
     bool operator==(const LiveConfig&) const = default;
 };
 
@@ -76,6 +79,7 @@ struct ChannelConfig {
     InputConfig in;
     OutputConfig out;
     LiveConfig live;
+    ScheduleConfig sched;
 };
 
 // Jeden kanal = konfiguracja + wlasny GstPipeline (awaria jednego nie dotyka pozostalych).
@@ -96,6 +100,16 @@ public:
     void setLive(const LiveConfig& live);    // dziala takze podczas nagrywania: galaz wyjscia jest dopinana w locie
     bool liveOn() const { return m_cfg.live.type != QLatin1String("off"); }
     bool liveFailed() const { return m_liveFailed; }
+    // Wyjscie faktycznie nadaje: wlaczone i (tryb "caly czas" albo trwa okno harmonogramu).
+    bool liveActive() const { return liveOn() && (m_cfg.live.when != QLatin1String("schedule") || m_liveGate); }
+    void setLiveGate(bool open);             // ustawia scheduler: trwa okno harmonogramu
+    // Harmonogram: reguly mozna zmieniac takze podczas nagrywania. Status (najblizszy start, koniec biezacego okna)
+    // wpisuje scheduler w ChannelManager - sluzy tylko do pokazania w interfejsie.
+    void setSchedule(const ScheduleConfig& sched);
+    void setScheduleStatus(const QDateTime& next, const QDateTime& until);
+    QDateTime scheduleNext() const { return m_schedNext; }
+    QDateTime scheduleUntil() const { return m_schedUntil; }
+    bool waitingForSchedule() const { return m_state == ChannelState::Preview && m_schedNext.isValid(); }
     QString liveText() const;                // krotki opis na kafel: "NDI", "SRT :9001"
     static QString srtUri(const QString& address);
     static QString defaultOutputDir();
@@ -211,6 +225,8 @@ private:
     int m_recLosses = 0;                    // zaniki sygnalu w trakcie biezacego nagrania
     qint64 m_recLostMs = 0;
     QElapsedTimer m_lostClock;
+    bool m_liveGate = false;                // trwa okno harmonogramu (dla wyjscia w trybie "schedule")
+    QDateTime m_schedNext, m_schedUntil;
     bool m_liveFailed = false;              // wyjscie na zywo zglosilo blad - wylaczone do zmiany ustawien
     std::atomic<int> m_gen{0};              // numer kolejnego pipeline'u (komunikaty ze starego sa ignorowane)
     GstElement* m_liveBin = nullptr;                    // watek GUI

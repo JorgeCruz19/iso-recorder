@@ -110,6 +110,18 @@ QPushButton#vb::menu-indicator { image:none; }
 #inspector QComboBox::down-arrow:disabled { image:url(%ARROW_OFF%); }
 #inspector QComboBox QAbstractItemView { background:#1a1a1a; border:1px solid #3a3a3a;
                                          selection-background-color:#4a4a4a; }
+#inspector QAbstractSpinBox { background:#1a1a1a; border:1px solid #3a3a3a; border-radius:2px; padding:0 6px;
+                             min-height:21px; font-size:11px; }
+#inspector QAbstractSpinBox:disabled { color:#6e6e6e; }
+#inspector QListWidget { background:#1a1a1a; border:1px solid #3a3a3a; font-size:11px; outline:0; }
+#inspector QListWidget::item { padding:3px 2px; }
+#inspector QListWidget::item:selected { background:#4a4a4a; color:#f0f0f0; }
+#inspector QPushButton#day { background:#262626; border:1px solid #3a3a3a; border-radius:2px; color:#9d9d9d;
+                             font-size:10px; min-height:20px; padding:0; }
+#inspector QPushButton#day:checked { background:#e8842a; border-color:#e8842a; color:#151515; font-weight:700; }
+#inspector QPushButton#day:disabled { color:#555555; }
+#inspector QCheckBox { font-size:11px; color:#d6d6d6; }
+#inspector QLabel#schedStatus { color:#d6d6d6; padding:8px 12px; font-size:11px; }
 #status { background:#161616; border-top:1px solid #000; }
 #status QLabel { background:transparent; color:#9d9d9d; font-size:11px; }
 QMenu { background:#262626; border:1px solid #151515; padding:4px 0; }

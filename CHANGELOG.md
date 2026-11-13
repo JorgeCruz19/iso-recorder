@@ -2,6 +2,25 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 2.8
+
+- **Scheduler.** Zakładka Scheduler w inspektorze: lista reguł kanału. Reguła to okno „od – do” — co tydzień w wybrane
+  dni albo jednorazowo w wybranym dniu; godzina stopu wcześniejsza niż startu oznacza następny dzień. Kanał zaczyna
+  nagrywać na początku okna i kończy na końcu; opcjonalnie dzieli plik co 1–60 min liczonych od początku okna.
+- Zapis rusza dokładnie o zaplanowanej sekundzie: gałąź zapisu jest przygotowywana do 2 s wcześniej, a kanały z tym
+  samym startem ruszają w jednej chwili. Stop też wypada dokładnie na końcu okna.
+- Spóźniony start (opcja, domyślnie włączona): gdy program ruszył albo komputer obudził się w trakcie okna, nagrywanie
+  zaczyna się od razu; wyłączona — okno jest pomijane. Źródło w stanie błędu: start jest ponawiany, dopóki trwa okno.
+- Konflikty: start w trakcie nagrywania jest pomijany (nagranie trwa, Stop na końcu okna) z wpisem w logu.
+- Harmonogram porównuje zegar ścienny 4 razy na sekundę, więc uśpienie, przestawienie zegara i zmiana czasu niczego
+  nie gubią ani nie powtarzają. Komputer nie zasypia, gdy trwa nagranie albo czeka zaplanowane.
+- Kanał czekający na start pokazuje „START gg:mm” na kaflu i stan WAITING w liście i w pasku stanu.
+- **Wyjście na żywo w harmonogramie**: nowe pole „Active” — „All the time” albo „As in the recording schedule”
+  (wyjście nadaje tylko w oknach harmonogramu; poza nimi znacznik NDI/SRT jest przygaszony).
+- Reguły zapisują się w liście kanałów (`schedule`), tryb wyjścia w `live.when`.
+- Test: `tests\sched_test.ps1`; argumenty `--sched-selftest`, `--sched-in/-len/-split/-nocatch/-live/-report`, `--quit-after`.
+- Zmiana kolejności planu (decyzja właściciela): zapis bez ponownego kodowania to teraz 2.9, wiele lokalizacji zapisu 3.0.
+
 ## 2.7
 
 - **Typ wejścia „None (input off)”.** Całkowicie wyłącza sygnał kanału: kanał nie ma wtedy pipeline'u, niczego nie

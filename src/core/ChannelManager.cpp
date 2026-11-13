@@ -18,6 +18,8 @@
 
 #include <algorithm>
 
+#include <windows.h>
+
 ChannelManager::ChannelManager(QObject* parent) : QObject(parent) {
     m_poll.setInterval(1000);
     connect(&m_poll, &QTimer::timeout, this, [this] {
@@ -29,10 +31,152 @@ ChannelManager::ChannelManager(QObject* parent) : QObject(parent) {
         emit statsChanged();
     });
     m_poll.start();
+    m_schedTick.setInterval(250);
+    connect(&m_schedTick, &QTimer::timeout, this, &ChannelManager::schedulerTick);
+    m_schedTick.start();
     m_autosave.setSingleShot(true);
     m_autosave.setInterval(2000);
     connect(&m_autosave, &QTimer::timeout, this, &ChannelManager::writeAutosave);
     connect(this, &ChannelManager::listChanged, this, &ChannelManager::markDirty);    // dodanie, usuniecie, kolejnosc
+}
+
+// Scheduler. Kazda regula to okno "od - do". Na poczatku okna kanal zaczyna nagrywac, na koncu konczy, w trakcie moze
+// dzielic plik. Stan jest porownywany z zegarem sciennym 4 razy na sekunde, wiec uspienie komputera, przestawienie
+// zegara i zmiana czasu niczego nie gubia ani nie powtarzaja: okno jest "obsluzone" dokladnie raz (po poczatku okna).
+// Kanaly, ktore maja ruszyc w tej samej chwili, startuja jedna grupa (wspolna chwila T).
+void ChannelManager::schedulerTick() {
+    const QDateTime now = QDateTime::currentDateTime();
+    for (auto it = m_sched.begin(); it != m_sched.end();)
+        it = m_channels.contains(it.key()) ? std::next(it) : m_sched.erase(it);
+    QList<Channel*> toStart, toStop;
+    QList<bool> startLate;
+    bool pending = false;
+    for (Channel* c : m_channels) {
+        const ScheduleConfig& sc = c->config().sched;
+        SchedState& st = m_sched[c];
+        const Schedule::Window w = sc.active() ? Schedule::windowAt(sc, now) : Schedule::Window{};
+        const bool recording = c->state() == ChannelState::Recording || c->state() == ChannelState::Paused;
+        if (w.valid() && st.handled == w.start && st.stopAt.isValid()) st.stopAt = w.end;      // zmieniona godzina konca
+        if (st.stopAt.isValid() && now >= st.stopAt) {
+            if (recording && st.stopArmed != st.stopAt) {
+                toStop << c;
+                emit notice(T("%1: scheduled stop").arg(c->config().name));
+            }
+            st.stopAt = QDateTime();
+        } else if (st.stopAt.isValid() && recording && st.stopArmed != st.stopAt && now.msecsTo(st.stopAt) <= 300) {
+            // Koniec okna wypada przed nastepnym taktem: Stop dokladnie o tej chwili, a nie do 250 ms pozniej.
+            st.stopArmed = st.stopAt;
+            const QDateTime at = st.stopAt;
+            QTimer* t = new QTimer(this);
+            t->setTimerType(Qt::PreciseTimer);
+            t->setSingleShot(true);
+            connect(t, &QTimer::timeout, this, [this, c, at, t] {
+                t->deleteLater();
+                if (!m_channels.contains(c) || m_sched.value(c).stopArmed != at) return;
+                if (c->state() == ChannelState::Recording || c->state() == ChannelState::Paused) {
+                    emit notice(T("%1: scheduled stop").arg(c->config().name));
+                    transportGroup({c}, Transport::Stop);
+                }
+            });
+            t->start(int(qMax<qint64>(0, now.msecsTo(st.stopAt))));
+        }
+        if (w.valid() && st.handled != w.start && (!st.retryAfter.isValid() || now >= st.retryAfter)) {
+            const bool late = w.start.msecsTo(now) > 3000;
+            const qint64 split = sc.rules.at(w.rule).splitSeconds;
+            if (late && !sc.catchUp) {
+                st.handled = w.start;
+                emit notice(T("%1: scheduled start missed — late start is off").arg(c->config().name));
+            } else if (c->isRecording()) {      // konflikt: Start w trakcie nagrywania - nagranie trwa, Stop na koncu okna
+                st.handled = w.start;
+                st.stopAt = w.end;
+                st.lastSplit = split > 0 ? w.start.secsTo(now) / split : 0;
+                emit notice(T("%1: scheduled start ignored — already recording").arg(c->config().name));
+            } else if (c->state() == ChannelState::Preview) {
+                toStart << c;
+                startLate << late;
+                st.lastSplit = split > 0 ? w.start.secsTo(now) / split : 0;
+            }       // kanal w stanie bledu albo bez sygnalu: kolejna proba przy nastepnym takcie, dopoki trwa okno
+        }
+        if (w.valid() && st.handled == w.start && st.stopAt.isValid() && c->state() == ChannelState::Recording) {
+            const qint64 split = sc.rules.at(w.rule).splitSeconds;
+            const qint64 k = split > 0 ? w.start.secsTo(now) / split : 0;
+            if (k > st.lastSplit) {
+                st.lastSplit = k;
+                c->split();
+            }
+        }
+    }
+    if (!toStop.isEmpty()) transportGroup(toStop, Transport::Stop);
+    // Przygotowanie: dopiecie galezi zapisu (proba enkodera, budowa galezi) trwa okolo sekundy, wiec robimy to do 2 s
+    // przed poczatkiem okna, a sam zapis rusza dokladnie o zaplanowanej chwili - wspolnej dla kanalow z tym samym startem.
+    QHash<qint64, QList<Channel*>> armed;
+    for (Channel* c : m_channels) {
+        const ScheduleConfig& sc = c->config().sched;
+        if (!sc.active() || c->state() != ChannelState::Preview) continue;
+        SchedState& st = m_sched[c];
+        const Schedule::Window next = Schedule::nextWindow(sc, now);
+        if (!next.valid() || st.handled == next.start || now.msecsTo(next.start) > 2000) continue;
+        if (st.retryAfter.isValid() && now < st.retryAfter) continue;
+        if (!c->startRecording(sessionForFiles(), indexOf(c) + 1)) {
+            st.retryAfter = now.addSecs(5);
+            continue;
+        }
+        st.handled = next.start;
+        st.stopAt = next.end;
+        st.lastSplit = 0;
+        st.retryAfter = QDateTime();
+        armed[next.start.toMSecsSinceEpoch()] << c;
+    }
+    for (auto it = armed.begin(); it != armed.end(); ++it) {
+        const QList<Channel*> group = it.value();
+        QTimer* t = new QTimer(this);
+        t->setTimerType(Qt::PreciseTimer);
+        t->setSingleShot(true);
+        connect(t, &QTimer::timeout, this, [this, group, t] {
+            t->deleteLater();
+            const quint64 at = Channel::clockNow();
+            for (Channel* c : group) {
+                if (!m_channels.contains(c) || !c->isRecording()) continue;
+                c->beginRecordingAt(at);
+                emit notice(T("%1: scheduled recording started").arg(c->config().name));
+            }
+        });
+        t->start(int(qMax<qint64>(0, QDateTime::currentDateTime().msecsTo(QDateTime::fromMSecsSinceEpoch(it.key())))));
+    }
+    if (!toStart.isEmpty()) {
+        transportGroup(toStart, Transport::Rec);
+        for (int i = 0; i < toStart.size(); ++i) {
+            Channel* c = toStart.at(i);
+            SchedState& st = m_sched[c];
+            const Schedule::Window w = Schedule::windowAt(c->config().sched, now);
+            if (c->isRecording() && w.valid()) {
+                st.handled = w.start;
+                st.stopAt = w.end;
+                st.retryAfter = QDateTime();
+                emit notice((startLate.at(i) ? T("%1: scheduled recording started late") : T("%1: scheduled recording started")).arg(c->config().name));
+            } else {
+                st.retryAfter = now.addSecs(5);     // np. brak enkodera - nie ponawiaj 4 razy na sekunde
+            }
+        }
+    }
+    // Status do pokazania w interfejsie, bramka wyjscia na zywo w trybie "jak w harmonogramie", blokada uspienia.
+    for (Channel* c : m_channels) {
+        const ScheduleConfig& sc = c->config().sched;
+        const SchedState& st = m_sched[c];
+        const Schedule::Window w = sc.active() ? Schedule::windowAt(sc, now) : Schedule::Window{};
+        const bool inWindow = w.valid() && st.handled == w.start && st.stopAt.isValid();
+        const Schedule::Window next = sc.active() ? Schedule::nextWindow(sc, now) : Schedule::Window{};
+        // okno trwa, ale kanal jeszcze nie ruszyl (blad zrodla) - nadal "czeka" na start z tego okna
+        const QDateTime nextStart = w.valid() && st.handled != w.start ? w.start : next.start;
+        c->setScheduleStatus(c->isRecording() ? QDateTime() : nextStart, inWindow && c->isRecording() ? st.stopAt : QDateTime());
+        c->setLiveGate(inWindow);
+        pending = pending || w.valid() || next.valid();
+    }
+    const bool block = pending || recordingCount() > 0;
+    if (block != m_sleepBlocked) {      // komputer nie zasypia, gdy trwa nagranie albo czeka zaplanowane
+        m_sleepBlocked = block;
+        SetThreadExecutionState(ES_CONTINUOUS | (block ? ES_SYSTEM_REQUIRED : 0));
+    }
 }
 
 QList<Channel*> ChannelManager::selected() const {
@@ -290,7 +434,9 @@ QJsonObject channelToJson(const Channel* ch) {
             {QStringLiteral("autoSplit"), QJsonObject{{QStringLiteral("mode"), splitMode}, {QStringLiteral("seconds"), o.splitSeconds},
                                                       {QStringLiteral("bytes"), double(o.splitBytes)}}}}},
         {QStringLiteral("live"), QJsonObject{{QStringLiteral("type"), c.live.type}, {QStringLiteral("ndiName"), c.live.ndiName},
-                                             {QStringLiteral("srtAddress"), c.live.srtAddress}, {QStringLiteral("bitrateKbps"), c.live.srtKbps}}}};
+                                             {QStringLiteral("srtAddress"), c.live.srtAddress}, {QStringLiteral("bitrateKbps"), c.live.srtKbps},
+                                             {QStringLiteral("when"), c.live.when}}},
+        {QStringLiteral("schedule"), Schedule::toJson(c.sched)}};
 }
 
 // Wczytywanie odporne: nieznane pola sa ignorowane, brakujace dostaja wartosci domyslne.
@@ -342,6 +488,8 @@ ChannelConfig channelFromJson(const QJsonObject& j, int number) {
     c.live.ndiName = live.value(QStringLiteral("ndiName")).toString();
     c.live.srtAddress = live.value(QStringLiteral("srtAddress")).toString();
     c.live.srtKbps = qBound(500, live.value(QStringLiteral("bitrateKbps")).toInt(d.live.srtKbps), 100000);
+    c.live.when = live.value(QStringLiteral("when")).toString() == QLatin1String("schedule") ? QStringLiteral("schedule") : QStringLiteral("always");
+    c.sched = Schedule::fromJson(j.value(QStringLiteral("schedule")).toObject());
     return c;
 }
 

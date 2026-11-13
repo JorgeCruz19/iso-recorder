@@ -26,7 +26,7 @@ QString stateText(const Channel* ch) {
     case ChannelState::Recording: return QStringLiteral("REC");
     case ChannelState::Paused: return T("PAUSED");
     case ChannelState::Finalizing: return T("SAVING");
-    case ChannelState::Preview: return QStringLiteral("PREVIEW");
+    case ChannelState::Preview: return ch->waitingForSchedule() ? T("WAITING") : QStringLiteral("PREVIEW");
     case ChannelState::Error: return T("ERROR");
     case ChannelState::Reconnecting: return T("RECONNECTING");
     default: return ch->inputOff() ? T("INPUT OFF") : T("NO SIGNAL");
@@ -351,8 +351,9 @@ void ChannelRow::paintEvent(QPaintEvent*) {
         p.setFont(Theme::font(10, QFont::Bold, 0.3));
         const QString lt = p.fontMetrics().elidedText(m_ch->liveText(), Qt::ElideRight, c.meter - c.live - 22);
         const QRect lr(c.live, (height() - 17) / 2, p.fontMetrics().horizontalAdvance(lt) + 12, 17);
-        p.fillRect(lr, m_ch->liveFailed() ? QColor(0x55, 0x55, 0x55) : QColor(0x1d, 0x6f, 0xd6));
-        p.setPen(Qt::white);
+        // szary: awaria wyjscia; ciemny: wyjscie czeka na okno harmonogramu
+        p.fillRect(lr, m_ch->liveFailed() ? QColor(0x55, 0x55, 0x55) : m_ch->liveActive() ? QColor(0x1d, 0x6f, 0xd6) : QColor(0x24, 0x3a, 0x57));
+        p.setPen(m_ch->liveActive() ? QColor(Qt::white) : QColor(0x9d, 0x9d, 0x9d));
         p.drawText(lr, Qt::AlignCenter, lt);
     }
     // mierniki L / R

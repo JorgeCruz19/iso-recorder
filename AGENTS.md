@@ -1,6 +1,6 @@
 # ISO Recorder — stan projektu i instrukcje dla kolejnego modelu
 
-Ten plik jest punktem wejścia. Przeczytaj go w całości, zanim cokolwiek zmienisz. Stan na 2026‑11‑12, wersja **2.7**. Wydania od 2.0 są publikowane jako Release na GitHubie.
+Ten plik jest punktem wejścia. Przeczytaj go w całości, zanim cokolwiek zmienisz. Stan na 2026‑11‑12, wersja **2.8**. Wydania od 2.0 są publikowane jako Release na GitHubie.
 
 ## 1. Co to jest
 
@@ -23,7 +23,7 @@ z tłumaczeniami PL, DE, ES, IT, FR.
 | `mockup/`, `interfejs.png` | wzorzec wyglądu |
 | `docs/zrzut_<wersja>.png` | zrzut okna na każdą wersję |
 
-## 3. Co działa (2.7)
+## 3. Co działa (2.8)
 
 - **Wejścia**: generator testowy, ekran i pojedyncze okno (`d3d11screencapturesrc`), kamera z wyborem rozmiaru obrazu
   (`mfvideosrc`), SRT, RTSP i NDI (`fallbacksrc`; NDI: lista źródeł z sieci w polu Device); dźwięk: sygnał testowy, cisza, dźwięk systemowy (loopback) i wejścia
@@ -48,16 +48,15 @@ z tłumaczeniami PL, DE, ES, IT, FR.
 
 | Wersja | Zakres |
 |---|---|
-| **2.8** | Scheduler: reguły startu / stopu / splitu, catch‑up, zmiana czasu, blokada uśpienia; **wyjście na żywo w harmonogramie**: „jak w harmonogramie nagrywania” albo „cały czas” |
-| **2.9** | Wiele lokalizacji zapisu: folder zapasowy przy małej ilości miejsca i zapis podwójny |
-| **3.0** | Zapis bez ponownego kodowania (stream copy) dla SRT/RTSP jako opcja enkodera |
+| **2.9** | Zapis bez ponownego kodowania (stream copy) dla SRT/RTSP jako opcja enkodera |
+| **3.0** | Wiele lokalizacji zapisu: folder zapasowy przy małej ilości miejsca i zapis podwójny |
 | **3.1** | DeckLink; kodeki H.265 / AV1 / ProRes / DNxHR; MOV / MP4 |
 | **3.2** | WebRTC (WHEP, WHIP), odzyskiwanie plików po awarii, instalator |
 
 Decyzje właściciela (2026‑11‑11) — **nie wracać do tych tematów**:
 - wyjście na wirtualną kamerę nie będzie robione: wystarcza wyjście NDI + „Webcam” z NDI Tools;
 - słowo „passthrough” właściciel rozumie jako przekazanie sygnału dalej (robi to wyjście na żywo). Zapis **bez
-  ponownego kodowania** wrócił do planu jako opcja enkodera (3.0) — nazywaj go „stream copy”, nie „passthrough”,
+  ponownego kodowania** wrócił do planu jako opcja enkodera (2.9) — nazywaj go „stream copy”, nie „passthrough”,
   i zawsze z opisem, co użytkownik dostaje i co traci (tekst jest w oknie Settings);
 - hasło RTSP zostaje w adresie (to standard w tego typu oprogramowaniu), bez magazynu poświadczeń dla RTSP.
 
@@ -79,6 +78,14 @@ Zwykłe wyjście (wyładowywanie bibliotek po `ExitProcess`) po nagrywaniu ze zd
 zostawał proces „zombie” (HasExited = true, 1 wątek, `taskkill /F` odpowiada „brak działającego wystąpienia”), który
 blokuje plik EXE do wylogowania. Taki proces da się obejść tylko zmianą nazwy zablokowanego pliku. W testach nie ufaj
 `WaitForExit` — sprawdzaj, czy proces zniknął z listy (`Get-CimInstance Win32_Process`).
+
+Scheduler (2.8): reguły to okna „od – do” (`core/Schedule.*`: `windowAt`, `nextWindow`, zapis JSON, `selfTest`). Silnik to
+`ChannelManager::schedulerTick()` co 250 ms na zegarze ściennym; stan na kanał w `m_sched` (`handled` = początek okna już
+obsłużonego — to daje idempotencję, `stopAt` = koniec okna). Dokładność: `startRecording` jest wołane do 2 s przed oknem,
+a `beginRecordingAt` z dokładnego timera o początku okna (wspólna chwila dla grupy); Stop też z dokładnego timera.
+Wyjście na żywo w trybie `live.when = "schedule"` otwiera `Channel::setLiveGate()`. Blokada uśpienia:
+`SetThreadExecutionState` w tym samym takcie. Zakładka: `Inspector::buildSchedulePage` — lista jest poprawiana w miejscu,
+gdy liczba reguł się nie zmienia (inaczej edytowane pole traciłoby fokus). Test: `tests\sched_test.ps1`.
 
 Wejście wyłączone (2.7): typ `"none"` (`Channel::inputOff()`). `startPreview` nie buduje wtedy pipeline'u — kanał zostaje
 w stanie Idle z flagą `m_wantPreview`, dzięki której `restart()` uruchomi go po zmianie typu wejścia.
@@ -167,6 +174,7 @@ sesji (`m_autoNames`). Pierwszy człon to krótka nazwa typu (Screen / Window / 
 | `tests\sync_test.ps1` | wspólny start / pauza / stop grupy, domyślnie 16 kanałów |
 | `tests\live_test.ps1` | odbiór wyjścia SRT (ffprobe) i NDI w trakcie nagrania |
 | `tests\net_test.ps1` | wejście SRT / RTSP / NDI z zanikiem i powrotem nadajnika (`build\rtsp_test_server.exe`; NDI: gst-launch) |
+| `tests\sched_test.ps1` | harmonogram: obliczenia okien, start co do klatki, podział, spóźniony start, wyjście na żywo w oknie |
 | `tests\list_test.ps1` | lista kanałów: zapis → wczytanie → identyczny plik; autozapis, przywracanie, ostatnia lista |
 
 Każdy skrypt przyjmuje `-Exe` (test paczki). Przed wydaniem uruchom przynajmniej: `rec_test` z pauzą i splitem,

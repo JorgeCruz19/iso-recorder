@@ -151,8 +151,8 @@ void ChannelTile::paintEvent(QPaintEvent*) {
     if (m_ch->liveOn()) {       // wyjscie na zywo: niebieski znacznik, po awarii przekreslony szary
         const QString lt = m_ch->liveText().section(QLatin1Char(' '), 0, 0);
         const QRect lr(fr.right() + 5, fr.top(), p.fontMetrics().horizontalAdvance(lt) + 12, fr.height());
-        p.fillRect(lr, m_ch->liveFailed() ? QColor(0x55, 0x55, 0x55) : QColor(0x1d, 0x6f, 0xd6));
-        p.setPen(Qt::white);
+        p.fillRect(lr, m_ch->liveFailed() ? QColor(0x55, 0x55, 0x55) : m_ch->liveActive() ? QColor(0x1d, 0x6f, 0xd6) : QColor(0x24, 0x3a, 0x57));
+        p.setPen(m_ch->liveActive() ? QColor(Qt::white) : QColor(0x9d, 0x9d, 0x9d));
         p.drawText(lr, Qt::AlignCenter, lt);
         if (m_ch->liveFailed()) p.drawLine(lr.left() + 3, lr.center().y(), lr.right() - 3, lr.center().y());
     }
@@ -175,6 +175,17 @@ void ChannelTile::paintEvent(QPaintEvent*) {
         p.setRenderHint(QPainter::Antialiasing, false);
         p.setPen(Qt::white);
         p.drawText(rr.adjusted(18, 0, -6, 0), Qt::AlignVCenter | Qt::AlignLeft, t);
+    }
+    // zaplanowany start (prawy gorny rog, w miejscu czasu nagrania): godzina, a dla innego dnia takze data
+    if (m_ch->waitingForSchedule()) {
+        const QDateTime nx = m_ch->scheduleNext();
+        const QString t = QStringLiteral("START ") + nx.toString(nx.date() == QDate::currentDate() ? QStringLiteral("HH:mm") : QStringLiteral("MM-dd HH:mm"));
+        p.setFont(Theme::font(10, QFont::Bold, 0.3));
+        const int tw = p.fontMetrics().horizontalAdvance(t);
+        const QRect rr(r.vid.right() - 8 - (tw + 12), r.vid.top() + 8, tw + 12, 17);
+        p.fillRect(rr, chip);
+        p.setPen(QColor(0xd6, 0xd6, 0xd6));
+        p.drawText(rr, Qt::AlignCenter, t);
     }
     // ikona odsluchu nad miernikiem audio
     const QRect mon(r.vid.right() - 8 - 17, r.vid.top() + 29, 18, 15);

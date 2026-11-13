@@ -3,6 +3,10 @@
 #include <QButtonGroup>
 #include <QAbstractItemView>
 #include <QCheckBox>
+#include <QDateEdit>
+#include <QListWidget>
+#include <QLocale>
+#include <QTimeEdit>
 #include <QMessageBox>
 #include <QPointer>
 #include <QRegularExpression>
@@ -105,7 +109,7 @@ Inspector::Inspector(ChannelManager* mgr, QWidget* parent) : QWidget(parent), m_
 
     m_stack->addWidget(m_inputPage = buildInputPage());
     m_stack->addWidget(buildOutputPage());
-    m_stack->addWidget(placeholder(T("Start, stop and split scheduling will arrive in version %1.").arg(QLatin1String(Roadmap::scheduler))));
+    m_stack->addWidget(buildSchedulePage());
     // Prawa kolumna jest waska i dzieli wysokosc z panelem sterowania - tresc zakladek przewija sie.
     auto* scroll = new QScrollArea;
     scroll->setFrameShape(QFrame::NoFrame);
@@ -128,7 +132,8 @@ Inspector::Inspector(ChannelManager* mgr, QWidget* parent) : QWidget(parent), m_
         connect(c, &QComboBox::currentTextChanged, c, [c](const QString& text) { c->setToolTip(text); });
         c->setToolTip(c->currentText());
     }
-    for (QLineEdit* e : findChildren<QLineEdit*>()) e->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+    for (QLineEdit* e : findChildren<QLineEdit*>())
+        if (!qobject_cast<QAbstractSpinBox*>(e->parentWidget())) e->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
     connect(mgr, &ChannelManager::activeChanged, this, &Inspector::bind);
     connect(mgr, &ChannelManager::listChanged, this, &Inspector::bind);
     bind();
@@ -232,7 +237,6 @@ QWidget* Inspector::buildInputPage() {
     for (int db = 18; db >= -24; db -= 3) m_gain->addItem(db == 0 ? QStringLiteral("0 dB") : QStringLiteral("%1%2 dB").arg(db > 0 ? QStringLiteral("+") : QStringLiteral("−")).arg(qAbs(db)), db);
     row(g, T("Input gain"), m_gain);
 
-    v->addWidget(section(T("Scheduler — from version %1").arg(QLatin1String(Roadmap::scheduler)), true));
     v->addStretch(1);
 
     connect(m_name, &QLineEdit::editingFinished, this, [this] {
@@ -342,6 +346,12 @@ QWidget* Inspector::buildOutputPage() {
     m_liveRate = new QComboBox;
     for (int mb : {2, 4, 6, 8, 12, 20}) m_liveRate->addItem(QStringLiteral("%1 Mb/s").arg(mb), mb * 1000);
     row(g, T("Stream bitrate"), m_liveRate);
+    m_liveWhen = new QComboBox;
+    m_liveWhen->addItem(T("All the time"), QStringLiteral("always"));
+    m_liveWhen->addItem(T("As in the recording schedule"), QStringLiteral("schedule"));
+    m_liveWhen->setToolTip(T("As in the recording schedule: the output is on only inside the time windows of the Scheduler tab."));
+    row(g, T("Active"), m_liveWhen);
+    connect(m_liveWhen, &QComboBox::activated, this, &Inspector::commitLive);
     connect(m_liveType, &QComboBox::activated, this, &Inspector::commitLive);
     connect(m_liveRate, &QComboBox::activated, this, &Inspector::commitLive);
     connect(m_liveNdi, &QLineEdit::editingFinished, this, &Inspector::commitLive);
@@ -376,6 +386,264 @@ QWidget* Inspector::buildOutputPage() {
         m_applySelected->setEnabled(m_mgr->active() && m_mgr->selectedCount() > 0);
     });
     return page;
+}
+
+// Zakladka Scheduler: lista regul kanalu aktywnego i edytor zaznaczonej reguly. Kazda zmiana trafia do kanalu od razu.
+// Reguly mozna zmieniac takze podczas nagrywania.
+QWidget* Inspector::buildSchedulePage() {
+    auto* page = new QWidget;
+    auto* v = new QVBoxLayout(page);
+    v->setContentsMargins(0, 0, 0, 0);
+    v->setSpacing(0);
+    m_schedStatus = new QLabel;
+    m_schedStatus->setObjectName(QStringLiteral("schedStatus"));
+    m_schedStatus->setWordWrap(true);
+    v->addWidget(m_schedStatus);
+
+    v->addWidget(section(T("Recording rules")));
+    auto* lv = new QVBoxLayout;
+    lv->setContentsMargins(12, 8, 12, 8);
+    lv->setSpacing(6);
+    m_ruleList = new QListWidget;
+    m_ruleList->setFixedHeight(112);
+    m_ruleList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_ruleList->setTextElideMode(Qt::ElideRight);
+    m_ruleList->setToolTip(T("Each rule is a time window: the channel starts recording at its beginning and stops at its end. "
+                             "The box switches a rule on and off."));
+    lv->addWidget(m_ruleList);
+    auto* bh = new QHBoxLayout;
+    bh->setSpacing(6);
+    m_ruleAdd = new QPushButton(T("Add rule"));
+    m_ruleDel = new QPushButton(T("Remove rule"));
+    for (QPushButton* b : {m_ruleAdd, m_ruleDel}) {
+        b->setObjectName(QStringLiteral("ibtn"));
+        bh->addWidget(b);
+    }
+    bh->addStretch(1);
+    lv->addLayout(bh);
+    v->addLayout(lv);
+
+    v->addWidget(section(T("Selected rule")));
+    m_ruleEditor = new QWidget;
+    auto* ev = new QVBoxLayout(m_ruleEditor);
+    ev->setContentsMargins(0, 0, 0, 0);
+    QGridLayout* g = form(ev);
+    m_ruleRepeat = new QComboBox;
+    m_ruleRepeat->addItem(T("Every week, on chosen days"), true);
+    m_ruleRepeat->addItem(T("Once, on a chosen date"), false);
+    row(g, T("Repeat"), m_ruleRepeat);
+    auto* daysRow = new QWidget;
+    auto* dh = new QHBoxLayout(daysRow);
+    dh->setContentsMargins(0, 0, 0, 0);
+    dh->setSpacing(2);
+    const QLocale loc(Lang::current());
+    for (int d = 0; d < 7; ++d) {
+        m_ruleDays[d] = new QPushButton(loc.standaloneDayName(d + 1, QLocale::ShortFormat).left(2).toUpper());
+        m_ruleDays[d]->setObjectName(QStringLiteral("day"));
+        m_ruleDays[d]->setCheckable(true);
+        m_ruleDays[d]->setFocusPolicy(Qt::NoFocus);
+        m_ruleDays[d]->setToolTip(loc.standaloneDayName(d + 1, QLocale::LongFormat));
+        m_ruleDays[d]->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Fixed);
+        dh->addWidget(m_ruleDays[d], 1);
+        connect(m_ruleDays[d], &QPushButton::clicked, this, &Inspector::commitSchedule);
+    }
+    row(g, T("Days"), daysRow);
+    m_ruleDate = new QDateEdit;
+    m_ruleDate->setDisplayFormat(QStringLiteral("yyyy-MM-dd"));
+    row(g, T("Date"), m_ruleDate);
+    m_ruleStart = new QTimeEdit;
+    m_ruleStop = new QTimeEdit;
+    for (QTimeEdit* t : {m_ruleStart, m_ruleStop}) t->setDisplayFormat(QStringLiteral("HH:mm:ss"));
+    row(g, T("Start at"), m_ruleStart);
+    row(g, T("Stop at"), m_ruleStop)->setToolTip(T("A stop time earlier than the start time means the next day."));
+    m_ruleStop->setToolTip(T("A stop time earlier than the start time means the next day."));
+    m_ruleSplit = new QComboBox;
+    m_ruleSplit->addItem(T("Off"), 0);
+    for (int min : {1, 5, 10, 15, 30, 60}) m_ruleSplit->addItem(T("every %1 min").arg(min), min * 60);
+    row(g, T("New file part"), m_ruleSplit);
+    v->addWidget(m_ruleEditor);
+
+    v->addWidget(section(T("Options")));
+    auto* ov = new QVBoxLayout;
+    ov->setContentsMargins(12, 8, 12, 8);
+    m_catchUp = new QCheckBox(T("Start late when the start time was missed"));
+    m_catchUp->setToolTip(T("When the program was not running or the computer was asleep at the start time, recording begins as soon "
+                            "as possible inside the window. Off: that window is skipped."));
+    ov->addWidget(m_catchUp);
+    v->addLayout(ov);
+    v->addStretch(1);
+
+    connect(m_ruleAdd, &QPushButton::clicked, this, [this] {
+        Channel* ch = m_mgr->active();
+        if (!ch || ch->config().sched.rules.size() >= 32) return;
+        ScheduleConfig sc = ch->config().sched;
+        ScheduleRule r;
+        r.date = QDate::currentDate();
+        const QTime now = QTime::currentTime();
+        r.start = QTime((now.hour() + 1) % 24, 0);          // najblizsza pelna godzina, okno 1 h
+        r.stop = QTime((now.hour() + 2) % 24, 0);
+        sc.rules.append(r);
+        ch->setSchedule(sc);
+        m_ruleList->setCurrentRow(int(sc.rules.size()) - 1);
+    });
+    connect(m_ruleDel, &QPushButton::clicked, this, [this] {
+        Channel* ch = m_mgr->active();
+        const int i = m_ruleList->currentRow();
+        if (!ch || i < 0 || i >= ch->config().sched.rules.size()) return;
+        ScheduleConfig sc = ch->config().sched;
+        sc.rules.removeAt(i);
+        ch->setSchedule(sc);
+    });
+    connect(m_ruleList, &QListWidget::currentRowChanged, this, [this] { fillRuleEditor(); });
+    connect(m_ruleList, &QListWidget::itemChanged, this, [this](QListWidgetItem* item) {      // pole wlaczenia reguly
+        Channel* ch = m_mgr->active();
+        const int i = m_ruleList->row(item);
+        if (m_schedFilling || !ch || i < 0 || i >= ch->config().sched.rules.size()) return;
+        ScheduleConfig sc = ch->config().sched;
+        sc.rules[i].enabled = item->checkState() == Qt::Checked;
+        ch->setSchedule(sc);
+    });
+    connect(m_ruleRepeat, &QComboBox::activated, this, &Inspector::commitSchedule);
+    connect(m_ruleSplit, &QComboBox::activated, this, &Inspector::commitSchedule);
+    connect(m_ruleDate, &QDateEdit::dateChanged, this, &Inspector::commitSchedule);
+    connect(m_ruleStart, &QTimeEdit::timeChanged, this, &Inspector::commitSchedule);
+    connect(m_ruleStop, &QTimeEdit::timeChanged, this, &Inspector::commitSchedule);
+    connect(m_catchUp, &QCheckBox::clicked, this, &Inspector::commitSchedule);
+    return page;
+}
+
+// "Pn-Pt 08:00-16:00 · co 30 min" albo "2026-12-24 18:00-18:30"
+QString Inspector::ruleText(const ScheduleRule& r) const {
+    const QLocale loc(Lang::current());
+    QString when;
+    if (!r.weekly) {
+        when = r.date.toString(Qt::ISODate);
+    } else if (r.days == 0x7F) {
+        when = T("Every day");
+    } else if (r.days == 0) {
+        when = T("No day chosen");
+    } else {
+        // kolejne dni jako zakres ("Pn-Pt"), pozostale po przecinku
+        QStringList parts;
+        for (int d = 0; d < 7;) {
+            if (!(r.days & (1 << d))) { ++d; continue; }
+            int e = d;
+            while (e + 1 < 7 && (r.days & (1 << (e + 1)))) ++e;
+            const QString a = loc.standaloneDayName(d + 1, QLocale::ShortFormat), b = loc.standaloneDayName(e + 1, QLocale::ShortFormat);
+            parts << (e - d >= 2 ? a + QStringLiteral("–") + b : e > d ? a + QStringLiteral(", ") + b : a);
+            d = e + 1;
+        }
+        when = parts.join(QStringLiteral(", "));
+    }
+    auto hm = [](const QTime& t) { return t.toString(t.second() ? QStringLiteral("HH:mm:ss") : QStringLiteral("HH:mm")); };
+    QString text = QStringLiteral("%1  %2–%3").arg(when, hm(r.start), hm(r.stop));
+    if (r.splitSeconds > 0) text += QStringLiteral("  ·  ") + T("every %1 min").arg(r.splitSeconds / 60);
+    return text;
+}
+
+void Inspector::fillRuleEditor() {
+    Channel* ch = m_mgr->active();
+    const int i = m_ruleList->currentRow();
+    const bool have = ch && i >= 0 && i < ch->config().sched.rules.size();
+    m_ruleEditor->setEnabled(have);
+    m_ruleDel->setEnabled(have);
+    if (!have) return;
+    const ScheduleRule& r = ch->config().sched.rules.at(i);
+    m_schedFilling = true;
+    m_ruleRepeat->setCurrentIndex(r.weekly ? 0 : 1);
+    for (int d = 0; d < 7; ++d) {
+        m_ruleDays[d]->setChecked(r.days & (1 << d));
+        m_ruleDays[d]->setEnabled(r.weekly);
+    }
+    m_ruleDate->setEnabled(!r.weekly);
+    if (!m_ruleDate->hasFocus()) m_ruleDate->setDate(r.date.isValid() ? r.date : QDate::currentDate());
+    if (!m_ruleStart->hasFocus()) m_ruleStart->setTime(r.start);
+    if (!m_ruleStop->hasFocus()) m_ruleStop->setTime(r.stop);
+    int si = m_ruleSplit->findData(r.splitSeconds);
+    if (si < 0) {           // wartosc spoza listy (np. z pliku)
+        m_ruleSplit->addItem(QStringLiteral("%1 s").arg(r.splitSeconds), r.splitSeconds);
+        si = m_ruleSplit->count() - 1;
+    }
+    m_ruleSplit->setCurrentIndex(si);
+    m_schedFilling = false;
+}
+
+void Inspector::commitSchedule() {
+    Channel* ch = m_mgr->active();
+    if (m_schedFilling || !ch) return;
+    ScheduleConfig sc = ch->config().sched;
+    sc.catchUp = m_catchUp->isChecked();
+    const int i = m_ruleList->currentRow();
+    if (i >= 0 && i < sc.rules.size()) {
+        ScheduleRule& r = sc.rules[i];
+        r.weekly = m_ruleRepeat->currentData().toBool();
+        int days = 0;
+        for (int d = 0; d < 7; ++d) days |= m_ruleDays[d]->isChecked() ? (1 << d) : 0;
+        r.days = days;
+        r.date = m_ruleDate->date();
+        r.start = m_ruleStart->time();
+        r.stop = m_ruleStop->time();
+        r.splitSeconds = m_ruleSplit->currentData().toInt();
+    }
+    ch->setSchedule(sc);
+}
+
+void Inspector::refreshSchedule() {
+    Channel* ch = m_mgr->active();
+    if (!ch) {
+        m_schedFor = nullptr;
+        m_schedShown = ScheduleConfig{};
+        m_schedFilling = true;
+        m_ruleList->clear();
+        m_schedFilling = false;
+        m_schedStatus->setText(QString());
+        fillRuleEditor();
+        return;
+    }
+    const ScheduleConfig& sc = ch->config().sched;
+    if (ch == m_schedFor && !(sc == m_schedShown) && sc.rules.size() == m_ruleList->count()) {
+        // ta sama liczba regul: zmiana tresci - lista jest poprawiana w miejscu, zeby edytowane pole nie tracilo fokusu
+        m_schedShown = sc;
+        m_schedFilling = true;
+        for (int i = 0; i < sc.rules.size(); ++i) {
+            QListWidgetItem* item = m_ruleList->item(i);
+            item->setText(ruleText(sc.rules.at(i)));
+            item->setToolTip(item->text());
+            item->setCheckState(sc.rules.at(i).enabled ? Qt::Checked : Qt::Unchecked);
+        }
+        m_catchUp->setChecked(sc.catchUp);
+        m_schedFilling = false;
+        fillRuleEditor();
+    } else if (ch != m_schedFor || !(sc == m_schedShown)) {
+        const int keep = ch == m_schedFor ? m_ruleList->currentRow() : 0;
+        m_schedFor = ch;
+        m_schedShown = sc;
+        m_schedFilling = true;
+        m_ruleList->clear();
+        for (const ScheduleRule& r : sc.rules) {
+            auto* item = new QListWidgetItem(ruleText(r), m_ruleList);
+            item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable);
+            item->setCheckState(r.enabled ? Qt::Checked : Qt::Unchecked);
+            item->setToolTip(item->text());
+        }
+        m_catchUp->setChecked(sc.catchUp);
+        m_schedFilling = false;
+        m_ruleList->setCurrentRow(sc.rules.isEmpty() ? -1 : qBound(0, keep, int(sc.rules.size()) - 1));
+        fillRuleEditor();
+    }
+    m_ruleAdd->setEnabled(sc.rules.size() < 32);
+    // status: co harmonogram zrobi teraz / jako nastepne
+    auto when = [](const QDateTime& t) {
+        return t.date() == QDate::currentDate() ? t.toString(QStringLiteral("HH:mm:ss")) : t.toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+    };
+    QString status;
+    if (!sc.active()) status = T("No active rules — this channel records only when you press REC.");
+    else if (ch->scheduleUntil().isValid()) status = T("Recording by schedule until %1.").arg(when(ch->scheduleUntil()));
+    else if (ch->scheduleNext().isValid() && ch->scheduleNext() <= QDateTime::currentDateTime())
+        status = T("The scheduled start is waiting for the source.");
+    else if (ch->scheduleNext().isValid()) status = T("Next scheduled start: %1.").arg(when(ch->scheduleNext()));
+    else status = T("No further scheduled starts.");
+    m_schedStatus->setText(status);
 }
 
 void Inspector::commitOutput() {
@@ -540,6 +808,7 @@ void Inspector::commitLive() {
     live.ndiName = m_liveNdi->text().trimmed();
     live.srtAddress = m_liveSrt->text().trimmed();
     live.srtKbps = m_liveRate->currentData().toInt();
+    live.when = m_liveWhen->currentData().toString();
     // domyslny port SRT wynika z numeru kanalu, zeby kanaly nie wchodzily sobie w droge
     if (live.type == QLatin1String("srt") && live.srtAddress.isEmpty())
         live.srtAddress = QStringLiteral(":%1").arg(9000 + m_mgr->indexOf(ch) + 1);
@@ -563,8 +832,10 @@ void Inspector::refresh() {
         m_title->setText(T("Inspector"));
         m_name->clear();
         m_lock->hide();
+        refreshSchedule();
         return;
     }
+    refreshSchedule();
     m_title->setText(QStringLiteral("%1&nbsp;&nbsp;<span style='color:#6e6e6e;font-weight:400'>%2</span>")
                          .arg(T("Inspector"), T("Channel %1 · %2")
                                                   .arg(m_mgr->indexOf(ch) + 1, 2, 10, QLatin1Char('0'))
@@ -592,6 +863,8 @@ void Inspector::refresh() {
     m_liveNdi->setEnabled(live.type == QLatin1String("ndi"));
     m_liveSrt->setEnabled(live.type == QLatin1String("srt"));
     m_liveRate->setEnabled(live.type == QLatin1String("srt"));
+    m_liveWhen->setCurrentIndex(qMax(0, m_liveWhen->findData(live.when)));
+    m_liveWhen->setEnabled(live.type != QLatin1String("off"));
     m_pattern->setCurrentIndex(qMax(0, m_pattern->findData(ch->config().pattern)));
     const InputConfig& in = ch->config().in;
     m_type->setCurrentIndex(qMax(0, m_type->findData(in.type)));

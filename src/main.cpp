@@ -75,6 +75,12 @@
 //                         kolejnosc kanalow na stdout, opcjonalny zrzut okna w trakcie przeciagania
 //   --shot-big N plik.png zrzut okna duzego podgladu kanalu N (od 1), otwartego dwuklikiem w kafel;
 //                         z --big-rec: przed zrzutem klikniecie REC w oknie, po zrzucie STOP (stan kanalu na stdout)
+//   --sched-selftest      sprawdzenie obliczen harmonogramu (zmiana czasu, okna przez polnoc); kod wyjscia = liczba bledow
+//   --sched-in S --sched-len L  kanaly --demo dostaja regule jednorazowa: start za S sekund (ujemne = okno juz trwa), L sekund
+//   --sched-split N       ta regula dzieli plik co N sekund;  --sched-nocatch: bez spoznionego startu
+//   --sched-live          z --live: wyjscie na zywo w trybie "jak w harmonogramie"
+//   --sched-report        co sekunde na stdout: czas, stan kanalu 1, czy jego wyjscie na zywo nadaje
+//   --quit-after S        wyjscie po S sekundach (po zamknieciu plikow nagran)
 //   --disk-test folder [S] test predkosci zapisu (domyslnie 10 s), wynik na stdout
 // Paczka samodzielna: gdy obok EXE lezy katalog gstreamer-1.0\, GStreamer bierze wtyczki tylko stamtad
 // (instalacja systemowa jest ignorowana), a rejestr wtyczek trafia do %LOCALAPPDATA%\IsoRecorder.
@@ -107,7 +113,7 @@ int main(int argc, char* argv[]) {
     QApplication::setApplicationVersion(QStringLiteral(APP_VERSION));
     const QStringList args = app.arguments();
     // Uruchomienie sterowane argumentami (zrzuty, testy) konczy sie samo - bez pytan o zapis listy.
-    for (const char* a : {"--screenshot", "--save-list", "--save-list-real", "--rec-test", "--shot-big", "--shot-disks", "--drag-test", "--shot-combo", "--shot-log", "--shot-settings", "--list-ndi", "--shot-rename"})
+    for (const char* a : {"--screenshot", "--save-list", "--save-list-real", "--rec-test", "--shot-big", "--shot-disks", "--drag-test", "--shot-combo", "--shot-log", "--shot-settings", "--list-ndi", "--shot-rename", "--quit-after"})
         if (args.contains(QLatin1String(a))) app.setProperty("automation", true);
 
     if (args.contains(QStringLiteral("--check-env"))) {
@@ -124,6 +130,14 @@ int main(int argc, char* argv[]) {
         fwrite(utf8.constData(), 1, size_t(utf8.size()), stdout);
         fflush(stdout);
         return r.requiredOk ? 0 : 1;
+    }
+
+    if (args.contains(QStringLiteral("--sched-selftest"))) {
+        int failed = 0;
+        const QByteArray utf8 = Schedule::selfTest(&failed).toUtf8();
+        fwrite(utf8.constData(), 1, size_t(utf8.size()), stdout);
+        fflush(stdout);
+        return failed;
     }
 
     const int diskAt = int(args.indexOf(QStringLiteral("--disk-test")));
@@ -309,6 +323,7 @@ int main(int argc, char* argv[]) {
                 l.type = live;
                 l.ndiName = QStringLiteral("ISO ") + c->config().name;
                 l.srtAddress = QStringLiteral(":%1").arg(port + ++i);
+                if (args.contains(QStringLiteral("--sched-live"))) l.when = QStringLiteral("schedule");
                 if (liveLater > 0 || liveCycle > 0) {
                     // nagranie rusza 3 s po starcie programu
                     if (liveCycle > 0) {
@@ -333,6 +348,46 @@ int main(int argc, char* argv[]) {
             if (!argAfter("--container").isEmpty()) o.container = argAfter("--container");
             if (argAfter("--auto-split").toInt() > 0) o.splitSeconds = argAfter("--auto-split").toInt();
             c->setOutput(o);
+        }
+        if (!argAfter("--sched-in").isEmpty() && argAfter("--sched-len").toInt() > 0) {
+            const QDateTime start = QDateTime::currentDateTime().addSecs(argAfter("--sched-in").toInt());
+            const QDateTime stop = start.addSecs(argAfter("--sched-len").toInt());
+            ScheduleRule r;
+            r.weekly = false;
+            r.date = start.date();
+            r.start = QTime(start.time().hour(), start.time().minute(), start.time().second());
+            r.stop = QTime(stop.time().hour(), stop.time().minute(), stop.time().second());
+            r.splitSeconds = qMax(0, argAfter("--sched-split").toInt());
+            ScheduleConfig sc;
+            sc.rules = {r};
+            sc.catchUp = !args.contains(QStringLiteral("--sched-nocatch"));
+            for (Channel* c : manager.channels()) c->setSchedule(sc);
+            const QByteArray line = "sched-start=" + QByteArray::number(QDateTime(r.date, r.start).toMSecsSinceEpoch()) + '\n';
+            fwrite(line.constData(), 1, size_t(line.size()), stdout);
+            fflush(stdout);
+        }
+        if (args.contains(QStringLiteral("--sched-report"))) {
+            auto* t = new QTimer(&manager);
+            auto* n = new int(0);
+            QObject::connect(t, &QTimer::timeout, &manager, [&manager, n] {
+                if (manager.count() == 0) return;
+                Channel* c = manager.channels().first();
+                const QByteArray line = QStringLiteral("t=%1 state=%2 live=%3 waiting=%4\n").arg(++*n).arg(int(c->state()))
+                                            .arg(c->liveActive() ? 1 : 0).arg(c->waitingForSchedule() ? 1 : 0).toUtf8();
+                fwrite(line.constData(), 1, size_t(line.size()), stdout);
+                fflush(stdout);
+            });
+            t->start(1000);
+        }
+        if (const int after = argAfter("--quit-after").toInt(); after > 0) {
+            QTimer::singleShot(after * 1000, &manager, [&manager] {
+                manager.stopAllRecording();
+                auto* wait = new QTimer(&manager);
+                QObject::connect(wait, &QTimer::timeout, &manager, [&manager] {
+                    if (manager.recordingCount() == 0) QApplication::quit();
+                });
+                wait->start(100);
+            });
         }
         if (const int every = argAfter("--split-every").toInt(); every > 0) {
             auto* t = new QTimer(&manager);
