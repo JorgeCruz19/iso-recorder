@@ -24,4 +24,6 @@ quint64 findWindow(const QString& title);
 // Zrodla NDI widoczne w sieci (name = id = "KOMPUTER (nazwa)"). Pierwsze wywolanie uruchamia wyszukiwanie w tle;
 // zrodla pojawiaja sie po kilku sekundach, wiec liste trzeba odpytywac ponownie.
 QList<Info> ndiSources();
+// Wejscia kart Blackmagic DeckLink (id = numer wejscia jako tekst). Pusta lista = brak kart albo sterownika Desktop Video.
+QList<Info> decklinks();
 }

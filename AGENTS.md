@@ -1,6 +1,6 @@
 # ISO Recorder — stan projektu i instrukcje dla kolejnego modelu
 
-Ten plik jest punktem wejścia. Przeczytaj go w całości, zanim cokolwiek zmienisz. Stan na 2026‑11‑12, wersja **3.0**. Wydania od 2.0 są publikowane jako Release na GitHubie.
+Ten plik jest punktem wejścia. Przeczytaj go w całości, zanim cokolwiek zmienisz. Stan na 2026‑11‑12, wersja **3.1**. Wydania od 2.0 są publikowane jako Release na GitHubie.
 
 ## 1. Co to jest
 
@@ -23,7 +23,7 @@ z tłumaczeniami PL, DE, ES, IT, FR.
 | `mockup/`, `interfejs.png` | wzorzec wyglądu |
 | `docs/zrzut_<wersja>.png` | zrzut okna na każdą wersję |
 
-## 3. Co działa (3.0)
+## 3. Co działa (3.1)
 
 - **Wejścia**: generator testowy, ekran i pojedyncze okno (`d3d11screencapturesrc`), kamera z wyborem rozmiaru obrazu
   (`mfvideosrc`), SRT, RTSP i NDI (`fallbacksrc`; NDI: lista źródeł z sieci w polu Device); dźwięk: sygnał testowy, cisza, dźwięk systemowy (loopback) i wejścia
@@ -48,7 +48,6 @@ z tłumaczeniami PL, DE, ES, IT, FR.
 
 | Wersja | Zakres |
 |---|---|
-| **3.1** | DeckLink; kodeki H.265 / AV1 / ProRes / DNxHR; MOV / MP4 |
 | **3.2** | Wiele lokalizacji zapisu: folder zapasowy przy małej ilości miejsca i zapis podwójny |
 | **3.3** | WebRTC — tylko wejście WHEP (WHIP usunięty z planu decyzją właściciela z 2026‑11‑14), odzyskiwanie plików po awarii, instalator |
 
@@ -77,6 +76,16 @@ Zwykłe wyjście (wyładowywanie bibliotek po `ExitProcess`) po nagrywaniu ze zd
 zostawał proces „zombie” (HasExited = true, 1 wątek, `taskkill /F` odpowiada „brak działającego wystąpienia”), który
 blokuje plik EXE do wylogowania. Taki proces da się obejść tylko zmianą nazwy zablokowanego pliku. W testach nie ufaj
 `WaitForExit` — sprawdzaj, czy proces zniknął z listy (`Get-CimInstance Win32_Process`).
+
+Kodeki i kontenery (3.1): `EncoderFactory` zna kodeki `h264 / h265 / av1 / prores` (`OutputConfig::codec`), parser za
+enkoderem (`Choice::parser`) i zgodność kontenerów (`containerAccepts`, sprawdzona doświadczalnie: TS tylko H.264/H.265,
+MP4 bez ProRes, MKV i MOV wszystko). Programowe enkodery tylko LGPL/BSD: SVT-AV1 i `avenc_prores` (szybki, profil 422);
+`rav1enc` i `avenc_prores_ks` są wielokrotnie wolniejsze od czasu rzeczywistego. DNxHR: żaden muxer GStreamera nie
+przyjmuje `video/x-dnxhd`. Enkoderów NVENC/AMF dla H.265 i AV1 nie dało się tu sprawdzić (brak sprzętu) — nazwy
+właściwości wzięte przez analogię do H.264. Wejście DeckLink (`decklinkvideosrc` + `decklinkaudiosrc`, `Devices::decklinks`)
+jest napisane bez dostępu do karty: sprawdzony jest tylko stan błędu. Ikona: `res/icon.png` (zasób Qt, okna),
+`res/icon.ico` + `res/app.rc` (plik EXE), źródło: `iso recorder ikona.png`. Test: `tests\codec_test.ps1`.
+Uwaga do skryptów: `build.ps1 | Select-Object -First N` przerywa budowanie w połowie — filtruj wynik przez `-Last`.
 
 Poprawki 3.0: `Channel::reconnect()` (przycisk w zakładce Input) — jedyna droga do ponownego startu kanału porzuconego,
 gdy źródło nie odpowiedziało przy starcie; `ChannelManager::sortChannels/sortedBy` (klik w tytuł kolumny listy);
@@ -191,6 +200,7 @@ sesji (`m_autoNames`). Pierwszy człon to krótka nazwa typu (Screen / Window / 
 | `tests\sync_test.ps1` | wspólny start / pauza / stop grupy, domyślnie 16 kanałów |
 | `tests\live_test.ps1` | odbiór wyjścia SRT (ffprobe) i NDI w trakcie nagrania |
 | `tests\net_test.ps1` | wejście SRT / RTSP / NDI z zanikiem i powrotem nadajnika (`build\rtsp_test_server.exe`; NDI: gst-launch) |
+| `tests\codec_test.ps1` | kodeki H.264 / H.265 / AV1 / ProRes w MKV / TS / MP4 / MOV, split i pauza, ProRes 1080p |
 | `tests\copy_test.ps1` | zapis bez ponownego kodowania SRT / RTSP: plik zgodny ze strumieniem, split, pauza, zanik |
 | `tests\sched_test.ps1` | harmonogram: obliczenia okien, start co do klatki, podział, spóźniony start, wyjście na żywo w oknie |
 | `tests\list_test.ps1` | lista kanałów: zapis → wczytanie → identyczny plik; autozapis, przywracanie, ostatnia lista |

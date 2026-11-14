@@ -386,6 +386,8 @@ QString Channel::networkUri() const {
 QString Channel::sourceText() const {
     if (inputOff()) return T("Input off");
     if (m_cfg.in.type == QLatin1String("ndi")) return QStringLiteral("NDI ") + m_cfg.in.uri.trimmed();
+    if (m_cfg.in.type == QLatin1String("decklink"))
+        return m_cfg.in.deckName.isEmpty() ? QStringLiteral("DeckLink %1").arg(m_cfg.in.deckIndex + 1) : m_cfg.in.deckName;
     if (m_cfg.in.isNetwork()) {
         QString a = networkUri();
         a = a.mid(a.indexOf(QLatin1String("://")) + 3);
@@ -498,6 +500,15 @@ QString Channel::sourceDescription() const {
                               "fs. ! queue ! videoconvertscale add-borders=true ! videorate ! video/x-raw,%2,framerate=%3/1 ! tee name=tv "
                               "fs. ! queue ! audioconvert ! audioresample%4 ! audio/x-raw,rate=48000,channels=2 ")
             .arg(quoted(networkUri()), size).arg(m_cfg.fps).arg(gain);
+    }
+    if (m_cfg.in.type == QLatin1String("decklink")) {
+        // Karta Blackmagic DeckLink: tryb obrazu wykrywany automatycznie, obraz z przeplotem jest rozplatany,
+        // dzwiek pochodzi z tego samego wejscia karty (osadzony w HDMI / SDI).
+        return QStringLiteral("decklinkvideosrc device-number=%1 mode=auto connection=auto ! queue ! deinterlace mode=auto "
+                              "! videoconvertscale add-borders=true ! videorate ! video/x-raw,%2,framerate=%3/1 ! tee name=tv "
+                              "decklinkaudiosrc device-number=%1 ! queue ! audioconvert ! audioresample%4 "
+                              "! audio/x-raw,rate=48000,channels=2 ")
+            .arg(m_cfg.in.deckIndex).arg(size).arg(m_cfg.fps).arg(gain);
     }
     QString video;
     if (m_cfg.in.type == QLatin1String("screen")) {
@@ -867,7 +878,8 @@ void Channel::startPreview() {
     }
     if (started == GST_STATE_CHANGE_FAILURE) {
         stopPreview();
-        setState(ChannelState::Error, T("cannot start the preview"));
+        setState(ChannelState::Error, m_cfg.in.type == QLatin1String("decklink")
+                     ? T("DeckLink card not found (check the card and the Desktop Video driver)") : T("cannot start the preview"));
         scheduleRetry();
         return;
     }
@@ -1117,8 +1129,15 @@ bool Channel::startRecording(const QString& session, int index) {
     const bool copyAudio = copy && m_copyAudio.load() > 0;
     // "copy" przy wejsciu innym niz SRT/RTSP dziala jak "auto"
     const QString wanted = m_cfg.out.encoder == QLatin1String("copy") ? QStringLiteral("auto") : m_cfg.out.encoder;
-    const EncoderFactory::Choice enc = copy ? EncoderFactory::Choice{QStringLiteral("copy"), QString(), false}
-                                            : EncoderFactory::pick(wanted, m_cfg.width, m_cfg.height, m_cfg.fps, m_cfg.out.videoKbps);
+    QString codec = m_cfg.out.codec;
+    EncoderFactory::Choice enc = copy ? EncoderFactory::Choice{QStringLiteral("copy"), QString(), false}
+                                      : EncoderFactory::pick(codec, wanted, m_cfg.width, m_cfg.height, m_cfg.fps, m_cfg.out.videoKbps);
+    if (!copy && enc.name.isEmpty() && codec != QLatin1String("h264")) {
+        // wybrany kodek nie ma tu dzialajacego enkodera (np. lista z innego komputera): nagranie ma powstac mimo to
+        emit notice(T("%1: no working %2 encoder found — recording in H.264").arg(m_cfg.name, EncoderFactory::codecLabel(codec)));
+        codec = QStringLiteral("h264");
+        enc = EncoderFactory::pick(codec, QStringLiteral("auto"), m_cfg.width, m_cfg.height, m_cfg.fps, m_cfg.out.videoKbps);
+    }
     if (enc.name.isEmpty()) {
         emit notice(T("%1: no working H.264 encoder found").arg(m_cfg.name));
         return false;
@@ -1132,8 +1151,16 @@ bool Channel::startRecording(const QString& session, int index) {
         emit notice(T("%1: cannot write to folder %2").arg(m_cfg.name, QDir::toNativeSeparators(dir)));
         return false;
     }
-    const bool ts = m_cfg.out.container == QLatin1String("ts");
-    const QString ext = ts ? QStringLiteral(".ts") : QStringLiteral(".mkv");
+    // Kontener musi przyjac kodek (np. MPEG-TS nie przyjmie AV1 ani ProRes) - w razie niezgodnosci wybierany jest pasujacy.
+    QString container = m_cfg.out.container;
+    if (!copy && !EncoderFactory::containerAccepts(container, codec)) {
+        const QString other = EncoderFactory::containerFor(container, codec);
+        emit notice(T("%1: container %2 cannot hold %3 — recording to %4")
+                        .arg(m_cfg.name, container.toUpper(), EncoderFactory::codecLabel(codec), other.toUpper()));
+        container = other;
+    }
+    const bool ts = container == QLatin1String("ts");
+    const QString ext = QLatin1Char('.') + container;
     FileNameTemplate::Vars vars{session, m_cfg.name, sourceText(), index, QDateTime::currentDateTime()};
     QString pattern = FileNameTemplate::expand(m_cfg.out.nameTemplate, vars);
     for (int n = 2; QFileInfo::exists(QDir(dir).filePath(FileNameTemplate::withPart(pattern, 1) + ext)); ++n)
@@ -1149,10 +1176,10 @@ bool Channel::startRecording(const QString& session, int index) {
                    : QStringLiteral("queue name=aq max-size-time=3000000000 max-size-buffers=0 max-size-bytes=0 ! %1 name=ap")
                          .arg(m_copyAudio.load() == 1 ? QStringLiteral("aacparse") : QStringLiteral("identity")))
         : QStringLiteral(
-        "queue name=vq max-size-time=3000000000 max-size-buffers=0 max-size-bytes=0 ! %1 ! h264parse name=vp "
+        "queue name=vq max-size-time=3000000000 max-size-buffers=0 max-size-bytes=0 ! %1 ! %3 name=vp "
         "queue name=aq max-size-time=3000000000 max-size-buffers=0 max-size-bytes=0 ! audioconvert ! audioresample "
         "! avenc_aac bitrate=%2 ! aacparse name=ap")
-        .arg(enc.launch).arg(m_cfg.out.audioKbps * 1000);
+        .arg(enc.launch).arg(m_cfg.out.audioKbps * 1000).arg(enc.parser);
     GError* err = nullptr;
     GstElement* bin = gst_parse_bin_from_description(desc.toUtf8().constData(), FALSE, &err);
     if (!bin || err) {
@@ -1163,7 +1190,7 @@ bool Channel::startRecording(const QString& session, int index) {
     }
     // splitmuxsink: muxer trzeba podac PRZED zadaniem padow; async-finalize=false -> EOS oznacza gotowy plik.
     GstElement* mux = gst_element_factory_make("splitmuxsink", "mux");
-    GstElement* mkv = gst_element_factory_make(ts ? "mpegtsmux" : "matroskamux", nullptr);
+    GstElement* mkv = gst_element_factory_make(EncoderFactory::muxerFor(container), nullptr);
     if (!mux || !mkv) {
         emit notice(T("%1: cannot build the pipeline").arg(m_cfg.name));
         if (mux) gst_object_unref(mux);
@@ -1172,7 +1199,8 @@ bool Channel::startRecording(const QString& session, int index) {
         return false;
     }
     // Kazda czesc MKV zaczyna sie od zera (wygodniej w montazu); polozenie czesci na osi nagrania jest w pliku .json.
-    if (!ts && g_object_class_find_property(G_OBJECT_GET_CLASS(mkv), "offset-to-zero"))
+    Q_UNUSED(ts);
+    if (container == QLatin1String("mkv") && g_object_class_find_property(G_OBJECT_GET_CLASS(mkv), "offset-to-zero"))
         g_object_set(mkv, "offset-to-zero", TRUE, nullptr);
     g_object_set(mux, "muxer", mkv, "async-finalize", FALSE, "start-index", 1,
                  "location", location.toUtf8().constData(), nullptr);
@@ -1230,7 +1258,8 @@ bool Channel::startRecording(const QString& session, int index) {
     m_recCopy = copy;
     m_copyNeedKey = copy;
     m_copyStarted = !copy;
-    m_recCodec = copy && m_copyVideo.load() == 2 ? QStringLiteral("h265") : QStringLiteral("h264");
+    m_recCodec = copy ? (m_copyVideo.load() == 2 ? QStringLiteral("h265") : QStringLiteral("h264")) : codec;
+    m_recContainer = container;
     m_recTee[0] = copy ? "cv" : "tv";
     m_recTee[1] = copy ? "ca" : "ta";
     m_stopRt = G_MAXINT64;
@@ -1470,7 +1499,7 @@ void Channel::writeSidecar(bool clean, const QString& reason) const {
                                               {QStringLiteral("fps"), m_cfg.fps}, {QStringLiteral("codec"), m_recCodec},
                                               {QStringLiteral("encoder"), m_encoderName}, {QStringLiteral("bitrateKbps"), m_cfg.out.videoKbps}}},
         {QStringLiteral("audio"), QJsonObject{{QStringLiteral("codec"), QStringLiteral("aac")}, {QStringLiteral("bitrateKbps"), m_cfg.out.audioKbps}}},
-        {QStringLiteral("container"), m_cfg.out.container},
+        {QStringLiteral("container"), m_recContainer},
         {QStringLiteral("startedUtc"), m_recStartUtc.toString(Qt::ISODateWithMs)},
         {QStringLiteral("stoppedUtc"), QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
         {QStringLiteral("pipelineRunningTimeAtStartNs"), double(m_recBase.load())},

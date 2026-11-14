@@ -165,6 +165,33 @@ QList<Devices::Info> Devices::ndiSources() {
     return out;
 }
 
+QList<Devices::Info> Devices::decklinks() {
+    QList<Info> out;
+    GstDeviceMonitor* mon = gst_device_monitor_new();
+    gst_device_monitor_add_filter(mon, "Video/Source/Hardware", nullptr);
+    GList* devices = gst_device_monitor_get_devices(mon);
+    for (GList* l = devices; l; l = l->next) {
+        GstDevice* d = GST_DEVICE(l->data);
+        // numer wejscia ma dopiero element zrodla utworzony przez urzadzenie
+        GstElement* el = gst_device_create_element(d, nullptr);
+        if (!el) continue;
+        GstElementFactory* f = gst_element_get_factory(el);
+        if (f && g_strcmp0(GST_OBJECT_NAME(f), "decklinkvideosrc") == 0) {
+            gint number = 0;
+            g_object_get(el, "device-number", &number, nullptr);
+            gchar* nameC = gst_device_get_display_name(d);
+            out.append({QString::fromUtf8(nameC), QString::number(number), {}, {}});
+            g_free(nameC);
+        }
+        gst_object_ref_sink(el);
+        gst_object_unref(el);
+    }
+    g_list_free_full(devices, gst_object_unref);
+    gst_object_unref(mon);
+    std::sort(out.begin(), out.end(), [](const Info& a, const Info& b) { return a.id.toInt() < b.id.toInt(); });
+    return out;
+}
+
 const Devices::All& Devices::list(bool refresh) {
     static Devices::All cache;
     static bool have = false;

@@ -15,9 +15,12 @@ OutputConfig AppSettings::defaultOutput() {
     o.dir = s.value(QStringLiteral("defaults/dir")).toString();
     o.nameTemplate = s.value(QStringLiteral("defaults/nameTemplate")).toString();
     o.encoder = s.value(QStringLiteral("defaults/encoder"), d.encoder).toString();
+    const QString codec = s.value(QStringLiteral("defaults/codec")).toString();
+    o.codec = codec == QLatin1String("h265") || codec == QLatin1String("av1") || codec == QLatin1String("prores") ? codec : QStringLiteral("h264");
     o.videoKbps = qBound(500, s.value(QStringLiteral("defaults/videoKbps"), d.videoKbps).toInt(), 200000);
     o.audioKbps = qBound(64, s.value(QStringLiteral("defaults/audioKbps"), d.audioKbps).toInt(), 512);
-    o.container = s.value(QStringLiteral("defaults/container")).toString() == QLatin1String("ts") ? QStringLiteral("ts") : QStringLiteral("mkv");
+    const QString cont = s.value(QStringLiteral("defaults/container")).toString();
+    o.container = cont == QLatin1String("ts") || cont == QLatin1String("mp4") || cont == QLatin1String("mov") ? cont : QStringLiteral("mkv");
     o.splitSeconds = qMax(0, s.value(QStringLiteral("defaults/splitSeconds"), 0).toInt());
     o.splitBytes = qMax<qint64>(0, s.value(QStringLiteral("defaults/splitBytes"), 0).toLongLong());
     return o;
@@ -28,6 +31,7 @@ void AppSettings::setDefaultOutput(const OutputConfig& o) {
     s.setValue(QStringLiteral("defaults/dir"), o.dir);
     s.setValue(QStringLiteral("defaults/nameTemplate"), o.nameTemplate);
     s.setValue(QStringLiteral("defaults/encoder"), o.encoder);
+    s.setValue(QStringLiteral("defaults/codec"), o.codec);
     s.setValue(QStringLiteral("defaults/videoKbps"), o.videoKbps);
     s.setValue(QStringLiteral("defaults/audioKbps"), o.audioKbps);
     s.setValue(QStringLiteral("defaults/container"), o.container);

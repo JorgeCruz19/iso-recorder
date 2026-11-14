@@ -1,6 +1,6 @@
 ﻿cmake_minimum_required(VERSION 3.24)
-project(IsoRecorder VERSION 3.0.0 LANGUAGES CXX)
-set(APP_VERSION_SHORT "3.0")
+project(IsoRecorder VERSION 3.1.0 LANGUAGES CXX)
+set(APP_VERSION_SHORT "3.1")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -17,7 +17,9 @@ if(NOT EXISTS "${GST_ROOT}/include/gstreamer-1.0/gst/gst.h")
 endif()
 
 file(GLOB_RECURSE SRC CONFIGURE_DEPENDS src/*.cpp src/*.h)
-qt_add_executable(IsoRecorder WIN32 ${SRC})
+# Ikona: res/app.rc daje ikone pliku EXE (Eksplorator, pasek zadan), zasob Qt - ikone okien programu.
+qt_add_executable(IsoRecorder WIN32 ${SRC} res/app.rc)
+qt_add_resources(IsoRecorder "appicon" PREFIX "/" BASE res FILES res/icon.png)
 
 target_include_directories(IsoRecorder PRIVATE
     src

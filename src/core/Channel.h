@@ -24,10 +24,11 @@ enum class ChannelState { Idle, Preview, Recording, Paused, Finalizing, Waiting,
 struct OutputConfig {
     QString dir;                    // puste = folder domyslny
     QString nameTemplate;           // puste = FileNameTemplate::kDefault
+    QString codec = QStringLiteral("h264");      // "h264", "h265", "av1", "prores" (EncoderFactory)
     QString encoder = QStringLiteral("auto");
     int videoKbps = 8000;
     int audioKbps = 192;
-    QString container = QStringLiteral("mkv");   // "mkv" albo "ts"
+    QString container = QStringLiteral("mkv");   // "mkv", "ts", "mp4", "mov"
     int splitSeconds = 0;           // auto-split co N sekund (0 = wylaczony)
     qint64 splitBytes = 0;          // auto-split co N bajtow (0 = wylaczony)
     bool operator==(const OutputConfig&) const = default;
@@ -52,7 +53,7 @@ struct RecordPart {
 
 // Zrodlo obrazu i dzwieku kanalu.
 struct InputConfig {
-    QString type = QStringLiteral("test");        // "test" generator, "screen" ekran, "window" okno, "camera" kamera, "srt", "rtsp", "ndi", "none" wylaczone
+    QString type = QStringLiteral("test");        // "test" generator, "screen" ekran, "window" okno, "camera" kamera, "decklink", "srt", "rtsp", "ndi", "none" wylaczone
     QString windowTitle;                          // okno: tytul (uchwyt jest szukany przy starcie kanalu)
     QString cameraMode;                           // kamera: "WxH" albo "WxH@licznik/mianownik" (klatkaz); puste = wybor sterownika
     QString lossPolicy = QStringLiteral("continue");   // zanik sygnalu sieciowego: "continue", "pause", "split"
@@ -60,6 +61,10 @@ struct InputConfig {
     QString uri;                                  // srt / rtsp: adres strumienia; ndi: nazwa zrodla "KOMPUTER (nazwa)"
     bool isNetwork() const { return type == QLatin1String("srt") || type == QLatin1String("rtsp") || type == QLatin1String("ndi"); }
     int screenIndex = 0;                          // ekran: numer monitora
+    int deckIndex = 0;                            // DeckLink: numer wejscia karty (device-number)
+    QString deckName;
+    // dzwiek przychodzi razem z obrazem (strumien sieciowy, karta DeckLink) - pole "Audio source" nie ma zastosowania
+    bool embeddedAudio() const { return isNetwork() || type == QLatin1String("decklink"); }
     QString cameraPath;                           // kamera: sciezka urzadzenia
     QString cameraName;
     QString audioType = QStringLiteral("test");   // "test" sygnal testowy, "none" cisza, "loopback" dzwiek systemowy, "device" wejscie
@@ -213,6 +218,7 @@ private:
     std::atomic<bool> m_copyStarted{false};
     QByteArray m_recTee[2];                 // nazwy tee, do ktorych dopieta jest galaz zapisu (obraz, dzwiek)
     QString m_recCodec = QStringLiteral("h264");
+    QString m_recContainer = QStringLiteral("mkv");
     static GstPadProbeReturn onStopBlock(GstPad* pad, GstPadProbeInfo* info, gpointer user);
     void setState(ChannelState s, const QString& error = {});
     void restart();

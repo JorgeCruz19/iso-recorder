@@ -84,6 +84,7 @@ private:
     QLineEdit* m_outDir;
     QLineEdit* m_outTemplate;
     QComboBox* m_outEncoder;
+    QComboBox* m_outCodec;
     QComboBox* m_outVideoRate;
     QComboBox* m_outAudioRate;
     QComboBox* m_outContainer;

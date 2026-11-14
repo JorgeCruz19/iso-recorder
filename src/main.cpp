@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QIcon>
 #include <QFile>
 #include <QMessageBox>
 #include <QCheckBox>
@@ -110,6 +111,7 @@ int main(int argc, char* argv[]) {
     gst_init(&argc, &argv);
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("IsoRecorder"));
+    QApplication::setWindowIcon(QIcon(QStringLiteral(":/icon.png")));
     app.installTranslator(Lang::buttonTranslator());     // OK / Cancel / Yes / No w jezyku interfejsu
     QApplication::setApplicationVersion(QStringLiteral(APP_VERSION));
     const QStringList args = app.arguments();
@@ -280,7 +282,7 @@ int main(int argc, char* argv[]) {
             }
         }
         if (argAfter("--input") == QLatin1String("srt") || argAfter("--input") == QLatin1String("rtsp") || argAfter("--input") == QLatin1String("ndi") ||
-            argAfter("--input") == QLatin1String("none")) {
+            argAfter("--input") == QLatin1String("none") || argAfter("--input") == QLatin1String("decklink")) {
             for (Channel* c : manager.channels()) {
                 InputConfig in = c->config().in;
                 in.type = argAfter("--input");
@@ -353,6 +355,7 @@ int main(int argc, char* argv[]) {
             if (!argAfter("--out").isEmpty()) o.dir = argAfter("--out");
             if (!argAfter("--container").isEmpty()) o.container = argAfter("--container");
             if (!argAfter("--encoder").isEmpty()) o.encoder = argAfter("--encoder");      // np. --encoder copy
+            if (!argAfter("--codec").isEmpty()) o.codec = argAfter("--codec");            // h264 | h265 | av1 | prores
             if (argAfter("--auto-split").toInt() > 0) o.splitSeconds = argAfter("--auto-split").toInt();
             c->setOutput(o);
         }
@@ -398,6 +401,8 @@ int main(int argc, char* argv[]) {
         }
         // --fps N: klatkaz kanalow --demo;  --sort name|source|format|state [x2]: po 2 s ulozenie listy (drugie = odwrocenie);
         // --reconnect-at S: po S sekundach "Reconnect source" na kanale 1; kolejnosc i stan kanalow ida na stdout
+        if (const QStringList wh = argAfter("--size").split(QLatin1Char('x')); wh.size() == 2 && wh.at(0).toInt() > 0 && wh.at(1).toInt() > 0)
+            for (Channel* c : manager.channels()) c->setFormat(wh.at(0).toInt(), wh.at(1).toInt());      // --size 1920x1080
         if (const int fps = argAfter("--fps").toInt(); fps > 0)
             for (Channel* c : manager.channels()) c->setFps(fps);
         if (const QString key = argAfter("--sort"); !key.isEmpty())

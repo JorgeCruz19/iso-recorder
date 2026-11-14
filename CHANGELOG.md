@@ -2,6 +2,25 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 3.1
+
+- **Kodeki**: obok H.264 także **H.265 (HEVC)**, **AV1** i **ProRes 422** — nowe pole „Codec” w zakładce Output i w
+  Settings; lista „Encoder” pokazuje enkodery wybranego kodeka. H.265: NVENC / Quick Sync / AMF / Media Foundation;
+  AV1: sprzętowe NVENC / Quick Sync / AMF albo SVT-AV1 na procesorze; ProRes 422: na procesorze, stała jakość (pole
+  bitrate jest wtedy nieaktywne).
+- **Kontenery MP4 i MOV** obok MKV i MPEG-TS. Kontener, który nie przyjmie kodeka, jest na liście wyszarzony (MPEG-TS:
+  tylko H.264 i H.265; MP4: bez ProRes), a gdy mimo to trafi do nagrania (np. lista z pliku) — zamieniany na pasujący z
+  komunikatem. Uwaga z podpowiedzi przy polu: pliki MP4 i MOV nie dają się otworzyć po awarii programu lub zasilania.
+- **Wejście DeckLink** (HDMI / SDI, karty Blackmagic): typ „HDMI / SDI — Blackmagic DeckLink”, lista wejść karty, tryb
+  obrazu wykrywany automatycznie, rozplatanie obrazu z przeplotem, dźwięk z karty. Niesprawdzone na sprzęcie — na
+  komputerze bez karty kanał pokazuje błąd „DeckLink card not found” i ponawia próby.
+- Gdy wybrany kodek nie ma na danym komputerze działającego enkodera, nagranie powstaje w H.264 (z komunikatem).
+- **Ikona programu** (plik EXE, okna, pasek zadań).
+- **DNxHR nie wchodzi**: żaden kontener w GStreamerze (MOV, MKV, MXF) nie przyjmuje tego kodeka. ProRes ma jeden
+  wariant (422), bo enkoder z wyborem profilu jest kilka razy wolniejszy od czasu rzeczywistego.
+- Typ wejścia „WebRTC WHIP” zniknął z listy zapowiedzi (usunięty z planu).
+- Test: `tests\codec_test.ps1`; argumenty `--codec`, `--size`.
+
 ## 3.0
 
 - **Przycisk „Reconnect source”** w zakładce Input: zatrzymuje źródło kanału i uruchamia je od nowa. Służy do kamer i

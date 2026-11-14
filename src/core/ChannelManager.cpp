@@ -459,6 +459,8 @@ QJsonObject channelToJson(const Channel* ch) {
                                               {QStringLiteral("windowTitle"), c.in.windowTitle},
                                               {QStringLiteral("cameraMode"), c.in.cameraMode},
                                               {QStringLiteral("screenIndex"), c.in.screenIndex},
+                                              {QStringLiteral("deckIndex"), c.in.deckIndex},
+                                              {QStringLiteral("deckName"), c.in.deckName},
                                               {QStringLiteral("cameraPath"), c.in.cameraPath},
                                               {QStringLiteral("cameraName"), c.in.cameraName},
                                               {QStringLiteral("audio"), QJsonObject{{QStringLiteral("type"), c.in.audioType},
@@ -475,7 +477,7 @@ QJsonObject channelToJson(const Channel* ch) {
             {QStringLiteral("dir"), o.dir},
             {QStringLiteral("nameTemplate"), o.nameTemplate},
             {QStringLiteral("container"), o.container},
-            {QStringLiteral("video"), QJsonObject{{QStringLiteral("codec"), QStringLiteral("h264")}, {QStringLiteral("encoder"), o.encoder},
+            {QStringLiteral("video"), QJsonObject{{QStringLiteral("codec"), o.codec}, {QStringLiteral("encoder"), o.encoder},
                                                   {QStringLiteral("bitrateKbps"), o.videoKbps}}},
             {QStringLiteral("audio"), QJsonObject{{QStringLiteral("codec"), QStringLiteral("aac")}, {QStringLiteral("bitrateKbps"), o.audioKbps}}},
             {QStringLiteral("autoSplit"), QJsonObject{{QStringLiteral("mode"), splitMode}, {QStringLiteral("seconds"), o.splitSeconds},
@@ -495,7 +497,7 @@ ChannelConfig channelFromJson(const QJsonObject& j, int number) {
     const QJsonObject in = j.value(QStringLiteral("input")).toObject();
     const QString it = in.value(QStringLiteral("type")).toString();
     c.in.type = it == QLatin1String("screen") || it == QLatin1String("window") || it == QLatin1String("camera") ||
-                        it == QLatin1String("srt") || it == QLatin1String("rtsp") || it == QLatin1String("ndi") || it == QLatin1String("none")
+                        it == QLatin1String("srt") || it == QLatin1String("rtsp") || it == QLatin1String("ndi") || it == QLatin1String("none") || it == QLatin1String("decklink")
                     ? it : QStringLiteral("test");
     c.in.uri = in.value(QStringLiteral("uri")).toString();
     const QString lp = in.value(QStringLiteral("lossPolicy")).toString();
@@ -503,6 +505,8 @@ ChannelConfig channelFromJson(const QJsonObject& j, int number) {
     c.in.windowTitle = in.value(QStringLiteral("windowTitle")).toString();
     c.in.cameraMode = in.value(QStringLiteral("cameraMode")).toString();
     c.in.screenIndex = qBound(0, in.value(QStringLiteral("screenIndex")).toInt(), 15);
+    c.in.deckIndex = qBound(0, in.value(QStringLiteral("deckIndex")).toInt(), 63);
+    c.in.deckName = in.value(QStringLiteral("deckName")).toString();
     c.in.cameraPath = in.value(QStringLiteral("cameraPath")).toString();
     c.in.cameraName = in.value(QStringLiteral("cameraName")).toString();
     const QJsonObject au = in.value(QStringLiteral("audio")).toObject();
@@ -520,9 +524,12 @@ ChannelConfig channelFromJson(const QJsonObject& j, int number) {
     const QJsonObject out = j.value(QStringLiteral("output")).toObject();
     c.out.dir = out.value(QStringLiteral("dir")).toString();
     c.out.nameTemplate = out.value(QStringLiteral("nameTemplate")).toString();
-    c.out.container = out.value(QStringLiteral("container")).toString() == QLatin1String("ts") ? QStringLiteral("ts") : QStringLiteral("mkv");
+    const QString cont = out.value(QStringLiteral("container")).toString();
+    c.out.container = cont == QLatin1String("ts") || cont == QLatin1String("mp4") || cont == QLatin1String("mov") ? cont : QStringLiteral("mkv");
     const QJsonObject v = out.value(QStringLiteral("video")).toObject();
     c.out.encoder = v.value(QStringLiteral("encoder")).toString(d.out.encoder);
+    const QString codec = v.value(QStringLiteral("codec")).toString();
+    c.out.codec = codec == QLatin1String("h265") || codec == QLatin1String("av1") || codec == QLatin1String("prores") ? codec : QStringLiteral("h264");
     c.out.videoKbps = qBound(500, v.value(QStringLiteral("bitrateKbps")).toInt(d.out.videoKbps), 200000);
     c.out.audioKbps = qBound(64, out.value(QStringLiteral("audio")).toObject().value(QStringLiteral("bitrateKbps")).toInt(d.out.audioKbps), 512);
     const QJsonObject sp = out.value(QStringLiteral("autoSplit")).toObject();

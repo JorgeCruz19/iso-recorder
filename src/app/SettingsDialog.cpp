@@ -28,6 +28,41 @@ QString nameTemplateHelp() {
              "{part} — file part number; {part:03} pads with zeros");
 }
 
+void fillContainerCombo(QComboBox* combo) {
+    combo->clear();
+    combo->addItem(QStringLiteral("MKV (Matroska)"), QStringLiteral("mkv"));
+    combo->addItem(QStringLiteral("MPEG-TS"), QStringLiteral("ts"));
+    combo->addItem(QStringLiteral("MP4"), QStringLiteral("mp4"));
+    combo->addItem(QStringLiteral("MOV (QuickTime)"), QStringLiteral("mov"));
+}
+
+void fillCodecCombo(QComboBox* combo) {
+    combo->clear();
+    for (const QString& c : EncoderFactory::codecs()) combo->addItem(EncoderFactory::codecLabel(c), c);
+}
+
+void fillEncoderCombo(QComboBox* combo, const QString& codec) {
+    combo->clear();
+    combo->addItem(T("Auto (hardware first)"), QStringLiteral("auto"));
+    for (const QString& e : EncoderFactory::installed(codec)) combo->addItem(EncoderFactory::displayName(e), e);
+    // zapis bez ponownego kodowania: dotyczy kanalow SRT / RTSP, pozostale biora enkoder automatyczny
+    combo->addItem(T("No re-encoding (stream copy)"), QStringLiteral("copy"));
+    for (int i = 0; i < combo->count(); ++i) combo->setItemData(i, combo->itemText(i), Qt::ToolTipRole);
+    combo->setProperty("forCodec", codec);
+}
+
+void enableContainersFor(QComboBox* combo, const QString& codec) {
+    auto* model = qobject_cast<QStandardItemModel*>(combo->model());
+    if (!model) return;
+    for (int i = 0; i < model->rowCount(); ++i)
+        model->item(i)->setEnabled(codec.isEmpty() || EncoderFactory::containerAccepts(combo->itemData(i).toString(), codec));
+}
+
+QString containerHelp() {
+    return T("MKV and MPEG-TS files stay readable when the program or the power fails during recording. MP4 and MOV files do "
+             "not — choose them only when the editing program needs them. MPEG-TS holds H.264 and H.265 only; ProRes needs MOV or MKV.");
+}
+
 namespace {
 QLabel* heading(const QString& text) {
     auto* l = new QLabel(text);
@@ -97,10 +132,9 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     row(T("Name template"), m_template, nameTemplateHelp());
 
     m_container = new QComboBox;
-    m_container->addItem(QStringLiteral("MKV (Matroska)"), QStringLiteral("mkv"));
-    m_container->addItem(QStringLiteral("MPEG-TS"), QStringLiteral("ts"));
+    fillContainerCombo(m_container);
     m_container->setCurrentIndex(qMax(0, m_container->findData(def.container)));
-    row(T("Container"), m_container);
+    row(T("Container"), m_container, containerHelp());
 
     m_split = new QComboBox;
     m_split->addItem(T("Off"), qlonglong(0));
@@ -109,18 +143,31 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     m_split->setCurrentIndex(qMax(0, m_split->findData(def.splitSeconds > 0 ? qlonglong(def.splitSeconds) : -qlonglong(def.splitBytes))));
     row(T("Auto-split"), m_split);
 
+    m_codec = new QComboBox;
+    fillCodecCombo(m_codec);
+    m_codec->setCurrentIndex(qMax(0, m_codec->findData(def.codec)));
+    row(T("Codec"), m_codec);
     m_encoder = new QComboBox;
-    m_encoder->addItem(T("Auto (hardware first)"), QStringLiteral("auto"));
-    for (const QString& e : EncoderFactory::installed()) m_encoder->addItem(QStringLiteral("H.264 — ") + EncoderFactory::displayName(e), e);
-    // zapis bez ponownego kodowania: dotyczy kanalow SRT / RTSP, pozostale biora enkoder automatyczny (opis pod spodem)
-    m_encoder->addItem(T("No re-encoding (stream copy)"), QStringLiteral("copy"));
+    fillEncoderCombo(m_encoder, m_codec->currentData().toString());
     m_encoder->setCurrentIndex(qMax(0, m_encoder->findData(def.encoder)));
     row(T("Encoder"), m_encoder);
+    enableContainersFor(m_container, m_codec->currentData().toString());
+    // zmiana kodeka: lista jego enkoderow i kontenery, ktore go przyjma
+    connect(m_codec, &QComboBox::activated, this, [this] {
+        const QString codec = m_codec->currentData().toString();
+        const QString keep = m_encoder->currentData().toString();
+        fillEncoderCombo(m_encoder, codec);
+        m_encoder->setCurrentIndex(qMax(0, m_encoder->findData(keep)));
+        enableContainersFor(m_container, codec);
+        m_container->setCurrentIndex(qMax(0, m_container->findData(EncoderFactory::containerFor(m_container->currentData().toString(), codec))));
+        m_videoRate->setEnabled(!EncoderFactory::fixedBitrate(codec));
+    });
 
     m_videoRate = new QComboBox;
     for (int mb : {2, 4, 6, 8, 12, 20, 35, 50}) m_videoRate->addItem(QStringLiteral("%1 Mb/s").arg(mb), mb * 1000);
     m_videoRate->setCurrentIndex(qMax(0, m_videoRate->findData(def.videoKbps)));
     row(T("Video bitrate"), m_videoRate);
+    m_videoRate->setEnabled(!EncoderFactory::fixedBitrate(m_codec->currentData().toString()));
 
     m_audioRate = new QComboBox;
     for (int kb : {128, 192, 256, 320}) m_audioRate->addItem(QStringLiteral("AAC  %1 kb/s").arg(kb), kb);
@@ -193,6 +240,9 @@ void SettingsDialog::save() {
     o.splitSeconds = split > 0 ? int(split) : 0;
     o.splitBytes = split < 0 ? -split : 0;
     o.encoder = m_encoder->currentData().toString();
+    o.codec = m_codec->currentData().toString();
+    if (o.codec.isEmpty()) o.codec = QStringLiteral("h264");
+    o.container = EncoderFactory::containerFor(o.container, o.codec);
     o.videoKbps = m_videoRate->currentData().toInt();
     o.audioKbps = m_audioRate->currentData().toInt();
     AppSettings::setDefaultOutput(o);

@@ -161,14 +161,12 @@ QWidget* Inspector::buildInputPage() {
     m_type->addItem(T("Screen grab"), QStringLiteral("screen"));
     m_type->addItem(T("Window capture"), QStringLiteral("window"));
     m_type->addItem(T("Camera (UVC, capture card)"), QStringLiteral("camera"));
+    m_type->addItem(QStringLiteral("HDMI / SDI — Blackmagic DeckLink"), QStringLiteral("decklink"));
     m_type->addItem(QStringLiteral("SRT"), QStringLiteral("srt"));
     m_type->addItem(QStringLiteral("RTSP"), QStringLiteral("rtsp"));
     m_type->addItem(QStringLiteral("NDI"), QStringLiteral("ndi"));
     const int firstFuture = m_type->count();
-    const struct { QString name; const char* from; } types[] = {
-        {QStringLiteral("HDMI — Blackmagic DeckLink"), Roadmap::decklink},
-        {QStringLiteral("WebRTC WHEP"), Roadmap::webrtc},
-        {QStringLiteral("WebRTC WHIP"), Roadmap::webrtc}};
+    const struct { QString name; const char* from; } types[] = {{QStringLiteral("WebRTC WHEP"), Roadmap::webrtc}};
     for (const auto& t : types) m_type->addItem(t.name + QStringLiteral("  ") + T("(from %1)").arg(QLatin1String(t.from)));
     if (auto* model = qobject_cast<QStandardItemModel*>(m_type->model()))
         for (int i = firstFuture; i < model->rowCount(); ++i) model->item(i)->setEnabled(false);
@@ -307,9 +305,8 @@ QWidget* Inspector::buildOutputPage() {
     row(g, T("Name template"), m_outTemplate)->setToolTip(nameTemplateHelp());
     m_outTemplate->setToolTip(nameTemplateHelp());
     m_outContainer = new QComboBox;
-    m_outContainer->addItem(QStringLiteral("MKV (Matroska)"), QStringLiteral("mkv"));
-    m_outContainer->addItem(QStringLiteral("MPEG-TS"), QStringLiteral("ts"));
-    row(g, T("Container"), m_outContainer);
+    fillContainerCombo(m_outContainer);
+    row(g, T("Container"), m_outContainer)->setToolTip(containerHelp());
     // Auto-split: dane = sekundy (dodatnie) albo bajty zapisane jako liczba ujemna
     m_outSplit = new QComboBox;
     m_outSplit->addItem(T("Off"), qlonglong(0));
@@ -319,11 +316,11 @@ QWidget* Inspector::buildOutputPage() {
 
     fv->addWidget(section(T("Video")));
     g = form(fv);
+    m_outCodec = new QComboBox;
+    fillCodecCombo(m_outCodec);
+    row(g, T("Codec"), m_outCodec);
     m_outEncoder = new QComboBox;
-    m_outEncoder->addItem(T("Auto (hardware first)"), QStringLiteral("auto"));
-    for (const QString& e : EncoderFactory::installed())
-        m_outEncoder->addItem(QStringLiteral("H.264 — ") + EncoderFactory::displayName(e), e);
-    m_outEncoder->addItem(T("No re-encoding (stream copy)"), QStringLiteral("copy"));
+    fillEncoderCombo(m_outEncoder, QStringLiteral("h264"));
     m_outEncoder->setToolTip(T("No re-encoding (stream copy)") + QStringLiteral(": SRT / RTSP. ") + T("Set by the source (stream copy)") +
                              QStringLiteral(": ") + T("Bitrate"));
     row(g, T("Encoder"), m_outEncoder);
@@ -376,7 +373,7 @@ QWidget* Inspector::buildOutputPage() {
 
     connect(m_outDir, &QLineEdit::editingFinished, this, &Inspector::commitOutput);
     connect(m_outTemplate, &QLineEdit::editingFinished, this, &Inspector::commitOutput);
-    for (QComboBox* c : {m_outEncoder, m_outVideoRate, m_outAudioRate, m_outContainer, m_outSplit})
+    for (QComboBox* c : {m_outCodec, m_outEncoder, m_outVideoRate, m_outAudioRate, m_outContainer, m_outSplit})
         connect(c, &QComboBox::activated, this, &Inspector::commitOutput);
     connect(browse, &QPushButton::clicked, this, [this] {
         Channel* ch = m_mgr->active();
@@ -669,9 +666,16 @@ void Inspector::commitOutput() {
     out.dir = QDir::fromNativeSeparators(m_outDir->text().trimmed());
     out.nameTemplate = m_outTemplate->text().trimmed();
     out.encoder = m_outEncoder->currentData().toString();
+    out.codec = m_outCodec->currentData().toString();
+    if (out.codec.isEmpty()) out.codec = QStringLiteral("h264");
+    // enkoder innego kodeka nie ma sensu po zmianie kodeka - wraca "auto"
+    if (out.encoder != QLatin1String("auto") && out.encoder != QLatin1String("copy") && !EncoderFactory::installed(out.codec).contains(out.encoder))
+        out.encoder = QStringLiteral("auto");
     out.videoKbps = m_outVideoRate->currentData().toInt();
     out.audioKbps = m_outAudioRate->currentData().toInt();
     out.container = m_outContainer->currentData().toString();
+    // kontener, ktory nie przyjmie kodeka, jest zamieniany na pasujacy (w kopii strumienia kodek ustala zrodlo)
+    if (out.encoder != QLatin1String("copy")) out.container = EncoderFactory::containerFor(out.container, out.codec);
     const qlonglong split = m_outSplit->currentData().toLongLong();
     out.splitSeconds = split > 0 ? int(split) : 0;
     out.splitBytes = split < 0 ? -split : 0;
@@ -695,6 +699,14 @@ void Inspector::fillDevices(const QString& type) {
         for (const Devices::Info& d : Devices::windows()) m_device->addItem(d.name, QStringList{d.name, d.name});
     } else if (type == QLatin1String("ndi")) {
         for (const Devices::Info& d : Devices::ndiSources()) m_device->addItem(d.name, QStringList{d.id, d.name});
+    } else if (type == QLatin1String("decklink")) {
+        const QList<Devices::Info> cards = Devices::decklinks();
+        for (const Devices::Info& d : cards) m_device->addItem(QStringLiteral("%1: %2").arg(d.id.toInt() + 1).arg(d.name), QStringList{d.id, d.name});
+        // karty nie zostaly wykryte (brak sterownika Desktop Video albo karty): wejscia mozna wskazac numerem
+        if (cards.isEmpty())
+            for (int i = 0; i < 4; ++i)
+                m_device->addItem(QStringLiteral("DeckLink %1  ·  %2").arg(i + 1).arg(T("not detected")),
+                                  QStringList{QString::number(i), QStringLiteral("DeckLink %1").arg(i + 1)});
     }
     for (int i = 0; i < m_device->count(); ++i) m_device->setItemData(i, m_device->itemText(i), Qt::ToolTipRole);
     m_device->setProperty("forType", type);
@@ -742,6 +754,10 @@ void Inspector::commitInput() {
         in.cameraMode = sameCamera ? m_camMode->currentData().toString() : QString();
     }
     if (in.type == QLatin1String("window") && !dev.value(0).isEmpty()) in.windowTitle = dev.value(0);
+    if (in.type == QLatin1String("decklink") && m_device->property("forType").toString() == QLatin1String("decklink")) {
+        in.deckIndex = dev.value(0).toInt();
+        in.deckName = dev.value(1);
+    }
     if (in.type == QLatin1String("ndi")) {
         if (ch->config().in.type != QLatin1String("ndi")) in.uri.clear();      // adres SRT/RTSP nie jest nazwa zrodla NDI
         if (m_device->property("forType").toString() == QLatin1String("ndi") && !dev.value(0).isEmpty()) in.uri = dev.value(0);
@@ -757,7 +773,7 @@ void Inspector::commitInput() {
     if (in.audioType == QLatin1String("test")) ch->setAudioWave(au.value(3).toInt());
     ch->setInput(in);
     // Kanal o domyslnej nazwie (TEST n albo nadanej tu automatycznie) dostaje propozycje nazwy wg nowego zrodla.
-    const bool sourceChanged = before.type != in.type || before.screenIndex != in.screenIndex || before.cameraPath != in.cameraPath ||
+    const bool sourceChanged = before.type != in.type || before.screenIndex != in.screenIndex || before.deckIndex != in.deckIndex || before.cameraPath != in.cameraPath ||
                                before.windowTitle != in.windowTitle || before.uri != in.uri;
     static const QRegularExpression defaultName(QStringLiteral("^TEST \\d+$"));
     const QString current = ch->config().name;
@@ -788,6 +804,9 @@ QString Inspector::suggestedName(Channel* ch) const {
     } else if (in.type == QLatin1String("ndi")) {
         kind = QStringLiteral("NDI");
         what = in.uri;
+    } else if (in.type == QLatin1String("decklink")) {
+        kind = QStringLiteral("DeckLink");
+        what = QStringLiteral("%1 %2").arg(in.deckIndex + 1).arg(in.deckName.startsWith(QLatin1String("DeckLink ")) ? QString() : in.deckName);
     } else if (in.isNetwork() && !in.uri.trimmed().isEmpty()) {
         kind = in.type.toUpper();
         what = ch->sourceText().section(QLatin1Char(' '), 1);       // adres bez loginu i hasla
@@ -874,15 +893,23 @@ void Inspector::refresh() {
     const OutputConfig& out = ch->config().out;
     if (!m_outDir->hasFocus()) m_outDir->setText(QDir::toNativeSeparators(out.dir));
     if (!m_outTemplate->hasFocus()) m_outTemplate->setText(out.nameTemplate);
+    if (m_outCodec->findData(out.codec) < 0) m_outCodec->addItem(EncoderFactory::codecLabel(out.codec), out.codec);   // kodek z listy z innego komputera
+    m_outCodec->setCurrentIndex(m_outCodec->findData(out.codec));
+    if (m_outEncoder->property("forCodec").toString() != out.codec) fillEncoderCombo(m_outEncoder, out.codec);
     m_outEncoder->setCurrentIndex(qMax(0, m_outEncoder->findData(out.encoder)));
+    m_outEncoder->setToolTip(m_outEncoder->currentText());
+    m_outCodec->setEnabled(!ch->copyMode());
+    enableContainersFor(m_outContainer, ch->copyMode() ? QString() : out.codec);
     // kopia strumienia: tylko SRT / RTSP; bitrate i dzwiek ustala wtedy zrodlo
     const bool canCopy = ch->config().in.type == QLatin1String("srt") || ch->config().in.type == QLatin1String("rtsp");
     if (auto* model = qobject_cast<QStandardItemModel*>(m_outEncoder->model()))
         if (QStandardItem* item = model->item(m_outEncoder->findData(QStringLiteral("copy")))) item->setEnabled(canCopy || out.encoder == QLatin1String("copy"));
-    m_outVideoRate->setEnabled(!ch->copyMode());
+    m_outVideoRate->setEnabled(!ch->copyMode() && !EncoderFactory::fixedBitrate(out.codec));
     m_outAudioRate->setEnabled(!ch->copyMode());
-    m_outVideoRate->setToolTip(ch->copyMode() ? T("Set by the source (stream copy)") : QString());
-    m_outAudioRate->setToolTip(m_outVideoRate->toolTip());
+    m_outVideoRate->setToolTip(ch->copyMode() ? T("Set by the source (stream copy)")
+                               : EncoderFactory::fixedBitrate(out.codec) ? T("ProRes 422 has a fixed quality: about 60 Mb/s for 720p and 120 Mb/s for 1080p")
+                               : QString());
+    m_outAudioRate->setToolTip(ch->copyMode() ? T("Set by the source (stream copy)") : QString());
     m_outVideoRate->setCurrentIndex(qMax(0, m_outVideoRate->findData(out.videoKbps)));
     m_outAudioRate->setCurrentIndex(qMax(0, m_outAudioRate->findData(out.audioKbps)));
     m_outContainer->setCurrentIndex(qMax(0, m_outContainer->findData(out.container)));
@@ -906,7 +933,8 @@ void Inspector::refresh() {
     for (int i = 0; i < m_device->count(); ++i) {
         const QString id = m_device->itemData(i).toStringList().value(0);
         if ((in.type == QLatin1String("screen") && id.toInt() == in.screenIndex) || (in.type == QLatin1String("camera") && id == in.cameraPath) ||
-            (in.type == QLatin1String("window") && id == in.windowTitle) || (in.type == QLatin1String("ndi") && id == in.uri)) devIndex = i;
+            (in.type == QLatin1String("window") && id == in.windowTitle) || (in.type == QLatin1String("ndi") && id == in.uri) ||
+            (in.type == QLatin1String("decklink") && id.toInt() == in.deckIndex)) devIndex = i;
     }
     if (in.type == QLatin1String("ndi") && devIndex < 0 && !in.uri.isEmpty()) {       // zapamietane zrodlo nie jest teraz widoczne w sieci
         const QSignalBlocker block(m_device);
@@ -920,7 +948,7 @@ void Inspector::refresh() {
     }
     m_device->setCurrentIndex(devIndex);
     m_device->setEnabled(editable && (in.type == QLatin1String("screen") || in.type == QLatin1String("camera") || in.type == QLatin1String("window") ||
-                                      in.type == QLatin1String("ndi")));
+                                      in.type == QLatin1String("ndi") || in.type == QLatin1String("decklink")));
     if (in.type == QLatin1String("camera") && m_camMode->property("forCamera").toString() != in.cameraPath) fillCameraModes(in.cameraPath);
     if (in.type != QLatin1String("camera") && m_camMode->count() != 1) fillCameraModes(QString());
     int camIndex = m_camMode->findData(in.cameraMode);
@@ -941,7 +969,7 @@ void Inspector::refresh() {
         ? T("host:9000 — this computer connects to the sender;  :9000 — this computer waits for the sender on port 9000")
         : in.type == QLatin1String("rtsp") ? T("rtsp://host:554/stream — use rtspt:// to force TCP") : QString());
     const bool off = in.type == QLatin1String("none");      // wejscie wylaczone: nie ma czego ustawiac
-    m_wave->setEnabled(editable && !in.isNetwork() && !off);      // dzwiek pochodzi ze strumienia
+    m_wave->setEnabled(editable && !in.embeddedAudio() && !off);      // dzwiek pochodzi ze strumienia albo z karty
     m_gain->setEnabled(!off);
     m_format->setEnabled(editable && !off);
     m_fps->setEnabled(editable && !off);

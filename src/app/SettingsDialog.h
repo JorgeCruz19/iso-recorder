@@ -19,6 +19,7 @@ private:
     QComboBox* m_container;
     QComboBox* m_split;
     QComboBox* m_encoder;
+    QComboBox* m_codec;
     QComboBox* m_videoRate;
     QComboBox* m_audioRate;
     QComboBox* m_monitor;
@@ -28,3 +29,9 @@ private:
 
 // Opis zmiennych szablonu nazwy (podpowiedz przy etykietach "Name template").
 QString nameTemplateHelp();
+// Wspolne listy dla okna Settings i zakladki Output.
+void fillContainerCombo(QComboBox* combo);                       // MKV, MPEG-TS, MP4, MOV
+void fillCodecCombo(QComboBox* combo);                           // kodeki dostepne na tym komputerze
+void fillEncoderCombo(QComboBox* combo, const QString& codec);   // Auto + enkodery kodeka + kopia strumienia
+void enableContainersFor(QComboBox* combo, const QString& codec);   // wylacza kontenery, ktore nie przyjma kodeka
+QString containerHelp();

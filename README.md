@@ -1,4 +1,4 @@
-# ISO Recorder
+# <img src="docs/icon.png" width="48" align="top" alt=""> ISO Recorder
 
 A Windows application that records 1 to 16 video channels with audio at the same time — each channel to its own file
 ("ISO recording"). It is meant for multi-camera production, conference and stream capture, and any job where the
@@ -11,6 +11,7 @@ material from every source must be kept in full for later editing.
 **Sources**
 - a whole screen or a single application window,
 - a USB camera / capture card that shows up in Windows as a camera,
+- HDMI / SDI through a Blackmagic DeckLink card (not yet tested on hardware),
 - SRT and RTSP network streams,
 - NDI sources found on the network (NDI|HX included),
 - system sound, a microphone or a line input,
@@ -19,8 +20,8 @@ material from every source must be kept in full for later editing.
 - channel frame rate 24 / 25 / 30 / 50 / 60 fps; camera modes are listed with their frame rate.
 
 **Recording**
-- H.264 + AAC to MKV or MPEG‑TS; the hardware encoder is picked automatically
-  (NVIDIA NVENC, Intel Quick Sync, AMD AMF), with a software fallback,
+- H.264, H.265 (HEVC), AV1 or ProRes 422 with AAC sound, to MKV, MPEG‑TS, MP4 or MOV; the hardware encoder is picked
+  automatically (NVIDIA NVENC, Intel Quick Sync, AMD AMF), with a software fallback for H.264, AV1 and ProRes,
 - **stream copy** for SRT and RTSP: the stream is written exactly as it arrives, without re-encoding
   (H.264 or H.265, the sender's quality and bitrate),
 - pause and resume within the same file, leaving no trace on the timeline,
@@ -54,7 +55,6 @@ material from every source must be kept in full for later editing.
 - languages: English, Polish, German, Spanish, Italian, French.
 
 **Planned**
-- Blackmagic DeckLink input, more codecs and containers (H.265, AV1, ProRes, DNxHR; MOV, MP4),
 - several recording locations (a spare folder when the disk fills up, recording to two folders at once),
 - WebRTC input (WHEP), an installer.
 
