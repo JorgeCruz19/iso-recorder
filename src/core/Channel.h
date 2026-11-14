@@ -54,7 +54,7 @@ struct RecordPart {
 struct InputConfig {
     QString type = QStringLiteral("test");        // "test" generator, "screen" ekran, "window" okno, "camera" kamera, "srt", "rtsp", "ndi", "none" wylaczone
     QString windowTitle;                          // okno: tytul (uchwyt jest szukany przy starcie kanalu)
-    QString cameraMode;                           // kamera: rozmiar obrazu "WxH"; puste = wybor sterownika
+    QString cameraMode;                           // kamera: "WxH" albo "WxH@licznik/mianownik" (klatkaz); puste = wybor sterownika
     QString lossPolicy = QStringLiteral("continue");   // zanik sygnalu sieciowego: "continue", "pause", "split"
     int gainDb = 0;                               // glosnosc wejscia dzwieku, dB
     QString uri;                                  // srt / rtsp: adres strumienia; ndi: nazwa zrodla "KOMPUTER (nazwa)"
@@ -95,6 +95,8 @@ public:
     void setPattern(int pattern);
     void setAudioWave(int wave);
     void setFormat(int width, int height);
+    void setFps(int fps);                    // klatkaz kanalu (podglad, nagranie, wyjscie)
+    void reconnect();                        // zatrzymaj zrodlo i uruchom je od nowa (takze kanal w stanie bledu)
     void setInput(const InputConfig& in);
     void setOutput(const OutputConfig& out);
     void setLive(const LiveConfig& live);    // dziala takze podczas nagrywania: galaz wyjscia jest dopinana w locie

@@ -139,6 +139,28 @@ void Channel::setFormat(int width, int height) {
     emit configChanged();
 }
 
+void Channel::setFps(int fps) {
+    fps = qBound(1, fps, 120);
+    if (fps == m_cfg.fps || !canEdit()) return;
+    m_cfg.fps = fps;
+    restart();
+    emit configChanged();
+}
+
+// Reczne ponowne polaczenie: dla zrodla, ktore przy starcie nie odpowiedzialo (kanal porzucony, bez automatycznych
+// ponowien) albo daje zamrozony obraz.
+void Channel::reconnect() {
+    if (!canEdit() || inputOff()) return;
+    emit notice(T("%1: reconnecting the source").arg(m_cfg.name));
+    m_retry.stop();
+    m_retryCount = 0;
+    m_autoRecord = false;
+    m_wantPreview = false;
+    stopPreview();
+    startPreview();
+    emit changed();
+}
+
 void Channel::setInput(const InputConfig& in) {
     if (in == m_cfg.in) return;
     InputConfig sameButGain = in;
@@ -493,9 +515,14 @@ QString Channel::sourceDescription() const {
     } else if (m_cfg.in.type == QLatin1String("camera")) {
         // wybrany rozmiar obrazu kamery: surowy albo MJPEG w tym rozmiarze (decodebin rozpakuje)
         QString mode;
-        const QStringList wh = m_cfg.in.cameraMode.split(QLatin1Char('x'));
-        if (wh.size() == 2 && wh.at(0).toInt() > 0 && wh.at(1).toInt() > 0)
-            mode = QStringLiteral(" ! capsfilter caps=\"video/x-raw,width=%1,height=%2;image/jpeg,width=%1,height=%2\"").arg(wh.at(0).toInt()).arg(wh.at(1).toInt());
+        const QStringList wh = m_cfg.in.cameraMode.section(QLatin1Char('@'), 0, 0).split(QLatin1Char('x'));
+        const QStringList rate = m_cfg.in.cameraMode.section(QLatin1Char('@'), 1).split(QLatin1Char('/'));
+        if (wh.size() == 2 && wh.at(0).toInt() > 0 && wh.at(1).toInt() > 0) {
+            QString fields = QStringLiteral("width=%1,height=%2").arg(wh.at(0).toInt()).arg(wh.at(1).toInt());
+            if (rate.size() == 2 && rate.at(0).toInt() > 0 && rate.at(1).toInt() > 0)
+                fields += QStringLiteral(",framerate=%1/%2").arg(rate.at(0).toInt()).arg(rate.at(1).toInt());
+            mode = QStringLiteral(" ! capsfilter caps=\"video/x-raw,%1;image/jpeg,%1\"").arg(fields);
+        }
         video = QStringLiteral("mfvideosrc %1%4 ! decodebin ! videoconvertscale add-borders=true ! videorate ! video/x-raw,%2,framerate=%3/1")
                     .arg(m_cfg.in.cameraPath.isEmpty() ? QString() : QStringLiteral("device-path=") + quoted(m_cfg.in.cameraPath))
                     .arg(size).arg(m_cfg.fps).arg(mode);

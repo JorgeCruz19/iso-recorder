@@ -44,20 +44,43 @@ Devices::All scan() {
             const QString path = str(p, "device.path");
             if (!path.isEmpty()) {
                 // rozmiary obrazu, ktore kamera podaje (surowy obraz albo MJPEG)
-                QList<QPair<int, int>> sizes;
+                // Tryb = rozmiar + klatkaz ("1920x1080@30/1"); klatkaz bywa podany jako ulamek, lista albo zakres (wtedy gorna granica).
+                struct Mode { int w, h, num, den; };
+                QList<Mode> found;
+                auto add = [&found](int w, int h, int num, int den) {
+                    for (const Mode& m : found)
+                        if (m.w == w && m.h == h && m.num == num && m.den == den) return;
+                    found.append({w, h, num, den});
+                };
                 if (GstCaps* caps = gst_device_get_caps(d)) {
                     for (guint i = 0; i < gst_caps_get_size(caps); ++i) {
                         const GstStructure* st = gst_caps_get_structure(caps, i);
                         int w = 0, h = 0;
-                        if (gst_structure_get_int(st, "width", &w) && gst_structure_get_int(st, "height", &h) && w > 0 && h > 0 &&
-                            !sizes.contains({w, h}))
-                            sizes.append({w, h});
+                        if (!gst_structure_get_int(st, "width", &w) || !gst_structure_get_int(st, "height", &h) || w <= 0 || h <= 0) continue;
+                        const GValue* fr = gst_structure_get_value(st, "framerate");
+                        const int before = int(found.size());
+                        auto one = [&](const GValue* v) {
+                            if (v && GST_VALUE_HOLDS_FRACTION(v) && gst_value_get_fraction_numerator(v) > 0 && gst_value_get_fraction_denominator(v) > 0)
+                                add(w, h, gst_value_get_fraction_numerator(v), gst_value_get_fraction_denominator(v));
+                        };
+                        if (fr && GST_VALUE_HOLDS_LIST(fr)) {
+                            for (guint k = 0; k < gst_value_list_get_size(fr); ++k) one(gst_value_list_get_value(fr, k));
+                        } else if (fr && GST_VALUE_HOLDS_FRACTION_RANGE(fr)) {
+                            one(gst_value_get_fraction_range_max(fr));
+                        } else {
+                            one(fr);
+                        }
+                        if (int(found.size()) == before && !fr) add(w, h, 0, 1);      // sterownik nie podaje klatkazu
                     }
                     gst_caps_unref(caps);
                 }
-                std::sort(sizes.begin(), sizes.end(), [](const auto& a, const auto& b) { return a.first * a.second > b.first * b.second; });
+                std::sort(found.begin(), found.end(), [](const Mode& a, const Mode& b) {
+                    if (a.w * a.h != b.w * b.h) return a.w * a.h > b.w * b.h;
+                    return qint64(a.num) * b.den > qint64(b.num) * a.den;
+                });
                 QStringList modes;
-                for (const auto& sz : sizes) modes << QStringLiteral("%1x%2").arg(sz.first).arg(sz.second);
+                for (const Mode& m : found)
+                    modes << (m.num > 0 ? QStringLiteral("%1x%2@%3/%4").arg(m.w).arg(m.h).arg(m.num).arg(m.den) : QStringLiteral("%1x%2").arg(m.w).arg(m.h));
                 out.cameras.append({name, path, {}, modes});
             }
         } else if (klass == QLatin1String("Audio/Sink")) {

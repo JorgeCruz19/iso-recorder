@@ -381,9 +381,10 @@ Każda wersja: działający program, commit, tag, push. Kryterium = to, co da si
 | **2.7** | Typ wejścia „None (input off)” — kanał bez sygnału i bez pipeline'u | **wydana** |
 | **2.8** | Scheduler: okna nagrywania (tygodniowe i jednorazowe) z podziałem pliku, start co do sekundy, spóźniony start, odporność na uśpienie i zmianę czasu, blokada uśpienia; wyjście na żywo „jak w harmonogramie nagrywania” albo „cały czas” | **wydana** — `tests\sched_test.ps1` |
 | **2.9** | Zapis bez ponownego kodowania („stream copy”) dla SRT/RTSP jako opcja enkodera, z opisem w Settings: plik zgodny ze strumieniem, start / split / wznowienie na klatce kluczowej źródła, zanik zamyka plik i nagranie rusza od nowa | **wydana** — `tests\copy_test.ps1` |
-| **3.0** | Wiele lokalizacji zapisu: folder zapasowy („gdy na dysku zostaje mniej niż X MB/GB, kolejna część trafia do folderu zapasowego”) i zapis podwójny (to samo nagranie równocześnie w dwóch folderach) | zapełnienie dysku testowego → przejście na folder zapasowy bez utraty klatek; dwa identyczne komplety plików |
+| **3.0** | Poprawki: przycisk „Reconnect source”, sortowanie listy po kolumnach, klatkaż kanału i tryby kamery z klatkażem, przyciski okien w języku interfejsu | **wydana** |
 | **3.1** | DeckLink; kodeki H.265/AV1/ProRes/DNxHR wg dostępności; MOV/MP4 | DeckLink — niesprawdzone na sprzęcie |
-| **3.2** | WHEP, WHIP, odzyskiwanie plików po awarii, instalator Inno Setup | instalacja na czystym Windows; test 24 h |
+| **3.2** | Wiele lokalizacji zapisu: folder zapasowy („gdy na dysku zostaje mniej niż X MB/GB, kolejna część trafia do folderu zapasowego”) i zapis podwójny (to samo nagranie równocześnie w dwóch folderach) | zapełnienie dysku testowego → przejście na folder zapasowy bez utraty klatek; dwa identyczne komplety plików |
+| **3.3** | WHEP, WHIP, odzyskiwanie plików po awarii, instalator Inno Setup | instalacja na czystym Windows; test 24 h |
 
 **Decyzje właściciela z 2026‑11‑11 (zmieniają wcześniejsze rozdziały):** (1) słowo „passthrough” właściciel rozumie jako przekazanie sygnału dalej — to robi wyjście na żywo (5.9). Zapis strumienia **bez ponownego kodowania** najpierw wypadł z planu, a tego samego dnia wrócił jako **opcja enkodera** („No re-encoding (stream copy)”, etap 2.9), pod warunkiem jasnego opisu, co użytkownik dostaje, a co traci — opis jest w oknie Settings; (2) wyjście na wirtualną kamerę nie będzie robione (wystarcza NDI + NDI Webcam); (3) hasło RTSP zostaje w adresie; (4) wejście SRT już jest (1.6), potrzebne są jeszcze wejście NDI i scheduler — stąd kolejność 2.2 i 2.3.
 
@@ -415,4 +416,4 @@ iso-recorder/
 ## 8. Otwarte pytania do właściciela projektu
 
 1. Docelowy sprzęt nagrywający (GPU, karty HDMI) — od tego zależy, czy 3.1 (DeckLink) i profil 16 kanałów da się w ogóle potwierdzić.
-2. Czy WHIP jako serwer w aplikacji jest wymagany, czy wystarczy WHEP + SRT/RTSP (wtedy 3.2 jest wyraźnie prostsze).
+2. Czy WHIP jako serwer w aplikacji jest wymagany, czy wystarczy WHEP + SRT/RTSP (wtedy 3.3 jest wyraźnie prostsze).

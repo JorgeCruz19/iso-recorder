@@ -2,6 +2,20 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 3.0
+
+- **Przycisk „Reconnect source”** w zakładce Input: zatrzymuje źródło kanału i uruchamia je od nowa. Służy do kamer i
+  kart przechwytujących, które przy starcie nie odpowiedziały (taki kanał nie jest ponawiany automatycznie) albo dają
+  zamrożony obraz. Działa dla każdego typu źródła; podczas nagrywania jest nieaktywny.
+- **Sortowanie w widoku listy**: kliknięcie w tytuł kolumny Channel name / Source / Video format / State układa kanały
+  według niej, kolejne kliknięcie odwraca kolejność; strzałka pokazuje, według czego lista jest ułożona. Sortowanie
+  zmienia kolejność kanałów tak jak przeciąganie (a więc i ich numery).
+- **Klatkaż**: nowe pole „Frame rate” kanału (24 / 25 / 30 / 50 / 60 kl./s) — dotyczy podglądu, nagrania i wyjścia na
+  żywo. Lista „Camera mode” pokazuje teraz tryby kamery razem z klatkażem (np. „1920 × 1080 · 30 fps”).
+- **Przyciski okien** (OK, Cancel, Yes, No, Save, Discard) są w języku interfejsu.
+- Argumenty testowe `--fps`, `--sort`, `--reconnect-at`.
+- Plan: po tej wersji DeckLink i kontenery (3.1), wiele lokalizacji zapisu (3.2), WebRTC i instalator (3.3).
+
 ## 2.9
 
 - **Zapis bez ponownego kodowania (stream copy)** dla wejść SRT i RTSP: nowa pozycja enkodera „No re-encoding (stream

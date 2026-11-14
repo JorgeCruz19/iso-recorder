@@ -10,6 +10,7 @@
 #include "Channel.h"
 
 enum class Transport { Rec, Pause, Stop, Split };
+enum class SortKey { Name, Source, Format, State };
 
 class ChannelManager : public QObject {
     Q_OBJECT
@@ -35,6 +36,9 @@ public:
     void duplicateChannels(const QList<Channel*>& list);
     void moveChannel(int from, int gap);                    // gap = pozycja wstawienia 0..count (przed kanalem o tym indeksie)
     void setActive(Channel* ch);
+    // Ulozenie kanalow wg kolumny (zmienia kolejnosc tak jak przeciaganie). Lista juz ulozona rosnaco -> malejaco.
+    void sortChannels(SortKey key);
+    int sortedBy(SortKey key) const;        // 1 rosnaco, -1 malejaco, 0 nieulozona wg tej kolumny
     void selectAll();
     void selectNone();
     void invertSelection();

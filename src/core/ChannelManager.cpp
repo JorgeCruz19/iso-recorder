@@ -274,6 +274,53 @@ void ChannelManager::moveChannel(int from, int gap) {
     emit listChanged();
 }
 
+namespace {
+// < 0: a przed b
+int compareChannels(const Channel* a, const Channel* b, SortKey key) {
+    auto stateRank = [](const Channel* c) {
+        switch (c->state()) {
+        case ChannelState::Recording: case ChannelState::Finalizing: return 0;
+        case ChannelState::Paused: return 1;
+        case ChannelState::Preview: return c->waitingForSchedule() ? 3 : 2;
+        case ChannelState::Error: return 4;
+        default: return 5;
+        }
+    };
+    switch (key) {
+    case SortKey::Name: return QString::localeAwareCompare(a->config().name.toLower(), b->config().name.toLower());
+    case SortKey::Source: return QString::localeAwareCompare(a->sourceText().toLower(), b->sourceText().toLower());
+    case SortKey::Format: {
+        const qint64 pa = qint64(a->config().width) * a->config().height, pb = qint64(b->config().width) * b->config().height;
+        if (pa != pb) return pa < pb ? -1 : 1;
+        return a->config().fps - b->config().fps;
+    }
+    case SortKey::State: return stateRank(a) - stateRank(b);
+    }
+    return 0;
+}
+}  // namespace
+
+int ChannelManager::sortedBy(SortKey key) const {
+    bool asc = true, desc = true, differ = false;
+    for (int i = 1; i < m_channels.size(); ++i) {
+        const int c = compareChannels(m_channels.at(i - 1), m_channels.at(i), key);
+        asc = asc && c <= 0;
+        desc = desc && c >= 0;
+        differ = differ || c != 0;
+    }
+    return !differ ? 0 : asc ? 1 : desc ? -1 : 0;
+}
+
+void ChannelManager::sortChannels(SortKey key) {
+    if (m_channels.size() < 2) return;
+    const bool descending = sortedBy(key) == 1;
+    std::stable_sort(m_channels.begin(), m_channels.end(), [key, descending](const Channel* a, const Channel* b) {
+        const int c = compareChannels(a, b, key);
+        return descending ? c > 0 : c < 0;
+    });
+    emit listChanged();      // pipeline'y nie sa restartowane, zmieniaja sie tylko numery kanalow
+}
+
 void ChannelManager::setActive(Channel* ch) {
     if (ch == m_active) return;
     m_active = ch;

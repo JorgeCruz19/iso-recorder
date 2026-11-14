@@ -214,6 +214,13 @@ QWidget* Inspector::buildInputPage() {
     for (const auto& f : formats)
         m_format->addItem(QStringLiteral("%1 × %2  ·  %3").arg(f.w).arg(f.h).arg(QLatin1String(f.ratio)), QSize(f.w, f.h));
     row(g, T("Video format"), m_format);
+    m_fps = new QComboBox;
+    for (int f : {24, 25, 30, 50, 60}) m_fps->addItem(T("%1 fps").arg(f), f);
+    row(g, T("Frame rate"), m_fps);
+    m_reconnect = new QPushButton(T("Reconnect source"));
+    m_reconnect->setObjectName(QStringLiteral("ibtn"));
+    m_reconnect->setToolTip(T("Stops the source and starts it again. Use it when a camera or a capture card shows no picture."));
+    g->addWidget(m_reconnect, g->rowCount(), 1);
 
     v->addWidget(section(QStringLiteral("Audio")));
     g = form(v);
@@ -248,6 +255,12 @@ QWidget* Inspector::buildInputPage() {
     connect(m_format, &QComboBox::activated, this, [this](int i) {
         const QSize s = m_format->itemData(i).toSize();
         if (Channel* ch = m_mgr->active()) ch->setFormat(s.width(), s.height());
+    });
+    connect(m_fps, &QComboBox::activated, this, [this](int i) {
+        if (Channel* ch = m_mgr->active()) ch->setFps(m_fps->itemData(i).toInt());
+    });
+    connect(m_reconnect, &QPushButton::clicked, this, [this] {
+        if (Channel* ch = m_mgr->active()) ch->reconnect();
     });
     connect(m_wave, &QComboBox::activated, this, &Inspector::commitInput);
     connect(m_device, &QComboBox::activated, this, &Inspector::commitInput);
@@ -694,7 +707,16 @@ void Inspector::fillCameraModes(const QString& cameraPath) {
     m_camMode->addItem(T("Auto"), QString());
     for (const Devices::Info& d : Devices::list().cameras)
         if (d.id == cameraPath)
-            for (const QString& m : d.modes) m_camMode->addItem(QString(m).replace(QLatin1Char('x'), QStringLiteral(" × ")), m);
+            for (const QString& m : d.modes) {
+                // "1920x1080@30000/1001" -> "1920 × 1080  ·  29.97 fps"
+                QString text = m.section(QLatin1Char('@'), 0, 0).replace(QLatin1Char('x'), QStringLiteral(" × "));
+                const QStringList rate = m.section(QLatin1Char('@'), 1).split(QLatin1Char('/'));
+                if (rate.size() == 2 && rate.at(1).toInt() > 0) {
+                    const double f = rate.at(0).toDouble() / rate.at(1).toDouble();
+                    text += QStringLiteral("  ·  ") + T("%1 fps").arg(QString::number(f, 'f', f == qRound(f) ? 0 : 2));
+                }
+                m_camMode->addItem(text, m);
+            }
     m_camMode->setProperty("forCamera", cameraPath);
 }
 
@@ -901,7 +923,11 @@ void Inspector::refresh() {
                                       in.type == QLatin1String("ndi")));
     if (in.type == QLatin1String("camera") && m_camMode->property("forCamera").toString() != in.cameraPath) fillCameraModes(in.cameraPath);
     if (in.type != QLatin1String("camera") && m_camMode->count() != 1) fillCameraModes(QString());
-    m_camMode->setCurrentIndex(qMax(0, m_camMode->findData(in.cameraMode)));
+    int camIndex = m_camMode->findData(in.cameraMode);
+    if (camIndex < 0 && !in.cameraMode.isEmpty())       // lista z wersji bez klatkazu: "1920x1080" -> pierwszy tryb o tym rozmiarze
+        for (int i = 1; i < m_camMode->count() && camIndex < 0; ++i)
+            if (m_camMode->itemData(i).toString().section(QLatin1Char('@'), 0, 0) == in.cameraMode) camIndex = i;
+    m_camMode->setCurrentIndex(qMax(0, camIndex));
     m_camMode->setEnabled(editable && in.type == QLatin1String("camera"));
     m_loss->setCurrentIndex(qMax(0, m_loss->findData(in.lossPolicy)));
     m_loss->setEnabled(in.isNetwork() && !ch->copyMode());       // kopia strumienia: zanik zawsze konczy plik
@@ -918,6 +944,10 @@ void Inspector::refresh() {
     m_wave->setEnabled(editable && !in.isNetwork() && !off);      // dzwiek pochodzi ze strumienia
     m_gain->setEnabled(!off);
     m_format->setEnabled(editable && !off);
+    m_fps->setEnabled(editable && !off);
+    if (m_fps->findData(ch->config().fps) < 0) m_fps->addItem(T("%1 fps").arg(ch->config().fps), ch->config().fps);     // wartosc z pliku
+    m_fps->setCurrentIndex(m_fps->findData(ch->config().fps));
+    m_reconnect->setEnabled(editable && !off);
     m_pattern->setEnabled(editable && in.type == QLatin1String("test"));
     int auIndex = 0;
     for (int i = 0; i < m_wave->count(); ++i) {

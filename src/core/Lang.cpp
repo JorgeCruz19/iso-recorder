@@ -2,6 +2,7 @@
 
 #include <QByteArray>
 #include <QHash>
+#include <QTranslator>
 
 namespace {
 struct Row { const char* en; const char* pl; const char* de; const char* es; const char* it; const char* fr; };
@@ -239,6 +240,33 @@ const Row rows[] = {
      "Come nella programmazione di registrazione: l'uscita è attiva solo nelle finestre di tempo della scheda Scheduler.",
      "Comme dans le planning d'enregistrement : la sortie n'est active que dans les plages horaires de l'onglet Scheduler."},
     {"Active", "Aktywne", "Aktiv", "Activa", "Attiva", "Active"},
+    {"Cancel", "Anuluj", "Abbrechen", "Cancelar", "Annulla", "Annuler"},
+    {"Yes", "Tak", "Ja", "Sí", "Sì", "Oui"},
+    {"No", "Nie", "Nein", "No", "No", "Non"},
+    {"Save", "Zapisz", "Speichern", "Guardar", "Salva", "Enregistrer"},
+    {"Discard", "Odrzuć", "Verwerfen", "Descartar", "Scarta", "Abandonner"},
+    {"Apply", "Zastosuj", "Anwenden", "Aplicar", "Applica", "Appliquer"},
+    {"Open", "Otwórz", "Öffnen", "Abrir", "Apri", "Ouvrir"},
+    {"Frame rate", "Klatkaż", "Bildrate", "Fotogramas por segundo", "Frequenza fotogrammi", "Fréquence d'images"},
+    {"%1 fps", "%1 kl./s", "%1 fps", "%1 fps", "%1 fps", "%1 i/s"},
+    {"Reconnect source", "Połącz źródło ponownie", "Quelle neu verbinden", "Reconectar la fuente", "Ricollega la sorgente",
+     "Reconnecter la source"},
+    {"Stops the source and starts it again. Use it when a camera or a capture card shows no picture.",
+     "Zatrzymuje źródło i uruchamia je ponownie. Użyj, gdy kamera albo karta przechwytująca nie pokazuje obrazu.",
+     "Stoppt die Quelle und startet sie neu. Verwenden, wenn eine Kamera oder Capture-Karte kein Bild zeigt.",
+     "Detiene la fuente y la inicia de nuevo. Úsalo cuando una cámara o capturadora no muestre imagen.",
+     "Ferma la sorgente e la riavvia. Usalo quando una camera o una scheda di acquisizione non mostra l'immagine.",
+     "Arrête la source et la redémarre. À utiliser quand une caméra ou une carte d'acquisition n'affiche pas d'image."},
+    {"%1: reconnecting the source", "%1: ponowne łączenie ze źródłem", "%1: Quelle wird neu verbunden", "%1: reconectando la fuente",
+     "%1: ricollegamento della sorgente", "%1 : reconnexion de la source"},
+    {"Click to sort the channels by this column; click again to reverse the order",
+     "Kliknij, aby ułożyć kanały według tej kolumny; kliknij ponownie, aby odwrócić kolejność",
+     "Klicken, um die Kanäle nach dieser Spalte zu ordnen; erneut klicken kehrt die Reihenfolge um",
+     "Haz clic para ordenar los canales por esta columna; otro clic invierte el orden",
+     "Fai clic per ordinare i canali per questa colonna; un altro clic inverte l'ordine",
+     "Cliquez pour trier les canaux selon cette colonne ; cliquez encore pour inverser l'ordre"},
+    {"Channels sorted by: %1", "Kanały ułożone według: %1", "Kanäle sortiert nach: %1", "Canales ordenados por: %1",
+     "Canali ordinati per: %1", "Canaux triés par : %1"},
     {"None (input off)", "Brak (wejście wyłączone)", "Keine (Eingang aus)", "Ninguna (entrada apagada)", "Nessuno (ingresso spento)",
      "Aucune (entrée désactivée)"},
     {"Input off", "Wejście wyłączone", "Eingang aus", "Entrada apagada", "Ingresso spento", "Entrée désactivée"},
@@ -584,6 +612,27 @@ void Lang::set(const QString& code) {
     g_lang = 0;
     for (int i = 0; i < available().size(); ++i)
         if (code.compare(QLatin1String(available().at(i).code), Qt::CaseInsensitive) == 0) g_lang = i;
+}
+
+namespace {
+class ButtonTranslator : public QTranslator {
+public:
+    bool isEmpty() const override { return false; }
+    QString translate(const char* context, const char* source, const char*, int) const override {
+        if (!context || !source || qstrcmp(context, "QPlatformTheme") != 0) return QString();
+        QByteArray key(source);
+        key.replace("&", "");       // "&Yes" -> "Yes"
+        static const char* const known[] = {"OK", "Cancel", "Yes", "No", "Save", "Discard", "Close", "Apply", "Open"};
+        for (const char* k : known)
+            if (key == k) return Lang::tr(k);
+        return QString();
+    }
+};
+}  // namespace
+
+QTranslator* Lang::buttonTranslator() {
+    static ButtonTranslator t;
+    return &t;
 }
 
 QString Lang::current() { return QLatin1String(available().at(g_lang).code); }

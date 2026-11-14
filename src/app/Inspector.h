@@ -76,6 +76,8 @@ private:
     QComboBox* m_pattern;
     QComboBox* m_wave;
     QComboBox* m_format;
+    QComboBox* m_fps;
+    QPushButton* m_reconnect;
     QWidget* m_inputPage = nullptr;
     QWidget* m_outputForm = nullptr;
     QLabel* m_lock = nullptr;

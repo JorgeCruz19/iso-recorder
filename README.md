@@ -15,6 +15,7 @@ material from every source must be kept in full for later editing.
 - NDI sources found on the network (NDI|HX included),
 - a channel can also be switched off (input type "None"),
 - recording SRT / RTSP streams without re-encoding (stream copy),
+- channel frame rate 24 / 25 / 30 / 50 / 60 fps,
 - scheduled recording: weekly or one-time time windows per channel, with optional file splitting and a late start,
 - system sound, a microphone or a line input,
 - a test generator (picture and tone) for rehearsals.

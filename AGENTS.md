@@ -1,6 +1,6 @@
 # ISO Recorder — stan projektu i instrukcje dla kolejnego modelu
 
-Ten plik jest punktem wejścia. Przeczytaj go w całości, zanim cokolwiek zmienisz. Stan na 2026‑11‑12, wersja **2.9**. Wydania od 2.0 są publikowane jako Release na GitHubie.
+Ten plik jest punktem wejścia. Przeczytaj go w całości, zanim cokolwiek zmienisz. Stan na 2026‑11‑12, wersja **3.0**. Wydania od 2.0 są publikowane jako Release na GitHubie.
 
 ## 1. Co to jest
 
@@ -23,7 +23,7 @@ z tłumaczeniami PL, DE, ES, IT, FR.
 | `mockup/`, `interfejs.png` | wzorzec wyglądu |
 | `docs/zrzut_<wersja>.png` | zrzut okna na każdą wersję |
 
-## 3. Co działa (2.9)
+## 3. Co działa (3.0)
 
 - **Wejścia**: generator testowy, ekran i pojedyncze okno (`d3d11screencapturesrc`), kamera z wyborem rozmiaru obrazu
   (`mfvideosrc`), SRT, RTSP i NDI (`fallbacksrc`; NDI: lista źródeł z sieci w polu Device); dźwięk: sygnał testowy, cisza, dźwięk systemowy (loopback) i wejścia
@@ -48,9 +48,9 @@ z tłumaczeniami PL, DE, ES, IT, FR.
 
 | Wersja | Zakres |
 |---|---|
-| **3.0** | Wiele lokalizacji zapisu: folder zapasowy przy małej ilości miejsca i zapis podwójny |
 | **3.1** | DeckLink; kodeki H.265 / AV1 / ProRes / DNxHR; MOV / MP4 |
-| **3.2** | WebRTC (WHEP, WHIP), odzyskiwanie plików po awarii, instalator |
+| **3.2** | Wiele lokalizacji zapisu: folder zapasowy przy małej ilości miejsca i zapis podwójny |
+| **3.3** | WebRTC (WHEP, WHIP), odzyskiwanie plików po awarii, instalator |
 
 Decyzje właściciela (2026‑11‑11) — **nie wracać do tych tematów**:
 - wyjście na wirtualną kamerę nie będzie robione: wystarcza wyjście NDI + „Webcam” z NDI Tools;
@@ -77,6 +77,11 @@ Zwykłe wyjście (wyładowywanie bibliotek po `ExitProcess`) po nagrywaniu ze zd
 zostawał proces „zombie” (HasExited = true, 1 wątek, `taskkill /F` odpowiada „brak działającego wystąpienia”), który
 blokuje plik EXE do wylogowania. Taki proces da się obejść tylko zmianą nazwy zablokowanego pliku. W testach nie ufaj
 `WaitForExit` — sprawdzaj, czy proces zniknął z listy (`Get-CimInstance Win32_Process`).
+
+Poprawki 3.0: `Channel::reconnect()` (przycisk w zakładce Input) — jedyna droga do ponownego startu kanału porzuconego,
+gdy źródło nie odpowiedziało przy starcie; `ChannelManager::sortChannels/sortedBy` (klik w tytuł kolumny listy);
+`Channel::setFps` i tryby kamery `"WxH@licznik/mianownik"` (`Devices`); `Lang::buttonTranslator()` — `QTranslator`
+dla kontekstu `QPlatformTheme`, dzięki któremu standardowe przyciski Qt biorą teksty z tabeli `Lang`.
 
 Kopia strumienia (2.9): `Channel::copyMode()` = enkoder `"copy"` i wejście SRT/RTSP. Kanał ma wtedy inny tor źródła
 (`sourceDescription`): `urisourcebin parse-streams=true` zamiast `fallbacksrc`; pady łączy `onCopyPad` → `linkCopyPad`

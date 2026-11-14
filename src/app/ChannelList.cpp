@@ -94,11 +94,26 @@ protected:
             p.drawText(QRect(x, 0, x2 - x - 6, height()), Qt::AlignVCenter | Qt::AlignLeft,
                        p.fontMetrics().elidedText(str.toUpper(), Qt::ElideRight, x2 - x - 6));
         };
+        // kolumny, wg ktorych mozna ulozyc kanaly, pokazuja strzalke, gdy lista jest wlasnie tak ulozona
+        auto sortable = [&](int x, int x2, const QString& str, SortKey key) {
+            const int dir = m_mgr->sortedBy(key);
+            if (dir == 0) {
+                text(x, x2, str);
+                return;
+            }
+            // strzalka zawsze sie miesci: skracany jest tytul, nie ona
+            const QString arrow = dir > 0 ? QStringLiteral(" ▲") : QStringLiteral(" ▼");
+            const int room = x2 - x - 6, aw = p.fontMetrics().horizontalAdvance(arrow);
+            p.setPen(Theme::t1);
+            p.drawText(QRect(x, 0, room, height()), Qt::AlignVCenter | Qt::AlignLeft,
+                       p.fontMetrics().elidedText(str.toUpper(), Qt::ElideRight, room - aw) + arrow);
+            p.setPen(Theme::t3);
+        };
         text(c.num, c.thumb, QStringLiteral("#"));
-        text(c.name, c.source, T("Channel name"));
-        text(c.source, c.format, T("Source"));
-        text(c.format, c.state, T("Video format"));
-        text(c.state, c.time, T("State"));
+        sortable(c.name, c.source, T("Channel name"), SortKey::Name);
+        sortable(c.source, c.format, T("Source"), SortKey::Source);
+        sortable(c.format, c.state, T("Video format"), SortKey::Format);
+        sortable(c.state, c.time, T("State"), SortKey::State);
         text(c.time, c.rate, T("Time"));
         text(c.rate, c.live, QStringLiteral("Mb/s"));
         text(c.live, c.meter, T("Live output"));
@@ -138,6 +153,16 @@ protected:
                 if (m_mgr->selectedCount() > 0 && onTransport) onTransport(Transport(i));
                 return;
             }
+        // klikniecie w tytul kolumny uklada kanaly wg niej
+        const struct { int from, to; SortKey key; const char* title; } cols[] = {
+            {c.name, c.source, SortKey::Name, "Channel name"}, {c.source, c.format, SortKey::Source, "Source"},
+            {c.format, c.state, SortKey::Format, "Video format"}, {c.state, c.time, SortKey::State, "State"}};
+        for (const auto& col : cols)
+            if (pt.x() >= col.from && pt.x() < col.to) {
+                m_mgr->sortChannels(col.key);
+                emit m_mgr->notice(T("Channels sorted by: %1").arg(T(col.title)));
+                return;
+            }
     }
 
     void mouseMoveEvent(QMouseEvent* e) override {
@@ -146,6 +171,8 @@ protected:
         QString tip;
         if (pt.x() < c.num) tip = m_mgr->count() > 0 && m_mgr->selectedCount() == m_mgr->count() ? T("NONE") : T("ALL");
         else if (pt.x() >= c.buttons && pt.x() < c.close) tip = T("Selected channels (%1)").arg(m_mgr->selectedCount());
+        else if (pt.x() >= c.name && pt.x() < c.time) tip = T("Click to sort the channels by this column; click again to reverse the order");
+        setCursor(pt.x() >= c.name && pt.x() < c.time ? Qt::PointingHandCursor : Qt::ArrowCursor);
         setToolTip(tip);
     }
 

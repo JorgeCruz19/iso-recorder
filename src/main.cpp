@@ -110,6 +110,7 @@ int main(int argc, char* argv[]) {
     gst_init(&argc, &argv);
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("IsoRecorder"));
+    app.installTranslator(Lang::buttonTranslator());     // OK / Cancel / Yes / No w jezyku interfejsu
     QApplication::setApplicationVersion(QStringLiteral(APP_VERSION));
     const QStringList args = app.arguments();
     // Uruchomienie sterowane argumentami (zrzuty, testy) konczy sie samo - bez pytan o zapis listy.
@@ -395,6 +396,33 @@ int main(int argc, char* argv[]) {
                 wait->start(100);
             });
         }
+        // --fps N: klatkaz kanalow --demo;  --sort name|source|format|state [x2]: po 2 s ulozenie listy (drugie = odwrocenie);
+        // --reconnect-at S: po S sekundach "Reconnect source" na kanale 1; kolejnosc i stan kanalow ida na stdout
+        if (const int fps = argAfter("--fps").toInt(); fps > 0)
+            for (Channel* c : manager.channels()) c->setFps(fps);
+        if (const QString key = argAfter("--sort"); !key.isEmpty())
+            QTimer::singleShot(2000, &manager, [&manager, key] {
+                const SortKey k = key == QLatin1String("source") ? SortKey::Source : key == QLatin1String("format") ? SortKey::Format
+                                : key == QLatin1String("state") ? SortKey::State : SortKey::Name;
+                manager.sortChannels(k);
+                if (QApplication::arguments().contains(QStringLiteral("x2"))) manager.sortChannels(k);
+                QStringList names;
+                for (Channel* c : manager.channels()) names << c->config().name;
+                const QByteArray line = "order=" + names.join(QLatin1Char(',')).toUtf8() + " sorted=" + QByteArray::number(manager.sortedBy(k)) + "\n";
+                fwrite(line.constData(), 1, size_t(line.size()), stdout);
+                fflush(stdout);
+            });
+        if (const int at = argAfter("--reconnect-at").toInt(); at > 0)
+            QTimer::singleShot(at * 1000, &manager, [&manager] {
+                if (manager.count() == 0) return;
+                Channel* c = manager.channels().first();
+                c->reconnect();
+                QTimer::singleShot(2500, &manager, [c] {
+                    const QByteArray line = "after-reconnect state=" + QByteArray::number(int(c->state())) + "\n";
+                    fwrite(line.constData(), 1, size_t(line.size()), stdout);
+                    fflush(stdout);
+                });
+            });
         if (const int every = argAfter("--split-every").toInt(); every > 0) {
             auto* t = new QTimer(&manager);
             QObject::connect(t, &QTimer::timeout, &manager, [&manager] {
