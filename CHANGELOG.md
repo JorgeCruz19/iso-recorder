@@ -14,7 +14,8 @@ Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
   żywo. Lista „Camera mode” pokazuje teraz tryby kamery razem z klatkażem (np. „1920 × 1080 · 30 fps”).
 - **Przyciski okien** (OK, Cancel, Yes, No, Save, Discard) są w języku interfejsu.
 - Argumenty testowe `--fps`, `--sort`, `--reconnect-at`.
-- Plan: po tej wersji DeckLink i kontenery (3.1), wiele lokalizacji zapisu (3.2), WebRTC i instalator (3.3).
+- Plan: po tej wersji DeckLink i kontenery (3.1), wiele lokalizacji zapisu (3.2), WebRTC — tylko WHEP — i instalator (3.3).
+  WHIP (program jako serwer WebRTC) został usunięty z planu.
 
 ## 2.9
 

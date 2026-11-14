@@ -13,35 +13,50 @@ material from every source must be kept in full for later editing.
 - a USB camera / capture card that shows up in Windows as a camera,
 - SRT and RTSP network streams,
 - NDI sources found on the network (NDI|HX included),
-- a channel can also be switched off (input type "None"),
-- recording SRT / RTSP streams without re-encoding (stream copy),
-- channel frame rate 24 / 25 / 30 / 50 / 60 fps,
-- scheduled recording: weekly or one-time time windows per channel, with optional file splitting and a late start,
 - system sound, a microphone or a line input,
-- a test generator (picture and tone) for rehearsals.
+- a test generator (picture, clock and tone) for rehearsals,
+- a channel can be switched off without removing it (input type "None"),
+- channel frame rate 24 / 25 / 30 / 50 / 60 fps; camera modes are listed with their frame rate.
 
 **Recording**
 - H.264 + AAC to MKV or MPEG‑TS; the hardware encoder is picked automatically
   (NVIDIA NVENC, Intel Quick Sync, AMD AMF), with a software fallback,
+- **stream copy** for SRT and RTSP: the stream is written exactly as it arrives, without re-encoding
+  (H.264 or H.265, the sender's quality and bitrate),
 - pause and resume within the same file, leaving no trace on the timeline,
-- splitting into parts by hand or automatically (every N minutes / every N GB),
+- splitting into parts by hand or automatically (every N minutes / every N GB), also into a new folder,
 - REC, PAUSE and STOP for a group of channels at the same instant — the files share a common zero point,
 - a `.json` sidecar next to every recording (times, parts, pauses, signal losses) for syncing in the edit.
 
+**Scheduler**
+- recording rules per channel: weekly on chosen days or once on a chosen date, with an optional new file part every
+  N minutes,
+- recording starts exactly at the planned second; channels with the same start time begin together,
+- a late start when the program was not running at the start time; the computer is kept awake while a recording is
+  running or waiting.
+
 **Live output**
-- every channel can go out to NDI or SRT in parallel with its recording; this can be switched on and off while recording.
+- every channel can go out to NDI or SRT in parallel with its recording; this can be switched on and off while
+  recording, or follow the recording schedule.
 
 **Resilience**
 - a lost network signal does not stop the recording; choose between keep recording, pause, or a new file part,
 - a source that failed is restarted automatically and an interrupted recording resumes in a new file,
+- a "Reconnect source" button for a camera or capture card that does not respond,
 - free-space monitoring per disk and a write-speed test,
 - channel list autosave and recovery after a crash,
 - an event log written to a file.
 
 **Interface**
-- tile view (2×2, 3×3, 4×4) and list view, a large channel preview, audio meters,
-- channel lists saved to and loaded from files,
+- tile view (2×2, 3×3, 4×4) and list view with sorting by column, a large channel preview, audio meters,
+- listening to a channel on a chosen sound card,
+- channel lists saved to and loaded from files; default recording settings for new channels,
 - languages: English, Polish, German, Spanish, Italian, French.
+
+**Planned**
+- Blackmagic DeckLink input, more codecs and containers (H.265, AV1, ProRes, DNxHR; MOV, MP4),
+- several recording locations (a spare folder when the disk fills up, recording to two folders at once),
+- WebRTC input (WHEP), an installer.
 
 ## Requirements
 
@@ -64,7 +79,8 @@ empty list.
 ## Getting started
 
 1. **ADD SOURCE** adds a channel. On the **Input** tab choose the source type and the device or address.
-2. On the **Output** tab set the recording folder, container and bitrate; **Live output** is there too.
+2. On the **Output** tab set the recording folder, container, encoder and bitrate; **Live output** is there too.
+   The **Scheduler** tab holds the recording rules of the channel.
 3. **REC** on a tile records one channel; select several channels and use the **Selected channels** panel to start
    them together.
 4. **SAVE** stores the channel list in a file — the program opens it by itself next time.

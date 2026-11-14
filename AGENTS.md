@@ -50,7 +50,7 @@ z tłumaczeniami PL, DE, ES, IT, FR.
 |---|---|
 | **3.1** | DeckLink; kodeki H.265 / AV1 / ProRes / DNxHR; MOV / MP4 |
 | **3.2** | Wiele lokalizacji zapisu: folder zapasowy przy małej ilości miejsca i zapis podwójny |
-| **3.3** | WebRTC (WHEP, WHIP), odzyskiwanie plików po awarii, instalator |
+| **3.3** | WebRTC — tylko wejście WHEP (WHIP usunięty z planu decyzją właściciela z 2026‑11‑14), odzyskiwanie plików po awarii, instalator |
 
 Decyzje właściciela (2026‑11‑11) — **nie wracać do tych tematów**:
 - wyjście na wirtualną kamerę nie będzie robione: wystarcza wyjście NDI + „Webcam” z NDI Tools;
