@@ -1,6 +1,6 @@
 ﻿cmake_minimum_required(VERSION 3.24)
-project(IsoRecorder VERSION 2.8.0 LANGUAGES CXX)
-set(APP_VERSION_SHORT "2.8")
+project(IsoRecorder VERSION 2.9.0 LANGUAGES CXX)
+set(APP_VERSION_SHORT "2.9")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

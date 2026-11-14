@@ -284,6 +284,11 @@ int main(int argc, char* argv[]) {
                 InputConfig in = c->config().in;
                 in.type = argAfter("--input");
                 in.uri = argAfter("--uri");
+                if (!argAfter("--encoder").isEmpty()) {     // enkoder przed wejsciem: kanal od razu laczy sie wlasciwym torem
+                    OutputConfig o = c->config().out;
+                    o.encoder = argAfter("--encoder");
+                    c->setOutput(o);
+                }
                 if (!argAfter("--loss").isEmpty()) in.lossPolicy = argAfter("--loss");
                 c->setInput(in);
             }
@@ -346,6 +351,7 @@ int main(int argc, char* argv[]) {
             OutputConfig o = c->config().out;
             if (!argAfter("--out").isEmpty()) o.dir = argAfter("--out");
             if (!argAfter("--container").isEmpty()) o.container = argAfter("--container");
+            if (!argAfter("--encoder").isEmpty()) o.encoder = argAfter("--encoder");      // np. --encoder copy
             if (argAfter("--auto-split").toInt() > 0) o.splitSeconds = argAfter("--auto-split").toInt();
             c->setOutput(o);
         }
@@ -427,7 +433,8 @@ int main(int argc, char* argv[]) {
                     wait->start(100);
                 });
             };
-            QTimer::singleShot(3000, &manager, *startAll);
+            // --rec-delay S: nagranie rusza S sekund po starcie programu (domyslnie 3)
+            QTimer::singleShot(qMax(1, argAfter("--rec-delay").isEmpty() ? 3 : argAfter("--rec-delay").toInt()) * 1000, &manager, *startAll);
         }
         // --switch-lang xx: po 2 s przelacza jezyk ta sama droga co menu (test przebudowy okna)
         const int switchAt = int(args.indexOf(QStringLiteral("--switch-lang")));

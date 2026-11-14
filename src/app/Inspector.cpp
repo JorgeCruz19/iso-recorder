@@ -310,6 +310,9 @@ QWidget* Inspector::buildOutputPage() {
     m_outEncoder->addItem(T("Auto (hardware first)"), QStringLiteral("auto"));
     for (const QString& e : EncoderFactory::installed())
         m_outEncoder->addItem(QStringLiteral("H.264 — ") + EncoderFactory::displayName(e), e);
+    m_outEncoder->addItem(T("No re-encoding (stream copy)"), QStringLiteral("copy"));
+    m_outEncoder->setToolTip(T("No re-encoding (stream copy)") + QStringLiteral(": SRT / RTSP. ") + T("Set by the source (stream copy)") +
+                             QStringLiteral(": ") + T("Bitrate"));
     row(g, T("Encoder"), m_outEncoder);
     m_outVideoRate = new QComboBox;
     for (int mb : {2, 4, 6, 8, 12, 20, 35, 50}) m_outVideoRate->addItem(QStringLiteral("%1 Mb/s").arg(mb), mb * 1000);
@@ -850,6 +853,14 @@ void Inspector::refresh() {
     if (!m_outDir->hasFocus()) m_outDir->setText(QDir::toNativeSeparators(out.dir));
     if (!m_outTemplate->hasFocus()) m_outTemplate->setText(out.nameTemplate);
     m_outEncoder->setCurrentIndex(qMax(0, m_outEncoder->findData(out.encoder)));
+    // kopia strumienia: tylko SRT / RTSP; bitrate i dzwiek ustala wtedy zrodlo
+    const bool canCopy = ch->config().in.type == QLatin1String("srt") || ch->config().in.type == QLatin1String("rtsp");
+    if (auto* model = qobject_cast<QStandardItemModel*>(m_outEncoder->model()))
+        if (QStandardItem* item = model->item(m_outEncoder->findData(QStringLiteral("copy")))) item->setEnabled(canCopy || out.encoder == QLatin1String("copy"));
+    m_outVideoRate->setEnabled(!ch->copyMode());
+    m_outAudioRate->setEnabled(!ch->copyMode());
+    m_outVideoRate->setToolTip(ch->copyMode() ? T("Set by the source (stream copy)") : QString());
+    m_outAudioRate->setToolTip(m_outVideoRate->toolTip());
     m_outVideoRate->setCurrentIndex(qMax(0, m_outVideoRate->findData(out.videoKbps)));
     m_outAudioRate->setCurrentIndex(qMax(0, m_outAudioRate->findData(out.audioKbps)));
     m_outContainer->setCurrentIndex(qMax(0, m_outContainer->findData(out.container)));
@@ -893,7 +904,7 @@ void Inspector::refresh() {
     m_camMode->setCurrentIndex(qMax(0, m_camMode->findData(in.cameraMode)));
     m_camMode->setEnabled(editable && in.type == QLatin1String("camera"));
     m_loss->setCurrentIndex(qMax(0, m_loss->findData(in.lossPolicy)));
-    m_loss->setEnabled(in.isNetwork());
+    m_loss->setEnabled(in.isNetwork() && !ch->copyMode());       // kopia strumienia: zanik zawsze konczy plik
     m_gain->setCurrentIndex(qMax(0, m_gain->findData(in.gainDb)));
     const bool hasAddress = in.isNetwork() && in.type != QLatin1String("ndi");
     if (!m_uri->hasFocus()) m_uri->setText(hasAddress ? in.uri : QString());

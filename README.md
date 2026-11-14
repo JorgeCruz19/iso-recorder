@@ -14,6 +14,7 @@ material from every source must be kept in full for later editing.
 - SRT and RTSP network streams,
 - NDI sources found on the network (NDI|HX included),
 - a channel can also be switched off (input type "None"),
+- recording SRT / RTSP streams without re-encoding (stream copy),
 - scheduled recording: weekly or one-time time windows per channel, with optional file splitting and a late start,
 - system sound, a microphone or a line input,
 - a test generator (picture and tone) for rehearsals.

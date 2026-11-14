@@ -97,7 +97,7 @@ Channel::Channel(const ChannelConfig& cfg, QObject* parent) : QObject(parent), m
         if (m_state != ChannelState::Preview) return;      // nieudany start sam zaplanowal kolejna probe
         emit notice(T("%1: source restarted").arg(m_cfg.name));
         m_retryCount = 0;
-        if (m_autoRecord) {
+        if (m_autoRecord && !copyMode()) {
             m_autoRecord = false;
             emit autoRecordRequested();
         }
@@ -159,7 +159,9 @@ void Channel::setInput(const InputConfig& in) {
 
 void Channel::setOutput(const OutputConfig& out) {
     if (!canEdit() || out == m_cfg.out) return;
+    const bool wasCopy = copyMode();
     m_cfg.out = out;
+    if (wasCopy != copyMode()) restart();        // inny tor zrodla
     emit changed();
     emit configChanged();
 }
@@ -386,6 +388,8 @@ void Channel::setState(ChannelState s, const QString& error) {
 void Channel::sourceFailed(const QString& text) {
     // Najpierw poprawne zamkniecie pliku: zrodlo juz nie nadaje, wiec galaz zapisu mozna odpiac i zakonczyc (EOS)
     // wprost z tego watku. Dalszy ciag (stan bledu, ponawianie) nastapi po zamknieciu pliku - albo po 3 s.
+    // Kolejny blad zrodla w trakcie zamykania pliku po poprzednim: plik ma sie zamknac do konca (albo po 3 s limitu).
+    if (m_recBin && m_state == ChannelState::Finalizing && !m_pendingFail.isEmpty()) return;
     if (m_recBin && (m_state == ChannelState::Recording || m_state == ChannelState::Paused) && m_pendingFail.isEmpty()) {
         m_pendingFail = text;
         m_autoRecord = true;
@@ -452,6 +456,17 @@ QString Channel::sourceDescription() const {
                               "fs. ! queue ! videoconvertscale add-borders=true ! videorate ! video/x-raw,%1,framerate=%2/1 ! tee name=tv "
                               "fs. ! queue ! audioconvert ! audioresample%3 ! audio/x-raw,rate=48000,channels=2 ")
             .arg(size).arg(m_cfg.fps).arg(gain);
+    }
+    if (copyMode()) {
+        // Kopia strumienia: urisourcebin oddaje strumienie skompresowane (pady pojawiaja sie po polaczeniu - laczy je
+        // onCopyPad). "cv"/"ca" to punkty zaczepienia galezi zapisu, "vraw"/"araw" - wejscia rozpakowanego obrazu i dzwieku.
+        // Nie ma tu fallbacksrc: zanik sygnalu konczy plik i restartuje kanal (pollSource).
+        return QStringLiteral("urisourcebin name=usb uri=%1 parse-streams=true "
+                              "identity name=cvin ! tee name=cv allow-not-linked=true "
+                              "identity name=cain ! tee name=ca allow-not-linked=true "
+                              "identity name=vraw ! videoconvertscale add-borders=true ! videorate ! video/x-raw,%2,framerate=%3/1 ! tee name=tv "
+                              "identity name=araw ! audioconvert ! audioresample%4 ! audio/x-raw,rate=48000,channels=2 ")
+            .arg(quoted(networkUri()), size).arg(m_cfg.fps).arg(gain);
     }
     if (m_cfg.in.isNetwork()) {
         // fallbacksrc sam dekoduje strumien, a przy zaniku podaje czarny obraz i cisze i laczy sie ponownie -
@@ -557,6 +572,162 @@ GstElement* Channel::makeNdiSource() const {
     return bin;
 }
 
+// ---------------------------------------------------------------- kopia strumienia (zrodlo)
+
+// Watek streamingu: urisourcebin wystawil strumien (juz rozdzielony i sparsowany). Pierwszy strumien obrazu i pierwszy
+// dzwieku ida do tee "cv"/"ca" (stad bierze dane galaz zapisu) oraz do dekodera zasilajacego podglad; pozostale sa pomijane.
+void Channel::onCopyPad(GstElement*, GstPad* pad, gpointer user) {
+    // W chwili pojawienia sie pada dokladny format bywa jeszcze nieznany (sam szablon), wiec laczenie nastepuje
+    // dopiero przy zdarzeniu CAPS - ono zawsze poprzedza pierwsze dane.
+    if (GstCaps* caps = gst_pad_get_current_caps(pad)) {
+        static_cast<Channel*>(user)->linkCopyPad(pad, caps);
+        gst_caps_unref(caps);
+        return;
+    }
+    gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM, &Channel::onCopyCaps, user, nullptr);
+}
+
+GstPadProbeReturn Channel::onCopyCaps(GstPad* pad, GstPadProbeInfo* info, gpointer user) {
+    GstEvent* ev = GST_PAD_PROBE_INFO_EVENT(info);
+    if (GST_EVENT_TYPE(ev) != GST_EVENT_CAPS) return GST_PAD_PROBE_OK;
+    GstCaps* caps = nullptr;
+    gst_event_parse_caps(ev, &caps);
+    static_cast<Channel*>(user)->linkCopyPad(pad, caps);
+    return GST_PAD_PROBE_REMOVE;
+}
+
+void Channel::linkCopyPad(GstPad* pad, GstCaps* caps) {
+    Channel* self = this;
+    GstElement* src = gst_pad_get_parent_element(pad);
+    GstObject* parent = src ? gst_element_get_parent(src) : nullptr;
+    if (src) gst_object_unref(src);
+    if (!parent) return;
+    GstBin* pipe = GST_BIN(parent);
+    QByteArray media;
+    int mpegversion = 0, layer = 0;
+    if (caps && !gst_caps_is_empty(caps) && !gst_caps_is_any(caps)) {
+        const GstStructure* st = gst_caps_get_structure(caps, 0);
+        media = gst_structure_get_name(st);
+        gst_structure_get_int(st, "mpegversion", &mpegversion);
+        gst_structure_get_int(st, "layer", &layer);
+    }
+    auto have = [](const char* factory) {
+        GstElementFactory* f = gst_element_factory_find(factory);
+        if (f) gst_object_unref(f);
+        return f != nullptr;
+    };
+    const bool video = media.startsWith("video/");
+    QByteArray dec;
+    int codec = 0;
+    if (media == "video/x-h264") { codec = 1; dec = have("d3d11h264dec") ? "d3d11h264dec ! d3d11download" : "avdec_h264"; }
+    else if (media == "video/x-h265") { codec = 2; dec = have("d3d11h265dec") ? "d3d11h265dec ! d3d11download" : "avdec_h265"; }
+    else if (media == "audio/mpeg" && (mpegversion == 2 || mpegversion == 4)) { codec = 1; dec = "aacparse ! avdec_aac"; }
+    else if (media == "audio/mpeg" && mpegversion == 1) { codec = 2; dec = layer == 3 ? "mpegaudioparse ! avdec_mp3" : "mpegaudioparse ! avdec_mp2float"; }
+    else if (media == "audio/x-ac3") { codec = 2; dec = "avdec_ac3"; }
+    else if (media == "audio/x-opus") { codec = 2; dec = "opusdec"; }
+    else if (media.startsWith("audio/")) { codec = -1; }
+
+    GstElement* in = gst_bin_get_by_name(pipe, video ? "cvin" : "cain");
+    GstPad* inSink = in ? gst_element_get_static_pad(in, "sink") : nullptr;
+    const bool wanted = (video ? codec > 0 : media.startsWith("audio/") && codec != 0) && inSink && !gst_pad_is_linked(inSink);
+    bool ok = false;
+    if (wanted && (video || codec > 0)) {
+        GError* err = nullptr;
+        GstElement* bin = gst_parse_bin_from_description(("queue ! " + dec).constData(), TRUE, &err);
+        GstElement* tee = gst_bin_get_by_name(pipe, video ? "cv" : "ca");
+        GstElement* raw = gst_bin_get_by_name(pipe, video ? "vraw" : "araw");
+        if (bin && !err && tee && raw) {
+            gst_bin_add(pipe, bin);
+            ok = gst_element_link(tee, bin) && gst_element_link(bin, raw);
+            gst_element_sync_state_with_parent(bin);
+            ok = ok && gst_pad_link(pad, inSink) == GST_PAD_LINK_OK;
+        } else if (bin) {
+            gst_object_unref(bin);
+        }
+        g_clear_error(&err);
+        if (tee) gst_object_unref(tee);
+        if (raw) gst_object_unref(raw);
+    } else if (wanted) {        // dzwiek w formacie, ktorego nie zapisujemy: zrodlo musi go gdzies oddac
+        ok = false;
+    }
+    if (ok) {
+        if (video) self->m_copyVideo = codec; else self->m_copyAudio = codec;
+    } else {
+        // strumien dodatkowy albo nieobslugiwany: do nikad, zeby zrodlo sie nie zatrzymalo
+        if (GstElement* fake = gst_element_factory_make("fakesink", nullptr)) {
+            g_object_set(fake, "sync", FALSE, "async", FALSE, nullptr);
+            gst_bin_add(pipe, fake);
+            gst_element_sync_state_with_parent(fake);
+            if (GstPad* fs = gst_element_get_static_pad(fake, "sink")) {
+                gst_pad_link(pad, fs);
+                gst_object_unref(fs);
+            }
+        }
+        if (!video && codec == -1 && self->m_copyAudio.load() == 0) self->m_copyAudio = -1;
+        if (video && codec == 0 && self->m_copyVideo.load() == 0) {
+            const int gen = self->m_gen.load();
+            QMetaObject::invokeMethod(self, [self, gen] {
+                if (gen == self->m_gen.load() && self->m_pipeline) self->sourceFailed(T("stream copy needs H.264 or H.265 video"));
+            }, Qt::QueuedConnection);
+        }
+    }
+    if (inSink) gst_object_unref(inSink);
+    if (in) gst_object_unref(in);
+    gst_object_unref(parent);
+}
+
+// Watek streamingu: kazda skompresowana klatka obrazu ze zrodla. Zapamietuje chwile ostatniej klatki (wykrywanie zaniku)
+// i - raz - przesuniecie miedzy znacznikami zrodla a zegarem pipeline'u (znaczniki SRT licza sie od poczatku strumienia).
+GstPadProbeReturn Channel::onCopyTap(GstPad* pad, GstPadProbeInfo* info, gpointer user) {
+    auto* self = static_cast<Channel*>(user);
+    const qint64 now = self->m_copyClock.elapsed();
+    self->m_copyLastMs = now;
+    qint64 none = -1;
+    self->m_copyFirstMs.compare_exchange_strong(none, now);
+    if (self->m_copyOffset.load() == G_MININT64) {
+        GstBuffer* buf = GST_PAD_PROBE_INFO_BUFFER(info);
+        const GstClockTime ts = GST_BUFFER_DTS_IS_VALID(buf) ? GST_BUFFER_DTS(buf) : GST_BUFFER_PTS(buf);
+        GstClockTime rt = ts;
+        if (GstEvent* ev = gst_pad_get_sticky_event(pad, GST_EVENT_SEGMENT, 0)) {
+            const GstSegment* seg = nullptr;
+            gst_event_parse_segment(ev, &seg);
+            if (seg && seg->format == GST_FORMAT_TIME) rt = gst_segment_to_running_time(seg, GST_FORMAT_TIME, ts);
+            gst_event_unref(ev);
+        }
+        GstElement* el = gst_pad_get_parent_element(pad);
+        if (el && GST_CLOCK_TIME_IS_VALID(rt)) {
+            const GstClockTime base = gst_element_get_base_time(el);
+            self->m_copyOffset = gint64(clockNow()) - gint64(base) - gint64(rt);
+        }
+        if (el) gst_object_unref(el);
+    }
+    return GST_PAD_PROBE_OK;
+}
+
+// Zrodlo bez dzwieku: podglad (mierniki, wyjscie na zywo) dostaje cisze. Plik w trybie kopii jest wtedy bez dzwieku.
+void Channel::plugCopySilence() {
+    if (!m_pipeline || m_copySilence) return;
+    GstElement* raw = gst_bin_get_by_name(GST_BIN(m_pipeline), "araw");
+    GstPad* sink = raw ? gst_element_get_static_pad(raw, "sink") : nullptr;
+    if (sink && !gst_pad_is_linked(sink)) {
+        GError* err = nullptr;
+        GstElement* bin = gst_parse_bin_from_description(
+            "audiotestsrc is-live=true wave=silence ! capsfilter caps=\"audio/x-raw,format=S16LE,rate=48000,channels=2,layout=interleaved\"",
+            TRUE, &err);
+        if (bin && !err) {
+            gst_bin_add(GST_BIN(m_pipeline), bin);
+            gst_element_link(bin, raw);
+            gst_element_sync_state_with_parent(bin);
+            m_copySilence = true;
+        } else if (bin) {
+            gst_object_unref(bin);
+        }
+        g_clear_error(&err);
+    }
+    if (sink) gst_object_unref(sink);
+    if (raw) gst_object_unref(raw);
+}
+
 void Channel::startPreview() {
     if (m_pipeline) return;
     if (inputOff()) {       // wejscie wylaczone: kanal nie ma pipeline'u, nic nie pobiera i nie da sie go nagrywac
@@ -612,6 +783,29 @@ void Channel::startPreview() {
             m_pipeline = nullptr;
             setState(ChannelState::Error, T("NDI is not available (install NDI Tools or the NDI Runtime)"));
             return;
+        }
+    }
+    m_copyVideo = 0;
+    m_copyAudio = 0;
+    m_copyOffset = G_MININT64;
+    m_copyLastMs = 0;
+    m_copyFirstMs = -1;
+    m_copySilence = false;
+    m_copyClock.start();
+    if (GstElement* usb = gst_bin_get_by_name(GST_BIN(m_pipeline), "usb")) {
+        g_signal_connect(usb, "pad-added", G_CALLBACK(&Channel::onCopyPad), this);
+        // Demultiplekser MPEG-TS domyslnie poprawia znaczniki czasu wg chwili nadejscia pakietow (kilka ms nierownomiernosci
+        // na klatke). W kopii strumienia do pliku maja trafic znaczniki nadawcy, wiec poprawka jest wylaczana.
+        g_signal_connect(m_pipeline, "deep-element-added", G_CALLBACK(+[](GstBin*, GstBin*, GstElement* el, gpointer) {
+            GstElementFactory* f = gst_element_get_factory(el);
+            if (f && g_strcmp0(GST_OBJECT_NAME(f), "tsdemux") == 0) g_object_set(el, "skew-corrections", FALSE, nullptr);
+        }), nullptr);
+        gst_object_unref(usb);
+        if (GstElement* in = gst_bin_get_by_name(GST_BIN(m_pipeline), "cvin")) {
+            GstPad* pad = gst_element_get_static_pad(in, "src");
+            gst_pad_add_probe(pad, GST_PAD_PROBE_TYPE_BUFFER, &Channel::onCopyTap, this, nullptr);
+            gst_object_unref(pad);
+            gst_object_unref(in);
         }
     }
     // Jeden zegar dla wszystkich kanalow (nie zegar urzadzenia audio) - warunek wspolnego startu, pauzy i stopu grupy.
@@ -888,13 +1082,21 @@ bool Channel::startRecording(const QString& session, int index) {
     }
     if (m_state != ChannelState::Preview || m_recBin || !m_pipeline) return false;
 
-    const EncoderFactory::Choice enc =
-        EncoderFactory::pick(m_cfg.out.encoder, m_cfg.width, m_cfg.height, m_cfg.fps, m_cfg.out.videoKbps);
+    const bool copy = copyMode();
+    if (copy && (m_copyVideo.load() <= 0 || m_copyOffset.load() == G_MININT64)) {
+        emit notice(T("%1: stream copy needs a connected source").arg(m_cfg.name));
+        return false;
+    }
+    const bool copyAudio = copy && m_copyAudio.load() > 0;
+    // "copy" przy wejsciu innym niz SRT/RTSP dziala jak "auto"
+    const QString wanted = m_cfg.out.encoder == QLatin1String("copy") ? QStringLiteral("auto") : m_cfg.out.encoder;
+    const EncoderFactory::Choice enc = copy ? EncoderFactory::Choice{QStringLiteral("copy"), QString(), false}
+                                            : EncoderFactory::pick(wanted, m_cfg.width, m_cfg.height, m_cfg.fps, m_cfg.out.videoKbps);
     if (enc.name.isEmpty()) {
         emit notice(T("%1: no working H.264 encoder found").arg(m_cfg.name));
         return false;
     }
-    if (m_cfg.out.encoder != QLatin1String("auto") && m_cfg.out.encoder != enc.name)
+    if (wanted != QLatin1String("auto") && wanted != enc.name)
         emit notice(T("%1: encoder %2 is not available, using %3")
                         .arg(m_cfg.name, EncoderFactory::displayName(m_cfg.out.encoder), EncoderFactory::displayName(enc.name)));
 
@@ -912,7 +1114,14 @@ bool Channel::startRecording(const QString& session, int index) {
     const QString location = QDir(dir).filePath(pattern + ext);
 
     // Kolejki galezi nagrywania nigdy nie gubia danych (leaky tylko w podgladzie).
-    const QString desc = QStringLiteral(
+    // Kopia strumienia: zamiast enkodera sam parser (dopasowuje zapis H.264/H.265 do kontenera); dzwiek tylko gdy zrodlo go ma.
+    const QString desc = copy
+        ? QStringLiteral("queue name=vq max-size-time=3000000000 max-size-buffers=0 max-size-bytes=0 ! %1 name=vp config-interval=-1 %2")
+              .arg(m_copyVideo.load() == 2 ? QStringLiteral("h265parse") : QStringLiteral("h264parse"))
+              .arg(!copyAudio ? QString()
+                   : QStringLiteral("queue name=aq max-size-time=3000000000 max-size-buffers=0 max-size-bytes=0 ! %1 name=ap")
+                         .arg(m_copyAudio.load() == 1 ? QStringLiteral("aacparse") : QStringLiteral("identity")))
+        : QStringLiteral(
         "queue name=vq max-size-time=3000000000 max-size-buffers=0 max-size-bytes=0 ! %1 ! h264parse name=vp "
         "queue name=aq max-size-time=3000000000 max-size-buffers=0 max-size-bytes=0 ! audioconvert ! audioresample "
         "! avenc_aac bitrate=%2 ! aacparse name=ap")
@@ -960,25 +1169,30 @@ bool Channel::startRecording(const QString& session, int index) {
     GstElement* ap = gst_bin_get_by_name(GST_BIN(bin), "ap");
     GstElement* vq = gst_bin_get_by_name(GST_BIN(bin), "vq");
     GstElement* aq = gst_bin_get_by_name(GST_BIN(bin), "aq");
-    const bool linked = gst_element_link_pads(vp, "src", mux, "video") && gst_element_link_pads(ap, "src", mux, "audio_%u");
-    GstPad* vqSink = gst_element_get_static_pad(vq, "sink");
-    GstPad* aqSink = gst_element_get_static_pad(aq, "sink");
+    const bool linked = vp && vq && gst_element_link_pads(vp, "src", mux, "video") &&
+                        (!aq || (ap && gst_element_link_pads(ap, "src", mux, "audio_%u")));
+    GstPad* vqSink = vq ? gst_element_get_static_pad(vq, "sink") : nullptr;
+    GstPad* aqSink = aq ? gst_element_get_static_pad(aq, "sink") : nullptr;
     // Znaczniki czasu sa przesuwane tak, zeby plik zaczynal sie od zera - wspolna baza dla obrazu i dzwieku.
     m_recHaveSeg[0] = m_recHaveSeg[1] = false;
-    gst_pad_add_probe(vqSink, GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM, &Channel::onRecVideoEvent, this, nullptr);
-    gst_pad_add_probe(aqSink, GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM, &Channel::onRecAudioEvent, this, nullptr);
-    gst_pad_add_probe(vqSink, GST_PAD_PROBE_TYPE_BUFFER, &Channel::onRecVideo, this, nullptr);
-    gst_pad_add_probe(aqSink, GST_PAD_PROBE_TYPE_BUFFER, &Channel::onRecAudio, this, nullptr);
-    GstPad* ghostV = gst_ghost_pad_new("video_sink", vqSink);
-    GstPad* ghostA = gst_ghost_pad_new("audio_sink", aqSink);
-    gst_element_add_pad(bin, ghostV);
-    gst_element_add_pad(bin, ghostA);
-    gst_object_unref(vqSink);
-    gst_object_unref(aqSink);
-    gst_object_unref(vp);
-    gst_object_unref(ap);
-    gst_object_unref(vq);
-    gst_object_unref(aq);
+    GstPad* ghostV = nullptr;
+    GstPad* ghostA = nullptr;
+    if (vqSink) {
+        gst_pad_add_probe(vqSink, GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM, &Channel::onRecVideoEvent, this, nullptr);
+        gst_pad_add_probe(vqSink, GST_PAD_PROBE_TYPE_BUFFER, &Channel::onRecVideo, this, nullptr);
+        ghostV = gst_ghost_pad_new("video_sink", vqSink);
+        gst_element_add_pad(bin, ghostV);
+        gst_object_unref(vqSink);
+    }
+    if (aqSink) {
+        gst_pad_add_probe(aqSink, GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM, &Channel::onRecAudioEvent, this, nullptr);
+        gst_pad_add_probe(aqSink, GST_PAD_PROBE_TYPE_BUFFER, &Channel::onRecAudio, this, nullptr);
+        ghostA = gst_ghost_pad_new("audio_sink", aqSink);
+        gst_element_add_pad(bin, ghostA);
+        gst_object_unref(aqSink);
+    }
+    for (GstElement* e : {vp, ap, vq, aq})
+        if (e) gst_object_unref(e);
     if (!linked) {
         emit notice(T("%1: cannot build the pipeline").arg(m_cfg.name));
         gst_object_unref(bin);
@@ -986,6 +1200,12 @@ bool Channel::startRecording(const QString& session, int index) {
     }
 
     m_recBase = G_MAXINT64;         // galaz jest dopieta, ale nic nie przechodzi do beginRecordingAt()
+    m_recCopy = copy;
+    m_copyNeedKey = copy;
+    m_copyStarted = !copy;
+    m_recCodec = copy && m_copyVideo.load() == 2 ? QStringLiteral("h265") : QStringLiteral("h264");
+    m_recTee[0] = copy ? "cv" : "tv";
+    m_recTee[1] = copy ? "ca" : "ta";
     m_stopRt = G_MAXINT64;
     m_firstVideoRt = -1;
     m_lastVideoRt = -1;
@@ -1007,12 +1227,12 @@ bool Channel::startRecording(const QString& session, int index) {
     m_recBinShared = bin;
     gst_element_sync_state_with_parent(bin);   // najpierw stan, potem podpiecie do tee
 
-    GstElement* tv = gst_bin_get_by_name(GST_BIN(m_pipeline), "tv");
-    GstElement* ta = gst_bin_get_by_name(GST_BIN(m_pipeline), "ta");
+    GstElement* tv = gst_bin_get_by_name(GST_BIN(m_pipeline), m_recTee[0].constData());
+    GstElement* ta = gst_bin_get_by_name(GST_BIN(m_pipeline), m_recTee[1].constData());
     m_teeVideo = gst_element_request_pad_simple(tv, "src_%u");
-    m_teeAudio = gst_element_request_pad_simple(ta, "src_%u");
-    const bool ok = m_teeVideo && m_teeAudio && gst_pad_link(m_teeVideo, ghostV) == GST_PAD_LINK_OK &&
-                    gst_pad_link(m_teeAudio, ghostA) == GST_PAD_LINK_OK;
+    m_teeAudio = ghostA ? gst_element_request_pad_simple(ta, "src_%u") : nullptr;
+    const bool ok = m_teeVideo && gst_pad_link(m_teeVideo, ghostV) == GST_PAD_LINK_OK &&
+                    (!ghostA || (m_teeAudio && gst_pad_link(m_teeAudio, ghostA) == GST_PAD_LINK_OK));
     gst_object_unref(tv);
     gst_object_unref(ta);
     if (!ok) {
@@ -1037,7 +1257,10 @@ bool Channel::startRecording(const QString& session, int index) {
     m_recMbps = 0;
     m_recClock.start();
     setState(ChannelState::Recording);
-    emit notice(T("%1: recording started (%2)").arg(m_cfg.name, EncoderFactory::displayName(enc.name)));
+    emit notice(T("%1: recording started (%2)").arg(m_cfg.name, copy ? T("stream copy") : EncoderFactory::displayName(enc.name)));
+    if (copy && !copyAudio)
+        emit notice((m_copyAudio.load() < 0 ? T("%1: the audio format of the source cannot be copied — the file has no sound")
+                                            : T("%1: the source has no sound — the file has no sound")).arg(m_cfg.name));
     return true;
 }
 
@@ -1059,7 +1282,7 @@ void Channel::stopRecording(quint64 clockNs) {
     // Zrodla sprzetowe (zwlaszcza dzwiek z WASAPI) oddaja dane z opoznieniem: galaz zamykamy dopiero wtedy, gdy obraz
     // i dzwiek doszly do chwili Stop (sondy odrzucaja wszystko od tej chwili), najpozniej po 2 s + latencja zrodla (limit ma znaczenie tylko przy przeciazeniu).
     m_stopSeenVideo = false;
-    m_stopSeenAudio = false;
+    m_stopSeenAudio = m_teeAudio == nullptr;     // nagranie bez dzwieku: nie ma na co czekac
     // zrodla z buforem (RTSP: 2 s) oddaja klatki z opoznieniem rownym latencji pipeline'u - tyle dluzej czekamy
     m_stopWaitMs = 2000;        // limit; zwykle obraz i dzwiek dochodza do chwili Stop w kilkadziesiat ms
     GstQuery* q = gst_query_new_latency();
@@ -1080,7 +1303,7 @@ void Channel::closeBranch() {
     m_stopPoll.stop();
     if (!m_recBin || m_state != ChannelState::Finalizing) return;
     gst_pad_add_probe(m_teeVideo, GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM, &Channel::onStopBlock, this, nullptr);
-    gst_pad_add_probe(m_teeAudio, GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM, &Channel::onStopBlock, this, nullptr);
+    if (m_teeAudio) gst_pad_add_probe(m_teeAudio, GST_PAD_PROBE_TYPE_BLOCK_DOWNSTREAM, &Channel::onStopBlock, this, nullptr);
     m_finalizeTimeout.start();
 }
 
@@ -1217,7 +1440,7 @@ void Channel::writeSidecar(bool clean, const QString& reason) const {
         {QStringLiteral("index"), m_recIndex},
         {QStringLiteral("source"), sourceText()},
         {QStringLiteral("video"), QJsonObject{{QStringLiteral("width"), m_cfg.width}, {QStringLiteral("height"), m_cfg.height},
-                                              {QStringLiteral("fps"), m_cfg.fps}, {QStringLiteral("codec"), QStringLiteral("h264")},
+                                              {QStringLiteral("fps"), m_cfg.fps}, {QStringLiteral("codec"), m_recCodec},
                                               {QStringLiteral("encoder"), m_encoderName}, {QStringLiteral("bitrateKbps"), m_cfg.out.videoKbps}}},
         {QStringLiteral("audio"), QJsonObject{{QStringLiteral("codec"), QStringLiteral("aac")}, {QStringLiteral("bitrateKbps"), m_cfg.out.audioKbps}}},
         {QStringLiteral("container"), m_cfg.out.container},
@@ -1246,8 +1469,8 @@ void Channel::finishRecording(bool clean, const QString& reason) {
     m_recBin = nullptr;
     m_recBinShared = nullptr;
 
-    GstElement* tv = gst_bin_get_by_name(GST_BIN(m_pipeline), "tv");
-    GstElement* ta = gst_bin_get_by_name(GST_BIN(m_pipeline), "ta");
+    GstElement* tv = gst_bin_get_by_name(GST_BIN(m_pipeline), m_recTee[0].constData());
+    GstElement* ta = gst_bin_get_by_name(GST_BIN(m_pipeline), m_recTee[1].constData());
     for (auto [tee, pad] : {std::pair{tv, &m_teeVideo}, std::pair{ta, &m_teeAudio}}) {
         if (*pad) {
             if (GstPad* peer = gst_pad_get_peer(*pad)) {   // jeszcze podpiety (wymuszone zamkniecie)
@@ -1258,7 +1481,7 @@ void Channel::finishRecording(bool clean, const QString& reason) {
             gst_object_unref(*pad);
             *pad = nullptr;
         }
-        gst_object_unref(tee);
+        if (tee) gst_object_unref(tee);
     }
     gst_element_set_state(bin, GST_STATE_NULL);
     gst_bin_remove(GST_BIN(m_pipeline), bin);
@@ -1283,6 +1506,32 @@ void Channel::finishRecording(bool clean, const QString& reason) {
 // Stan zrodla sieciowego. Do pierwszego sygnalu po starcie kanalu to "laczenie", potem kazda przerwa to zanik sygnalu.
 void Channel::pollSource() {
     if (!m_pipeline || !m_cfg.in.isNetwork()) return;
+    if (copyMode()) {
+        // Kopia strumienia: sygnal jest, gdy ze zrodla ida klatki. Zanik (4 s bez klatek) zamyka plik i restartuje kanal;
+        // po ponownym polaczeniu nagrywanie rusza od nowa (nowy plik) - w przerwie nic sie nie zapisuje.
+        const bool have = m_copyVideo.load() > 0 && m_copyFirstMs.load() >= 0;
+        const qint64 idle = m_copyClock.elapsed() - m_copyLastMs.load();
+        if (have && m_copyAudio.load() <= 0 && !m_copySilence && m_copyClock.elapsed() - m_copyFirstMs.load() > 3000) plugCopySilence();
+        if (m_signalSeen && idle > 4000) {
+            if (isRecording()) ++m_recLosses;
+            sourceFailed(T("signal lost"));
+            return;
+        }
+        const bool lost = !have || idle > 2000;
+        if (!lost && !m_signalSeen) {
+            m_signalSeen = true;
+            emit notice(T("%1: connected to the source").arg(m_cfg.name));
+            if (m_autoRecord) {
+                m_autoRecord = false;
+                emit autoRecordRequested();
+            }
+        }
+        if (lost != m_signalLost) {
+            m_signalLost = lost;
+            emit changed();
+        }
+        return;
+    }
     GstElement* fs = gst_bin_get_by_name(GST_BIN(m_pipeline), "fs");
     if (!fs) return;
     // Miara zaniku: czy do pipeline'u idzie obraz zastepczy. Wlasciwosc "status" elementu fallbacksrc tego nie mowi
@@ -1407,13 +1656,34 @@ GstPadProbeReturn Channel::onRecAudioEvent(GstPad*, GstPadProbeInfo* info, gpoin
 // Znacznik w pliku = running-time - poczatek nagrania - suma pauz; ta sama suma dla obrazu i dzwieku.
 GstPadProbeReturn Channel::recBuffer(GstPadProbeInfo* info, bool video) {
     GstBuffer* buf = GST_PAD_PROBE_INFO_BUFFER(info);
-    const gint64 base = m_recBase.load();
-    if (!GST_BUFFER_PTS_IS_VALID(buf)) return GST_PAD_PROBE_DROP;
+    gint64 base = m_recBase.load();
+    // Kopia strumienia: dane sa skompresowane, wiec os czasu wyznacza DTS (kolejnosc w pliku), start i wznowienie po
+    // pauzie wypadaja na klatce kluczowej, a znaczniki zrodla sa sprowadzane do zegara pipeline'u stalym przesunieciem.
+    const bool copy = m_recCopy.load();
+    const bool delta = GST_BUFFER_FLAG_IS_SET(buf, GST_BUFFER_FLAG_DELTA_UNIT);
+    const GstClockTime origPts = GST_BUFFER_PTS(buf), origDts = GST_BUFFER_DTS(buf);
+    const GstClockTime ts = copy && video && GST_CLOCK_TIME_IS_VALID(origDts) ? origDts : origPts;
+    if (!GST_CLOCK_TIME_IS_VALID(ts)) return GST_PAD_PROBE_DROP;
     const int si = video ? 0 : 1;
-    const GstClockTime rtc = m_recHaveSeg[si] ? gst_segment_to_running_time(&m_recSeg[si], GST_FORMAT_TIME, GST_BUFFER_PTS(buf))
-                                              : GST_BUFFER_PTS(buf);
-    if (!GST_CLOCK_TIME_IS_VALID(rtc) || gint64(rtc) < base) return GST_PAD_PROBE_DROP;
-    const gint64 rt = gint64(rtc);
+    const GstClockTime rtc = m_recHaveSeg[si] ? gst_segment_to_running_time(&m_recSeg[si], GST_FORMAT_TIME, ts) : ts;
+    if (!GST_CLOCK_TIME_IS_VALID(rtc)) return GST_PAD_PROBE_DROP;
+    gint64 rt = gint64(rtc);
+    if (copy) {
+        const gint64 off = m_copyOffset.load();
+        if (off == G_MININT64) return GST_PAD_PROBE_DROP;
+        rt += off;
+    }
+    if (rt < base) return GST_PAD_PROBE_DROP;
+    if (copy && rt < m_stopRt.load()) {
+        if (!video && !m_copyStarted.load()) return GST_PAD_PROBE_DROP;      // dzwiek czeka na pierwsza klatke kluczowa obrazu
+        if (video && m_copyNeedKey.load()) {
+            if (delta) return GST_PAD_PROBE_DROP;
+            m_copyNeedKey = false;
+            m_recBase = rt;             // plik zaczyna sie od tej klatki
+            base = rt;
+            m_copyStarted = true;
+        }
+    }
     if (rt >= m_stopRt.load()) {                                 // po wspolnej chwili Stop
         (video ? m_stopSeenVideo : m_stopSeenAudio) = true;
         return GST_PAD_PROBE_DROP;
@@ -1438,7 +1708,7 @@ GstPadProbeReturn Channel::recBuffer(GstPadProbeInfo* info, bool video) {
             case PauseState::Paused:
                 return GST_PAD_PROBE_DROP;
             case PauseState::ResumePending:
-                if (rt < p.reqRt) return GST_PAD_PROBE_DROP;
+                if (rt < p.reqRt || (copy && delta)) return GST_PAD_PROBE_DROP;
                 // pierwsza klatka po wznowieniu trafia dokladnie w miejsce pierwszej odrzuconej
                 p.pauses.emplace_back(p.startRt - base - p.total, rt - p.startRt);
                 p.total += rt - p.startRt;
@@ -1471,8 +1741,14 @@ GstPadProbeReturn Channel::recBuffer(GstPadProbeInfo* info, bool video) {
         m_lastVideoRt = rt;
     }
     buf = gst_buffer_make_writable(buf);
-    GST_BUFFER_PTS(buf) = GstClockTime(rt - base - total);
-    GST_BUFFER_DTS(buf) = GST_CLOCK_TIME_NONE;     // dane surowe - DTS nada enkoder
+    if (rt - base - total < 0) return GST_PAD_PROBE_DROP;
+    if (copy && video && GST_CLOCK_TIME_IS_VALID(origDts) && GST_CLOCK_TIME_IS_VALID(origPts) && origPts >= origDts) {
+        GST_BUFFER_DTS(buf) = GstClockTime(rt - base - total);
+        GST_BUFFER_PTS(buf) = GST_BUFFER_DTS(buf) + (origPts - origDts);
+    } else {
+        GST_BUFFER_PTS(buf) = GstClockTime(rt - base - total);
+        GST_BUFFER_DTS(buf) = copy && !video ? GST_BUFFER_PTS(buf) : GST_CLOCK_TIME_NONE;     // dane surowe - DTS nada enkoder
+    }
     if (discont) GST_BUFFER_FLAG_SET(buf, GST_BUFFER_FLAG_DISCONT);
     GST_PAD_PROBE_INFO_DATA(info) = buf;
     return GST_PAD_PROBE_OK;

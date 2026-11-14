@@ -2,6 +2,21 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 2.9
+
+- **Zapis bez ponownego kodowania (stream copy)** dla wejść SRT i RTSP: nowa pozycja enkodera „No re-encoding (stream
+  copy)” w zakładce Output i w Settings. Do pliku trafia strumień dokładnie taki, jaki nadaje źródło (H.264 albo H.265,
+  dźwięk AAC / MP2 / MP3 / AC-3 / Opus), z jego znacznikami czasu; obraz jest rozpakowywany tylko do podglądu, mierników
+  i wyjścia na żywo. Bitrate obrazu i dźwięku są wtedy nieaktywne (ustala je źródło).
+- Nagranie, split i wznowienie po pauzie zaczynają się na najbliższej klatce kluczowej nadawcy. Pauza zostawia jeden
+  plik o ciągłym czasie.
+- Zanik sygnału (4 s bez danych) zamyka plik poprawnie i restartuje kanał; po powrocie sygnału nagrywanie rusza samo w
+  nowym pliku. Pole „On signal loss” jest w tym trybie nieaktywne.
+- Źródło bez dźwięku albo z dźwiękiem w formacie, którego nie da się skopiować, daje plik bez dźwięku (z komunikatem).
+- Dla wejść innych niż SRT / RTSP ustawienie „stream copy” działa jak enkoder automatyczny.
+- Poprawka: kolejny błąd źródła zgłoszony w trakcie zamykania pliku po pierwszym błędzie nie przerywa już zamykania.
+- Test: `tests\copy_test.ps1` (`-Type srt|rtsp`, `-Container`, `-Split`, `-Pause`, `-Break`); argumenty `--encoder`, `--rec-delay`.
+
 ## 2.8
 
 - **Scheduler.** Zakładka Scheduler w inspektorze: lista reguł kanału. Reguła to okno „od – do” — co tydzień w wybrane

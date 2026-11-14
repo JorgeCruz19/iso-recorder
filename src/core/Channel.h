@@ -126,6 +126,10 @@ public:
         return m_state == ChannelState::Recording || m_state == ChannelState::Paused || m_state == ChannelState::Finalizing;
     }
     bool canEdit() const { return !isRecording(); }
+    // Zapis bez ponownego kodowania ("stream copy"): tylko SRT i RTSP; dla innych wejsc ustawienie dziala jak "auto".
+    bool copyMode() const {
+        return m_cfg.out.encoder == QLatin1String("copy") && (m_cfg.in.type == QLatin1String("srt") || m_cfg.in.type == QLatin1String("rtsp"));
+    }
     bool inputOff() const { return m_cfg.in.type == QLatin1String("none"); }     // typ wejscia "None": kanal bez sygnalu
 
     const QImage& frame() const { return m_frame; }
@@ -189,6 +193,24 @@ private:
     GstPadProbeReturn recBuffer(GstPadProbeInfo* info, bool video);
     gint64 runningTimeNow() const;
     gint64 toRunning(quint64 clockNs) const;     // czas zegara -> running-time tego pipeline'u
+    // --- kopia strumienia: zrodlo rozdzielone na strumien skompresowany (tee "cv"/"ca", do pliku) i rozpakowany (podglad)
+    static void onCopyPad(GstElement* src, GstPad* pad, gpointer user);
+    static GstPadProbeReturn onCopyCaps(GstPad* pad, GstPadProbeInfo* info, gpointer user);
+    void linkCopyPad(GstPad* pad, GstCaps* caps);
+    static GstPadProbeReturn onCopyTap(GstPad* pad, GstPadProbeInfo* info, gpointer user);
+    void plugCopySilence();
+    std::atomic<int> m_copyVideo{0};        // 0 brak, 1 H.264, 2 H.265
+    std::atomic<int> m_copyAudio{0};        // 0 brak, 1 AAC, 2 inny obslugiwany, -1 nieobslugiwany (plik bez dzwieku)
+    std::atomic<gint64> m_copyOffset{G_MININT64};   // running-time zegara minus running-time znacznikow zrodla
+    std::atomic<qint64> m_copyLastMs{0};    // chwila ostatniej klatki ze zrodla (m_copyClock)
+    std::atomic<qint64> m_copyFirstMs{-1};
+    QElapsedTimer m_copyClock;
+    bool m_copySilence = false;             // zrodlo bez dzwieku: do podgladu podlaczona cisza
+    std::atomic<bool> m_recCopy{false};     // biezace nagranie jest kopia strumienia
+    std::atomic<bool> m_copyNeedKey{false}; // zapis czeka na klatke kluczowa (poczatek)
+    std::atomic<bool> m_copyStarted{false};
+    QByteArray m_recTee[2];                 // nazwy tee, do ktorych dopieta jest galaz zapisu (obraz, dzwiek)
+    QString m_recCodec = QStringLiteral("h264");
     static GstPadProbeReturn onStopBlock(GstPad* pad, GstPadProbeInfo* info, gpointer user);
     void setState(ChannelState s, const QString& error = {});
     void restart();

@@ -112,9 +112,8 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     m_encoder = new QComboBox;
     m_encoder->addItem(T("Auto (hardware first)"), QStringLiteral("auto"));
     for (const QString& e : EncoderFactory::installed()) m_encoder->addItem(QStringLiteral("H.264 — ") + EncoderFactory::displayName(e), e);
-    // zapis bez ponownego kodowania: pozycja jest widoczna, ale jeszcze niedostepna (patrz opis pod spodem)
-    m_encoder->addItem(T("No re-encoding (stream copy)") + QStringLiteral("  ") + T("(from %1)").arg(QLatin1String(Roadmap::streamCopy)), QStringLiteral("copy"));
-    if (auto* model = qobject_cast<QStandardItemModel*>(m_encoder->model())) model->item(m_encoder->count() - 1)->setEnabled(false);
+    // zapis bez ponownego kodowania: dotyczy kanalow SRT / RTSP, pozostale biora enkoder automatyczny (opis pod spodem)
+    m_encoder->addItem(T("No re-encoding (stream copy)"), QStringLiteral("copy"));
     m_encoder->setCurrentIndex(qMax(0, m_encoder->findData(def.encoder)));
     row(T("Encoder"), m_encoder);
 
@@ -128,12 +127,13 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     m_audioRate->setCurrentIndex(qMax(0, m_audioRate->findData(def.audioKbps)));
     row(T("Audio bitrate"), m_audioRate);
     v->addLayout(g);
-    v->addWidget(note(T("No re-encoding (stream copy): the program will write the SRT / RTSP stream exactly as it arrives — the same "
-                        "codec, picture size, bitrate and quality as at the sender, with almost no processor load. What you get: a file "
-                        "identical in quality to the stream. What you lose: the bitrate, picture size and codec cannot be changed, the file "
-                        "can only be cut at the sender's key frames (a split may come up to a few seconds late), a pause starts a new file "
-                        "part, and during a signal loss nothing is written (there is no black picture to fill the gap). It works only for "
-                        "network sources, not for a screen, a window or a camera.")));
+    v->addWidget(note(T("No re-encoding (stream copy): the program writes the SRT / RTSP stream exactly as it arrives — the same "
+                        "codec, picture size, bitrate and quality as at the sender, with no encoder load. What you get: a file "
+                        "identical in quality to the stream. What you lose: the bitrate, picture size and codec cannot be changed; "
+                        "recording, a split and a resume after a pause begin at the sender's next key frame (up to a few seconds "
+                        "late); a signal loss closes the file and recording continues in a new file when the signal returns (there is "
+                        "no black picture to fill the gap). It works only for SRT and RTSP sources; other channels use the automatic "
+                        "encoder.")));
 
     // ---- odsluch
     v->addWidget(heading(T("Monitoring")));

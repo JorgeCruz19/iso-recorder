@@ -1,6 +1,6 @@
 # ISO Recorder — stan projektu i instrukcje dla kolejnego modelu
 
-Ten plik jest punktem wejścia. Przeczytaj go w całości, zanim cokolwiek zmienisz. Stan na 2026‑11‑12, wersja **2.8**. Wydania od 2.0 są publikowane jako Release na GitHubie.
+Ten plik jest punktem wejścia. Przeczytaj go w całości, zanim cokolwiek zmienisz. Stan na 2026‑11‑12, wersja **2.9**. Wydania od 2.0 są publikowane jako Release na GitHubie.
 
 ## 1. Co to jest
 
@@ -23,7 +23,7 @@ z tłumaczeniami PL, DE, ES, IT, FR.
 | `mockup/`, `interfejs.png` | wzorzec wyglądu |
 | `docs/zrzut_<wersja>.png` | zrzut okna na każdą wersję |
 
-## 3. Co działa (2.8)
+## 3. Co działa (2.9)
 
 - **Wejścia**: generator testowy, ekran i pojedyncze okno (`d3d11screencapturesrc`), kamera z wyborem rozmiaru obrazu
   (`mfvideosrc`), SRT, RTSP i NDI (`fallbacksrc`; NDI: lista źródeł z sieci w polu Device); dźwięk: sygnał testowy, cisza, dźwięk systemowy (loopback) i wejścia
@@ -48,7 +48,6 @@ z tłumaczeniami PL, DE, ES, IT, FR.
 
 | Wersja | Zakres |
 |---|---|
-| **2.9** | Zapis bez ponownego kodowania (stream copy) dla SRT/RTSP jako opcja enkodera |
 | **3.0** | Wiele lokalizacji zapisu: folder zapasowy przy małej ilości miejsca i zapis podwójny |
 | **3.1** | DeckLink; kodeki H.265 / AV1 / ProRes / DNxHR; MOV / MP4 |
 | **3.2** | WebRTC (WHEP, WHIP), odzyskiwanie plików po awarii, instalator |
@@ -78,6 +77,19 @@ Zwykłe wyjście (wyładowywanie bibliotek po `ExitProcess`) po nagrywaniu ze zd
 zostawał proces „zombie” (HasExited = true, 1 wątek, `taskkill /F` odpowiada „brak działającego wystąpienia”), który
 blokuje plik EXE do wylogowania. Taki proces da się obejść tylko zmianą nazwy zablokowanego pliku. W testach nie ufaj
 `WaitForExit` — sprawdzaj, czy proces zniknął z listy (`Get-CimInstance Win32_Process`).
+
+Kopia strumienia (2.9): `Channel::copyMode()` = enkoder `"copy"` i wejście SRT/RTSP. Kanał ma wtedy inny tor źródła
+(`sourceDescription`): `urisourcebin parse-streams=true` zamiast `fallbacksrc`; pady łączy `onCopyPad` → `linkCopyPad`
+(dopiero przy zdarzeniu CAPS — w `pad-added` znany jest tylko szablon). Strumień skompresowany idzie przez tee `cv`/`ca`
+(stąd gałąź zapisu: sam parser + `splitmuxsink`) i przez dekoder do `vraw`/`araw` (dalej wspólny tor: `tv`/`ta`, podgląd,
+wyjście na żywo). Pułapki: (1) znaczniki SRT liczą się od początku strumienia — `onCopyTap` mierzy raz przesunięcie do
+zegara pipeline'u (`m_copyOffset`), a `recBuffer` w trybie kopii liczy czas po DTS; (2) start i wznowienie czekają na
+klatkę kluczową (`m_copyNeedKey`), dźwięk czeka na obraz; (3) `tsdemux` dostaje `skew-corrections=false`, inaczej znaczniki
+mają kilka ms nierównomierności; (4) nie ma `fallbacksrc`, więc zanik wykrywa `pollSource` (4 s bez klatek) i woła
+`sourceFailed`; nagranie wznawia się po połączeniu (`m_autoRecord` w `pollSource`, nie w timerze ponowień); (5) źródło bez
+dźwięku: `plugCopySilence` podłącza ciszę do podglądu, plik jest bez dźwięku; (6) testowy nadajnik ffmpeg (SRT listener)
+przyjmuje jedno połączenie — przełączenie enkodera na „copy” restartuje kanał i taki nadajnik się kończy.
+Test: `tests\copy_test.ps1` — parametry przekazuj przez tablicę skrótów (`@{Type='srt';Split=$true}`), nie przez listę.
 
 Scheduler (2.8): reguły to okna „od – do” (`core/Schedule.*`: `windowAt`, `nextWindow`, zapis JSON, `selfTest`). Silnik to
 `ChannelManager::schedulerTick()` co 250 ms na zegarze ściennym; stan na kanał w `m_sched` (`handled` = początek okna już
@@ -174,6 +186,7 @@ sesji (`m_autoNames`). Pierwszy człon to krótka nazwa typu (Screen / Window / 
 | `tests\sync_test.ps1` | wspólny start / pauza / stop grupy, domyślnie 16 kanałów |
 | `tests\live_test.ps1` | odbiór wyjścia SRT (ffprobe) i NDI w trakcie nagrania |
 | `tests\net_test.ps1` | wejście SRT / RTSP / NDI z zanikiem i powrotem nadajnika (`build\rtsp_test_server.exe`; NDI: gst-launch) |
+| `tests\copy_test.ps1` | zapis bez ponownego kodowania SRT / RTSP: plik zgodny ze strumieniem, split, pauza, zanik |
 | `tests\sched_test.ps1` | harmonogram: obliczenia okien, start co do klatki, podział, spóźniony start, wyjście na żywo w oknie |
 | `tests\list_test.ps1` | lista kanałów: zapis → wczytanie → identyczny plik; autozapis, przywracanie, ostatnia lista |
 
