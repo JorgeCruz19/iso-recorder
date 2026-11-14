@@ -26,6 +26,8 @@ material from every source must be kept in full for later editing.
   (H.264 or H.265, the sender's quality and bitrate),
 - pause and resume within the same file, leaving no trace on the timeline,
 - splitting into parts by hand or automatically (every N minutes / every N GB), also into a new folder,
+- a second recording location per channel: a spare folder used when the disk of the main folder is nearly full, or
+  recording to two folders at once (a failure of the second disk does not stop the recording),
 - REC, PAUSE and STOP for a group of channels at the same instant — the files share a common zero point,
 - a `.json` sidecar next to every recording (times, parts, pauses, signal losses) for syncing in the edit.
 
@@ -55,7 +57,6 @@ material from every source must be kept in full for later editing.
 - languages: English, Polish, German, Spanish, Italian, French.
 
 **Planned**
-- several recording locations (a spare folder when the disk fills up, recording to two folders at once),
 - WebRTC input (WHEP), an installer.
 
 ## Requirements

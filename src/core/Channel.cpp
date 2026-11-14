@@ -1,5 +1,9 @@
 #include "Channel.h"
 
+#include <QStorageInfo>
+
+#include "DiskMonitor.h"
+
 #include "Lang.h"
 #include "media/Devices.h"
 #include "media/EncoderFactory.h"
@@ -1146,7 +1150,27 @@ bool Channel::startRecording(const QString& session, int index) {
         emit notice(T("%1: encoder %2 is not available, using %3")
                         .arg(m_cfg.name, EncoderFactory::displayName(m_cfg.out.encoder), EncoderFactory::displayName(enc.name)));
 
-    const QString dir = outputDir();
+    QString dir = outputDir();
+    const QString second = m_cfg.out.dir2.trimmed();
+    m_onSpare = false;
+    if (m_cfg.out.dir2Mode == QLatin1String("spare") && !second.isEmpty()) {
+        QDir().mkpath(dir);
+        if (QStorageInfo(DiskMonitor::rootFor(dir)).bytesAvailable() < qint64(m_cfg.out.spareMinMb) * 1024 * 1024) {
+            emit notice(T("%1: little space in the main folder — recording to the spare folder %2").arg(m_cfg.name, QDir::toNativeSeparators(second)));
+            dir = second;
+            m_onSpare = true;
+        }
+    }
+    // zapis podwojny: drugi folder musi byc inny niz glowny i dac sie zapisac - inaczej nagranie idzie tylko do glownego
+    QString dir2;
+    if (m_cfg.out.dir2Mode == QLatin1String("mirror") && !second.isEmpty()) {
+        if (QDir(second).absolutePath().compare(QDir(dir).absolutePath(), Qt::CaseInsensitive) != 0 && QDir().mkpath(second) &&
+            QFileInfo(second).isWritable())
+            dir2 = second;
+        else
+            emit notice(T("%1: the second folder %2 cannot be used — recording to the main folder only").arg(m_cfg.name, QDir::toNativeSeparators(second)));
+    }
+    const bool mirror = !dir2.isEmpty();
     if (!QDir().mkpath(dir) || !QFileInfo(dir).isWritable()) {
         emit notice(T("%1: cannot write to folder %2").arg(m_cfg.name, QDir::toNativeSeparators(dir)));
         return false;
@@ -1163,7 +1187,8 @@ bool Channel::startRecording(const QString& session, int index) {
     const QString ext = QLatin1Char('.') + container;
     FileNameTemplate::Vars vars{session, m_cfg.name, sourceText(), index, QDateTime::currentDateTime()};
     QString pattern = FileNameTemplate::expand(m_cfg.out.nameTemplate, vars);
-    for (int n = 2; QFileInfo::exists(QDir(dir).filePath(FileNameTemplate::withPart(pattern, 1) + ext)); ++n)
+    for (int n = 2; QFileInfo::exists(QDir(dir).filePath(FileNameTemplate::withPart(pattern, 1) + ext)) ||
+                    (mirror && QFileInfo::exists(QDir(dir2).filePath(FileNameTemplate::withPart(pattern, 1) + ext))); ++n)
         pattern = FileNameTemplate::expand(m_cfg.out.nameTemplate, vars) + QStringLiteral("_%1").arg(n);   // kolizja nazw
     const QString location = QDir(dir).filePath(pattern + ext);
 
@@ -1211,8 +1236,16 @@ bool Channel::startRecording(const QString& session, int index) {
         m_recDir = dir;
         m_recPattern = pattern;
         m_recExt = ext;
+        m_recDir2 = dir2;
     }
+    m_recBaseDir = dir;
+    m_recBaseDir2 = dir2;
     m_partCounter = 0;
+    m_partCounter2 = 0;
+    m_mirrorOn = false;
+    m_mirrorFailed = false;
+    m_mirrorNoticed = false;
+    m_mirrorMux = nullptr;
     g_signal_connect(mux, "format-location", G_CALLBACK(&Channel::onFormatLocation), this);
     // Auto-split: po czasie albo po rozmiarze. Ciecie zawsze na klatce kluczowej (GOP = 1 s).
     if (m_cfg.out.splitSeconds > 0)
@@ -1224,8 +1257,57 @@ bool Channel::startRecording(const QString& session, int index) {
     GstElement* ap = gst_bin_get_by_name(GST_BIN(bin), "ap");
     GstElement* vq = gst_bin_get_by_name(GST_BIN(bin), "vq");
     GstElement* aq = gst_bin_get_by_name(GST_BIN(bin), "aq");
-    const bool linked = vp && vq && gst_element_link_pads(vp, "src", mux, "video") &&
-                        (!aq || (ap && gst_element_link_pads(ap, "src", mux, "audio_%u")));
+    bool linked = false;
+    if (mirror && vp && vq) {
+        // Zapis podwojny: skompresowany strumien rozchodzi sie za parserem na dwa splitmuxsinki. Galaz kopii ma kolejke
+        // (3 s, przy zatorze gubi dane - wolny drugi dysk nie moze wstrzymac zapisu glownego) i errorignore (blad drugiego
+        // dysku nie konczy nagrania). Oba pliki sa dzielone w tych samych miejscach.
+        GstElement* mux2 = gst_element_factory_make("splitmuxsink", "mux2");
+        GstElement* m2 = gst_element_factory_make(EncoderFactory::muxerFor(container), nullptr);
+        GstElement* vt = gst_element_factory_make("tee", "mvt");
+        GstElement* at = aq ? gst_element_factory_make("tee", "mat") : nullptr;
+        GstElement* vq2 = gst_element_factory_make("queue", "mvq");
+        GstElement* ve2 = gst_element_factory_make("errorignore", "mve");
+        GstElement* aq2 = aq ? gst_element_factory_make("queue", "maq") : nullptr;
+        GstElement* ae2 = aq ? gst_element_factory_make("errorignore", "mae") : nullptr;
+        if (mux2 && m2 && vt && vq2 && ve2 && (!aq || (at && aq2 && ae2))) {
+            if (container == QLatin1String("mkv") && g_object_class_find_property(G_OBJECT_GET_CLASS(m2), "offset-to-zero"))
+                g_object_set(m2, "offset-to-zero", TRUE, nullptr);
+            g_object_set(mux2, "muxer", m2, "async-finalize", FALSE, "start-index", 1,
+                         "location", QDir(dir2).filePath(pattern + ext).toUtf8().constData(), nullptr);
+            g_signal_connect(mux2, "format-location", G_CALLBACK(&Channel::onFormatLocation2), this);
+            if (m_cfg.out.splitSeconds > 0)
+                g_object_set(mux2, "max-size-time", guint64(m_cfg.out.splitSeconds) * GST_SECOND, nullptr);
+            else if (m_cfg.out.splitBytes > 0)
+                g_object_set(mux2, "max-size-bytes", guint64(m_cfg.out.splitBytes), nullptr);
+            for (GstElement* q : {vq2, aq2}) {
+                if (!q) continue;
+                g_object_set(q, "max-size-time", guint64(3) * GST_SECOND, "max-size-buffers", 0, "max-size-bytes", 0, "leaky", 2, nullptr);
+                // Bramka: po awarii kopii jej galaz odrzuca wszystko juz na wejsciu. Bez tego uszkodzony muxer zwraca stan
+                // "flushing", ktory przez tee wraca do enkodera i zatrzymuje takze zapis glowny (errorignore go nie zamienia).
+                GstPad* gate = gst_element_get_static_pad(q, "sink");
+                gst_pad_add_probe(gate, GstPadProbeType(GST_PAD_PROBE_TYPE_BUFFER | GST_PAD_PROBE_TYPE_BUFFER_LIST | GST_PAD_PROBE_TYPE_EVENT_DOWNSTREAM),
+                                  &Channel::onMirrorGate, this, nullptr);
+                gst_object_unref(gate);
+            }
+            gst_bin_add_many(GST_BIN(bin), mux2, vt, vq2, ve2, nullptr);
+            if (aq) gst_bin_add_many(GST_BIN(bin), at, aq2, ae2, nullptr);
+            linked = gst_element_link(vp, vt) && gst_element_link_pads(vt, "src_%u", mux, "video") &&
+                     gst_element_link_many(vt, vq2, ve2, nullptr) && gst_element_link_pads(ve2, "src", mux2, "video");
+            if (linked && aq)
+                linked = ap && gst_element_link(ap, at) && gst_element_link_pads(at, "src_%u", mux, "audio_%u") &&
+                         gst_element_link_many(at, aq2, ae2, nullptr) && gst_element_link_pads(ae2, "src", mux2, "audio_%u");
+            m_mirrorMux = mux2;
+        } else {
+            for (GstElement* e : {mux2, m2, vt, at, vq2, ve2, aq2, ae2})
+                if (e) gst_object_unref(e);
+        }
+        // EOS glownego muxera musi byc widoczny osobno: po awarii kopii caly bin moze nie zglosic EOS
+        g_object_set(bin, "message-forward", TRUE, nullptr);
+    } else {
+        linked = vp && vq && gst_element_link_pads(vp, "src", mux, "video") &&
+                 (!aq || (ap && gst_element_link_pads(ap, "src", mux, "audio_%u")));
+    }
     GstPad* vqSink = vq ? gst_element_get_static_pad(vq, "sink") : nullptr;
     GstPad* aqSink = aq ? gst_element_get_static_pad(aq, "sink") : nullptr;
     // Znaczniki czasu sa przesuwane tak, zeby plik zaczynal sie od zera - wspolna baza dla obrazu i dzwieku.
@@ -1296,6 +1378,8 @@ bool Channel::startRecording(const QString& session, int index) {
         return false;
     }
 
+    m_mirrorOn = mirror;
+    if (mirror) emit notice(T("%1: recording to two folders — also %2").arg(m_cfg.name, QDir::toNativeSeparators(dir2)));
     m_recFile = QDir(dir).filePath(FileNameTemplate::withPart(pattern, 1) + ext);
     QString sidecarBase = pattern;       // nazwa bez numeru czesci
     sidecarBase.remove(QRegularExpression(QStringLiteral("_?%0\\dd")));
@@ -1435,15 +1519,85 @@ gchar* Channel::onFormatLocation(GstElement*, guint, gpointer user) {
     return g_strdup(QDir::toNativeSeparators(path).toUtf8().constData());
 }
 
+// Watek streamingu: sciezka kolejnej czesci kopii lustrzanej - ta sama nazwa, drugi folder.
+gchar* Channel::onFormatLocation2(GstElement*, guint, gpointer user) {
+    auto* self = static_cast<Channel*>(user);
+    const int part = ++self->m_partCounter2;
+    std::lock_guard<std::mutex> lock(self->m_locMutex);
+    const QString path = QDir(self->m_recDir2).filePath(FileNameTemplate::withPart(self->m_recPattern, part) + self->m_recExt);
+    return g_strdup(QDir::toNativeSeparators(path).toUtf8().constData());
+}
+
 void Channel::splitToFolder(const QString& dir) {
     if (m_state != ChannelState::Recording || !m_recBin) return;
     if (!QDir().mkpath(dir)) {
         emit notice(T("%1: cannot write to folder %2").arg(m_cfg.name, QDir::toNativeSeparators(dir)));
         return;
     }
+    // kopia lustrzana idzie do podfolderu o tej samej nazwie w swoim folderze
+    QString dir2;
+    if (m_mirrorOn.load() && !m_mirrorFailed.load()) {
+        dir2 = QDir(m_recBaseDir2).filePath(QDir(m_recBaseDir).relativeFilePath(dir));
+        if (!QDir().mkpath(dir2)) dir2.clear();
+    }
     {
         std::lock_guard<std::mutex> lock(m_locMutex);
         m_recDir = dir;
+        if (!dir2.isEmpty()) m_recDir2 = dir2;
+    }
+    split();
+}
+
+QStringList Channel::activeDirs() const {
+    QStringList dirs;
+    const QString second = m_cfg.out.dir2.trimmed();
+    if (isRecording()) {
+        dirs << recordingBaseDir();
+        if (m_mirrorOn.load() && !m_mirrorFailed.load()) dirs << m_recBaseDir2;
+    } else {
+        dirs << outputDir();
+        if (m_cfg.out.dir2Mode == QLatin1String("mirror") && !second.isEmpty()) dirs << second;
+    }
+    return dirs;
+}
+
+bool Channel::canSwitchToSpare() const {
+    return m_state == ChannelState::Recording && m_recBin && !m_onSpare && m_cfg.out.dir2Mode == QLatin1String("spare") &&
+           !m_cfg.out.dir2.trimmed().isEmpty();
+}
+
+void Channel::switchToSpare() {
+    if (!canSwitchToSpare()) return;
+    const QString spare = m_cfg.out.dir2.trimmed();
+    if (!QDir().mkpath(spare) || !QFileInfo(spare).isWritable()) {
+        m_onSpare = true;       // nie probuj co sekunde
+        emit notice(T("%1: cannot write to folder %2").arg(m_cfg.name, QDir::toNativeSeparators(spare)));
+        return;
+    }
+    m_onSpare = true;
+    m_recBaseDir = spare;
+    emit notice(T("%1: little space in the main folder — the next file part goes to the spare folder %2")
+                    .arg(m_cfg.name, QDir::toNativeSeparators(spare)));
+    splitToFolder(spare);
+}
+
+// Awaria drugiej lokalizacji (pelny albo odlaczony dysk): nagranie w folderze glownym trwa dalej.
+GstPadProbeReturn Channel::onMirrorGate(GstPad*, GstPadProbeInfo*, gpointer user) {
+    return static_cast<Channel*>(user)->m_mirrorFailed.load() ? GST_PAD_PROBE_DROP : GST_PAD_PROBE_OK;
+}
+
+void Channel::mirrorError(const QString& text) {
+    m_mirrorFailed = true;
+    if (!m_recBin || !m_mirrorOn.load() || m_mirrorNoticed) return;
+    m_mirrorNoticed = true;
+    emit notice(T("%1: the second folder failed (%2) — recording continues in the main folder only").arg(m_cfg.name, text));
+    emit changed();
+}
+
+void Channel::breakMirrorForTest() {
+    {
+        std::lock_guard<std::mutex> lock(m_locMutex);
+        m_recDir2 = QStringLiteral("Q:/isorec-no-such-drive/x");
     }
     split();
 }
@@ -1461,6 +1615,11 @@ void Channel::split() {
         }
         gst_object_unref(sink);
         g_signal_emit_by_name(mux, "split-now");
+        if (m_mirrorOn.load() && !m_mirrorFailed.load())
+            if (GstElement* mux2 = gst_bin_get_by_name(GST_BIN(m_recBin), "mux2")) {
+                g_signal_emit_by_name(mux2, "split-now");
+                gst_object_unref(mux2);
+            }
     }
     if (vp) gst_object_unref(vp);
     if (mux) gst_object_unref(mux);
@@ -1511,10 +1670,16 @@ void Channel::writeSidecar(bool clean, const QString& reason) const {
         {QStringLiteral("stopReason"), reason},
         {QStringLiteral("pauses"), pauses},
         {QStringLiteral("signalLosses"), m_recLosses},
+        {QStringLiteral("secondFolder"), m_mirrorOn.load() ? QDir::toNativeSeparators(m_recBaseDir2) : QString()},
+        {QStringLiteral("secondFolderFailed"), m_mirrorFailed.load()},
         {QStringLiteral("signalLostMs"), double(m_recLostMs + (m_signalLost && m_recLosses > 0 ? m_lostClock.elapsed() : 0))},
         {QStringLiteral("parts"), parts}};
     QFile f(m_recSidecar);
     if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) f.write(QJsonDocument(root).toJson());
+    if (m_mirrorOn.load() && !m_mirrorFailed.load()) {       // kopia opisu obok kopii plikow
+        QFile f2(QDir(m_recBaseDir2).filePath(QFileInfo(m_recSidecar).fileName()));
+        if (f2.open(QIODevice::WriteOnly | QIODevice::Truncate)) f2.write(QJsonDocument(root).toJson());
+    }
 }
 
 void Channel::finishRecording(bool clean, const QString& reason) {
@@ -1547,6 +1712,7 @@ void Channel::finishRecording(bool clean, const QString& reason) {
     if (!m_parts.isEmpty() && m_parts.last().endNs < 0) m_parts.last().endNs = (m_recClock.elapsed() - m_pausedMs) * 1000000LL;
     writeSidecar(clean, reason);
     const QString file = m_recFile;
+    m_mirrorMux = nullptr;
     if (isRecording()) m_state = ChannelState::Preview;
     emit changed();
     const QString name = m_parts.size() > 1 ? T("%1 parts").arg(m_parts.size()) : QFileInfo(file).fileName();
@@ -1881,12 +2047,17 @@ GstBusSyncReply Channel::onBus(GstBus*, GstMessage* msg, gpointer user) {
             gst_structure_get(st, "message", GST_TYPE_MESSAGE, &fwd, nullptr);
             if (fwd) {
                 GstElement* rec = self->m_recBinShared.load();
-                if (GST_MESSAGE_TYPE(fwd) == GST_MESSAGE_EOS && rec && GST_MESSAGE_SRC(fwd) == GST_OBJECT(rec))
+                // koniec nagrania = EOS calej galezi zapisu; po awarii kopii lustrzanej wystarcza EOS glownego muxera
+                const bool mainMuxEos = self->m_mirrorFailed.load() && GST_MESSAGE_SRC(msg) == GST_OBJECT(rec) && GST_MESSAGE_SRC(fwd) &&
+                                        g_strcmp0(GST_OBJECT_NAME(GST_MESSAGE_SRC(fwd)), "mux") == 0;
+                if (GST_MESSAGE_TYPE(fwd) == GST_MESSAGE_EOS && rec && (GST_MESSAGE_SRC(fwd) == GST_OBJECT(rec) || mainMuxEos))
                     QMetaObject::invokeMethod(self, [self, rec] {
                         if (self->m_recBin == rec) self->finishRecording(true);
                     }, Qt::QueuedConnection);
                 gst_message_unref(fwd);
             }
+        } else if (st && GST_MESSAGE_SRC(msg) && g_strcmp0(GST_OBJECT_NAME(GST_MESSAGE_SRC(msg)), "mux2") == 0) {
+            // czesci kopii lustrzanej nie trafiaja na liste czesci nagrania
         } else if (st && gst_structure_has_name(st, "splitmuxsink-fragment-opened")) {
             GstClockTime rt = 0;
             gst_structure_get_clock_time(st, "running-time", &rt);
@@ -1927,14 +2098,21 @@ GstBusSyncReply Channel::onBus(GstBus*, GstMessage* msg, gpointer user) {
         GstElement* rec = self->m_recBinShared.load();
         const bool inRecording = rec && GST_MESSAGE_SRC(msg) &&
                                  gst_object_has_as_ancestor(GST_MESSAGE_SRC(msg), GST_OBJECT(rec));
+        // Blad wewnatrz galezi kopii lustrzanej wylacza tylko kopie.
+        GstElement* mirrorMux = self->m_mirrorMux.load();
+        const bool inMirror = inRecording && mirrorMux && (GST_MESSAGE_SRC(msg) == GST_OBJECT(mirrorMux) ||
+                              gst_object_has_as_ancestor(GST_MESSAGE_SRC(msg), GST_OBJECT(mirrorMux)));
+        if (inMirror) self->m_mirrorFailed = true;      // od razu, w tym watku: bramka kopii zamyka sie przed nastepnym buforem
         // Blad wewnatrz galezi wyjscia na zywo wylacza tylko wyjscie.
         GstElement* live = self->m_liveBinShared.load();
         const bool inLive = live && GST_MESSAGE_SRC(msg) && gst_object_has_as_ancestor(GST_MESSAGE_SRC(msg), GST_OBJECT(live));
         const int liveSerial = self->m_liveSerial.load();
         const int gen = self->m_gen.load();
-        QMetaObject::invokeMethod(self, [self, text, inRecording, inLive, liveSerial, gen] {
+        QMetaObject::invokeMethod(self, [self, text, inRecording, inMirror, inLive, liveSerial, gen] {
             if (gen != self->m_gen.load()) return;      // komunikat ze starego pipeline'u
-            if (inRecording) {
+            if (inMirror) {
+                self->mirrorError(text);
+            } else if (inRecording) {
                 self->finishRecording(false, text);
             } else if (inLive) {
                 // tylko dla biezacego podpiecia; komunikaty z galezi odpietej przez uzytkownika sa pomijane

@@ -38,13 +38,21 @@ QList<VolumeInfo> DiskMonitor::volumes(const QList<Channel*>& channels) {
     };
     if (channels.isEmpty()) find(rootFor(Channel::defaultOutputDir()));
     for (const Channel* c : channels) {
-        VolumeInfo& v = find(rootFor(c->outputDir()));
+        // kanal z zapisem podwojnym obciaza dwa wolumeny (albo jeden - gdy oba foldery leza na tym samym dysku)
+        QStringList roots;
+        for (const QString& dir : c->activeDirs()) {
+            const QString r = rootFor(dir);
+            if (!roots.contains(r)) roots << r;
+        }
         const double mbps = (c->config().out.videoKbps + c->config().out.audioKbps) / 1000.0;
-        ++v.channels;
-        v.configuredMbps += mbps;
-        if (c->isRecording()) {
-            ++v.recording;
-            v.activeMbps += mbps;
+        for (const QString& r : roots) {
+            VolumeInfo& v = find(r);
+            ++v.channels;
+            v.configuredMbps += mbps;
+            if (c->isRecording()) {
+                ++v.recording;
+                v.activeMbps += mbps;
+            }
         }
     }
     for (VolumeInfo& v : out) {

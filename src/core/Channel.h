@@ -24,6 +24,11 @@ enum class ChannelState { Idle, Preview, Recording, Paused, Finalizing, Waiting,
 struct OutputConfig {
     QString dir;                    // puste = folder domyslny
     QString nameTemplate;           // puste = FileNameTemplate::kDefault
+    // Druga lokalizacja zapisu: "off"; "spare" - folder zapasowy, do ktorego nagranie przechodzi (nowa czesc pliku), gdy na
+    // dysku folderu glownego zostaje mniej niz spareMinMb; "mirror" - to samo nagranie rownoczesnie w obu folderach.
+    QString dir2Mode = QStringLiteral("off");
+    QString dir2;
+    int spareMinMb = 5120;
     QString codec = QStringLiteral("h264");      // "h264", "h265", "av1", "prores" (EncoderFactory)
     QString encoder = QStringLiteral("auto");
     int videoKbps = 8000;
@@ -123,6 +128,14 @@ public:
     // Liczba pipeline'ow porzuconych, bo zrodlo nie odpowiedzialo w limicie czasu (ich watki moga wisiec do konca procesu).
     static int abandonedPipelines();
     QString outputDir() const { return m_cfg.out.dir.isEmpty() ? defaultOutputDir() : m_cfg.out.dir; }
+    // Foldery, do ktorych kanal pisze teraz (nagrywa) albo bedzie pisal (nie nagrywa): glowny lub zapasowy, plus lustrzany.
+    QStringList activeDirs() const;
+    QString recordingBaseDir() const { return m_recBaseDir.isEmpty() ? outputDir() : m_recBaseDir; }
+    bool canSwitchToSpare() const;           // tryb "spare", nagrywa w folderze glownym, folder zapasowy podany
+    void switchToSpare();                    // nastepna czesc pliku trafia do folderu zapasowego
+    bool mirrorOn() const { return m_mirrorOn.load(); }
+    bool mirrorFailed() const { return m_mirrorFailed.load(); }
+    void breakMirrorForTest();               // test: nastepna czesc kopii lustrzanej dostaje niemozliwa sciezke
 
     ChannelState state() const { return m_state; }
     QString errorText() const { return m_error; }
@@ -278,6 +291,17 @@ private:
     QImage m_clockImage;
     std::mutex m_locMutex;                  // folder i wzorzec nazwy kolejnych czesci (czytane w watku streamingu)
     QString m_recDir, m_recPattern, m_recExt;
+    QString m_recDir2;                      // zapis podwojny: folder biezacej czesci kopii (pod m_locMutex)
+    QString m_recBaseDir, m_recBaseDir2;    // foldery bazowe nagrania (bez podfolderow "Split to new folder")
+    std::atomic<int> m_partCounter2{0};
+    bool m_onSpare = false;                 // nagranie przeszlo (albo zaczelo sie) w folderze zapasowym
+    std::atomic<bool> m_mirrorOn{false};
+    std::atomic<bool> m_mirrorFailed{false};
+    std::atomic<GstElement*> m_mirrorMux{nullptr};
+    static gchar* onFormatLocation2(GstElement* mux, guint fragment, gpointer user);
+    void mirrorError(const QString& text);
+    static GstPadProbeReturn onMirrorGate(GstPad* pad, GstPadProbeInfo* info, gpointer user);
+    bool m_mirrorNoticed = false;           // komunikat o awarii kopii juz poszedl
     std::atomic<int> m_partCounter{0};
     bool m_liveNoticed = false;             // komunikat o awarii biezacego podpiecia juz poszedl
     void applyPreviewSize();

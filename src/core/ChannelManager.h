@@ -47,6 +47,8 @@ public:
     // Grupa kanalow ze wspolna chwila T: start, pauza, wznowienie i stop wypadaja we wszystkich kanalach w tym samym momencie.
     void transportGroup(const QList<Channel*>& list, Transport t);
     void stopAllRecording();
+    // Test: udaje, ze na dyskach folderow glownych zostalo tyle bajtow (-1 = prawdziwa wartosc).
+    void setFakeFreeBytes(qint64 bytes) { m_fakeFree = bytes; }
     // Split z przejsciem do nowego folderu: nazwa folderu z szablonu w ustawieniach, wspolna dla calej grupy.
     void splitToNewFolder(const QList<Channel*>& list);
     // Odsluch: najwyzej jeden kanal naraz gra na karcie wybranej w ustawieniach.
@@ -118,5 +120,6 @@ private:
     QHash<Channel*, SchedState> m_sched;
     QTimer m_schedTick;
     bool m_sleepBlocked = false;
+    qint64 m_fakeFree = -1;
     void schedulerTick();
 };

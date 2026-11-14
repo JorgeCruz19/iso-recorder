@@ -356,6 +356,10 @@ int main(int argc, char* argv[]) {
             if (!argAfter("--container").isEmpty()) o.container = argAfter("--container");
             if (!argAfter("--encoder").isEmpty()) o.encoder = argAfter("--encoder");      // np. --encoder copy
             if (!argAfter("--codec").isEmpty()) o.codec = argAfter("--codec");            // h264 | h265 | av1 | prores
+            // --dir2 folder --dir2-mode spare|mirror [--spare-mb N]: druga lokalizacja zapisu
+            if (!argAfter("--dir2").isEmpty()) o.dir2 = argAfter("--dir2");
+            if (!argAfter("--dir2-mode").isEmpty()) o.dir2Mode = argAfter("--dir2-mode");
+            if (argAfter("--spare-mb").toInt() > 0) o.spareMinMb = argAfter("--spare-mb").toInt();
             if (argAfter("--auto-split").toInt() > 0) o.splitSeconds = argAfter("--auto-split").toInt();
             c->setOutput(o);
         }
@@ -401,6 +405,17 @@ int main(int argc, char* argv[]) {
         }
         // --fps N: klatkaz kanalow --demo;  --sort name|source|format|state [x2]: po 2 s ulozenie listy (drugie = odwrocenie);
         // --reconnect-at S: po S sekundach "Reconnect source" na kanale 1; kolejnosc i stan kanalow ida na stdout
+        // --fake-free-at S MB: po S sekundach program "widzi" tylko MB wolnego miejsca na dyskach folderow glownych
+        // --mirror-break-at S: po S sekundach kopia lustrzana kanalu 1 dostaje niemozliwa sciezke (awaria drugiego dysku)
+        if (const int at = argAfter("--fake-free-at").toInt(); at > 0) {
+            const int fa = int(args.indexOf(QStringLiteral("--fake-free-at")));
+            const qint64 mb = fa + 2 < args.size() ? args.at(fa + 2).toLongLong() : 0;
+            QTimer::singleShot(at * 1000, &manager, [&manager, mb] { manager.setFakeFreeBytes(mb * 1024 * 1024); });
+        }
+        if (const int at = argAfter("--mirror-break-at").toInt(); at > 0)
+            QTimer::singleShot(at * 1000, &manager, [&manager] {
+                if (manager.count() > 0) manager.channels().first()->breakMirrorForTest();
+            });
         if (const QStringList wh = argAfter("--size").split(QLatin1Char('x')); wh.size() == 2 && wh.at(0).toInt() > 0 && wh.at(1).toInt() > 0)
             for (Channel* c : manager.channels()) c->setFormat(wh.at(0).toInt(), wh.at(1).toInt());      // --size 1920x1080
         if (const int fps = argAfter("--fps").toInt(); fps > 0)

@@ -82,6 +82,10 @@ private:
     QWidget* m_outputForm = nullptr;
     QLabel* m_lock = nullptr;
     QLineEdit* m_outDir;
+    QComboBox* m_outDir2Mode;
+    QLineEdit* m_outDir2;
+    QPushButton* m_outDir2Browse;
+    QComboBox* m_outSpare;
     QLineEdit* m_outTemplate;
     QComboBox* m_outEncoder;
     QComboBox* m_outCodec;

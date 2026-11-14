@@ -2,6 +2,19 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 3.2
+
+- **Druga lokalizacja zapisu** (zakładka Output, pole „Second folder”), osobno dla każdego kanału:
+  - **Folder zapasowy**: gdy na dysku folderu głównego zostaje mniej wolnego miejsca niż ustawiony próg (1–100 GB),
+    nagranie przechodzi do drugiego folderu jako nowa część pliku — bez utraty klatek. Gdy miejsca brakuje już przy
+    starcie, całe nagranie powstaje w folderze zapasowym.
+  - **Zapis podwójny**: to samo nagranie powstaje równocześnie w dwóch folderach (te same nazwy, te same części, kopia
+    pliku opisu). Awaria drugiego folderu (pełny albo odłączony dysk) nie przerywa nagrania głównego — jest komunikat,
+    a w pliku opisu `secondFolderFailed`.
+- Okno Disks i pilnowanie miejsca liczą kanał z zapisem podwójnym na obu dyskach; „Split to new folder” tworzy podfolder
+  także w drugim folderze.
+- Test: `tests\dir2_test.ps1`; argumenty `--dir2`, `--dir2-mode`, `--spare-mb`, `--fake-free-at`, `--mirror-break-at`.
+
 ## 3.1
 
 - **Kodeki**: obok H.264 także **H.265 (HEVC)**, **AV1** i **ProRes 422** — nowe pole „Codec” w zakładce Output i w

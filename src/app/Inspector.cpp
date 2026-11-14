@@ -299,6 +299,30 @@ QWidget* Inspector::buildOutputPage() {
     dh->addWidget(m_outDir, 1);
     dh->addWidget(browse);
     row(g, T("Folder"), dirRow);
+    // Druga lokalizacja: folder zapasowy (gdy na dysku brakuje miejsca) albo zapis do dwoch folderow naraz
+    m_outDir2Mode = new QComboBox;
+    m_outDir2Mode->addItem(T("Off"), QStringLiteral("off"));
+    m_outDir2Mode->addItem(T("Spare folder when the disk fills up"), QStringLiteral("spare"));
+    m_outDir2Mode->addItem(T("Record to both folders at once"), QStringLiteral("mirror"));
+    const QString secondHelp = T("Spare folder: when less free space than the limit is left on the disk of the main folder, the "
+                                 "recording goes on in the second folder as a new file part. Both folders: the same recording is "
+                                 "written to two folders at once; if the second disk fails, the recording continues in the main folder.");
+    row(g, T("Second folder"), m_outDir2Mode)->setToolTip(secondHelp);
+    m_outDir2Mode->setToolTip(secondHelp);
+    auto* dir2Row = new QWidget;
+    auto* dh2 = new QHBoxLayout(dir2Row);
+    dh2->setContentsMargins(0, 0, 0, 0);
+    dh2->setSpacing(4);
+    m_outDir2 = new QLineEdit;
+    m_outDir2Browse = new QPushButton(QStringLiteral("…"));
+    m_outDir2Browse->setObjectName(QStringLiteral("ibtn"));
+    m_outDir2Browse->setFixedWidth(30);
+    dh2->addWidget(m_outDir2, 1);
+    dh2->addWidget(m_outDir2Browse);
+    row(g, T("Folder 2"), dir2Row);
+    m_outSpare = new QComboBox;
+    for (int gb : {1, 2, 5, 10, 20, 50, 100}) m_outSpare->addItem(T("below %1 GB free").arg(gb), gb * 1024);
+    row(g, T("Switch"), m_outSpare);
     m_outTemplate = new QLineEdit;
     m_outTemplate->setPlaceholderText(QLatin1String(FileNameTemplate::kDefault));
     // spis zmiennych w podpowiedzi - po najechaniu na etykiete i na pole
@@ -372,6 +396,18 @@ QWidget* Inspector::buildOutputPage() {
     v->addStretch(1);
 
     connect(m_outDir, &QLineEdit::editingFinished, this, &Inspector::commitOutput);
+    connect(m_outDir2, &QLineEdit::editingFinished, this, &Inspector::commitOutput);
+    connect(m_outDir2Mode, &QComboBox::activated, this, &Inspector::commitOutput);
+    connect(m_outSpare, &QComboBox::activated, this, &Inspector::commitOutput);
+    connect(m_outDir2Browse, &QPushButton::clicked, this, [this] {
+        Channel* ch = m_mgr->active();
+        if (!ch) return;
+        const QString start = ch->config().out.dir2.isEmpty() ? ch->outputDir() : ch->config().out.dir2;
+        const QString dir = QFileDialog::getExistingDirectory(this, T("Choose recording folder"), start);
+        if (dir.isEmpty()) return;
+        m_outDir2->setText(QDir::toNativeSeparators(dir));
+        commitOutput();
+    });
     connect(m_outTemplate, &QLineEdit::editingFinished, this, &Inspector::commitOutput);
     for (QComboBox* c : {m_outCodec, m_outEncoder, m_outVideoRate, m_outAudioRate, m_outContainer, m_outSplit})
         connect(c, &QComboBox::activated, this, &Inspector::commitOutput);
@@ -664,6 +700,9 @@ void Inspector::commitOutput() {
     if (!ch || !ch->canEdit()) return;
     OutputConfig out = ch->config().out;
     out.dir = QDir::fromNativeSeparators(m_outDir->text().trimmed());
+    out.dir2Mode = m_outDir2Mode->currentData().toString();
+    out.dir2 = QDir::fromNativeSeparators(m_outDir2->text().trimmed());
+    out.spareMinMb = m_outSpare->currentData().toInt();
     out.nameTemplate = m_outTemplate->text().trimmed();
     out.encoder = m_outEncoder->currentData().toString();
     out.codec = m_outCodec->currentData().toString();
@@ -892,6 +931,14 @@ void Inspector::refresh() {
     m_lock->setVisible(!editable);
     const OutputConfig& out = ch->config().out;
     if (!m_outDir->hasFocus()) m_outDir->setText(QDir::toNativeSeparators(out.dir));
+    m_outDir2Mode->setCurrentIndex(qMax(0, m_outDir2Mode->findData(out.dir2Mode)));
+    if (!m_outDir2->hasFocus()) m_outDir2->setText(QDir::toNativeSeparators(out.dir2));
+    const bool second = out.dir2Mode != QLatin1String("off");
+    m_outDir2->setEnabled(second);
+    m_outDir2Browse->setEnabled(second);
+    if (m_outSpare->findData(out.spareMinMb) < 0) m_outSpare->addItem(T("below %1 GB free").arg(out.spareMinMb / 1024), out.spareMinMb);
+    m_outSpare->setCurrentIndex(m_outSpare->findData(out.spareMinMb));
+    m_outSpare->setEnabled(out.dir2Mode == QLatin1String("spare"));
     if (!m_outTemplate->hasFocus()) m_outTemplate->setText(out.nameTemplate);
     if (m_outCodec->findData(out.codec) < 0) m_outCodec->addItem(EncoderFactory::codecLabel(out.codec), out.codec);   // kodek z listy z innego komputera
     m_outCodec->setCurrentIndex(m_outCodec->findData(out.codec));

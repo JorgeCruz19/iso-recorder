@@ -15,6 +15,7 @@
 #include <QSaveFile>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QStorageInfo>
 
 #include <algorithm>
 
@@ -388,6 +389,13 @@ void ChannelManager::transportGroup(const QList<Channel*>& list, Transport t) {
 // Pilnowanie miejsca, osobno dla kazdego wolumenu: ostrzezenie ponizej 30 min lub 10% wolnego,
 // kontrolowany Stop (z finalizacja plikow) ponizej 1 GB - tylko dla kanalow z tego wolumenu.
 void ChannelManager::checkDisks() {
+    // Folder zapasowy: gdy na dysku folderu glownego zostaje mniej niz ustawiony prog, nastepna czesc pliku idzie do
+    // folderu zapasowego. Sprawdzane przed regula "Stop ponizej 1 GB", zeby nagranie zdazylo sie przeniesc.
+    for (Channel* c : m_channels) {
+        if (!c->canSwitchToSpare()) continue;
+        const qint64 free = m_fakeFree >= 0 ? m_fakeFree : QStorageInfo(DiskMonitor::rootFor(c->recordingBaseDir())).bytesAvailable();
+        if (free < qint64(c->config().out.spareMinMb) * 1024 * 1024) c->switchToSpare();
+    }
     for (const VolumeInfo& v : DiskMonitor::volumes(m_channels)) {
         if (v.recording == 0) {
             m_warnedVolumes.removeAll(v.root);
@@ -397,7 +405,7 @@ void ChannelManager::checkDisks() {
             bool any = false;
             for (Channel* c : m_channels)
                 if ((c->state() == ChannelState::Recording || c->state() == ChannelState::Paused) &&
-                    DiskMonitor::rootFor(c->outputDir()) == v.root) {
+                    DiskMonitor::rootFor(c->recordingBaseDir()) == v.root) {
                     c->stopRecording();
                     any = true;
                 }
@@ -421,7 +429,7 @@ void ChannelManager::splitToNewFolder(const QList<Channel*>& list) {
         QString name = FileNameTemplate::expand(tmpl, vars);
         name.remove(QRegularExpression(QStringLiteral("_?%0\\dd")));      // {part} nie ma sensu w nazwie folderu
         if (name.isEmpty()) name = when.toString(QStringLiteral("yyyy-MM-dd_HH-mm-ss"));
-        c->splitToFolder(QDir(c->outputDir()).filePath(name));
+        c->splitToFolder(QDir(c->recordingBaseDir()).filePath(name));
         shown = name;
         ++n;
     }
@@ -476,6 +484,8 @@ QJsonObject channelToJson(const Channel* ch) {
         {QStringLiteral("output"), QJsonObject{
             {QStringLiteral("dir"), o.dir},
             {QStringLiteral("nameTemplate"), o.nameTemplate},
+            {QStringLiteral("second"), QJsonObject{{QStringLiteral("mode"), o.dir2Mode}, {QStringLiteral("dir"), o.dir2},
+                                                   {QStringLiteral("minFreeMb"), o.spareMinMb}}},
             {QStringLiteral("container"), o.container},
             {QStringLiteral("video"), QJsonObject{{QStringLiteral("codec"), o.codec}, {QStringLiteral("encoder"), o.encoder},
                                                   {QStringLiteral("bitrateKbps"), o.videoKbps}}},
@@ -524,6 +534,11 @@ ChannelConfig channelFromJson(const QJsonObject& j, int number) {
     const QJsonObject out = j.value(QStringLiteral("output")).toObject();
     c.out.dir = out.value(QStringLiteral("dir")).toString();
     c.out.nameTemplate = out.value(QStringLiteral("nameTemplate")).toString();
+    const QJsonObject sec = out.value(QStringLiteral("second")).toObject();
+    const QString sm = sec.value(QStringLiteral("mode")).toString();
+    c.out.dir2Mode = sm == QLatin1String("spare") || sm == QLatin1String("mirror") ? sm : QStringLiteral("off");
+    c.out.dir2 = sec.value(QStringLiteral("dir")).toString();
+    c.out.spareMinMb = qBound(1024, sec.value(QStringLiteral("minFreeMb")).toInt(d.out.spareMinMb), 1024 * 1024);
     const QString cont = out.value(QStringLiteral("container")).toString();
     c.out.container = cont == QLatin1String("ts") || cont == QLatin1String("mp4") || cont == QLatin1String("mov") ? cont : QStringLiteral("mkv");
     const QJsonObject v = out.value(QStringLiteral("video")).toObject();
