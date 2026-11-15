@@ -38,6 +38,7 @@
 #include "core/EventLog.h"
 #include "core/Lang.h"
 #include "core/Recovery.h"
+#include "app/Splash.h"
 #include "media/Devices.h"
 
 // Argumenty:
@@ -119,6 +120,22 @@ int main(int argc, char* argv[]) {
     // Uruchomienie sterowane argumentami (zrzuty, testy) konczy sie samo - bez pytan o zapis listy.
     for (const char* a : {"--screenshot", "--save-list", "--save-list-real", "--rec-test", "--shot-big", "--shot-disks", "--drag-test", "--shot-combo", "--shot-log", "--shot-settings", "--list-ndi", "--shot-rename", "--quit-after", "--recover"})
         if (args.contains(QLatin1String(a))) app.setProperty("automation", true);
+
+    // Ekran powitalny: 2,5 s przy zwyklym uruchomieniu. Nie pojawia sie w trybach testowych i narzedziowych.
+    // --shot-splash plik: zapisuje obraz ekranu powitalnego do pliku i konczy (sprawdzenie, ze zasob jest w programie).
+    {
+        bool plain = !app.property("automation").toBool() && !args.contains(QStringLiteral("--no-splash"));
+        for (const char* a : {"--demo", "--list", "--check-env", "--disk-test", "--sched-selftest", "--recover"})
+            plain = plain && !args.contains(QLatin1String(a));
+        const int shotAt = int(args.indexOf(QStringLiteral("--shot-splash")));
+        const QImage image(QStringLiteral(":/splash.png"));
+        if (shotAt >= 0 && shotAt + 1 < args.size()) return image.save(args.at(shotAt + 1)) ? 0 : 1;
+        if (plain) {
+            // obraz ma 1000 x 420 punktow; na ekranie o wiekszej gestosci jest odpowiednio powiekszany
+            const qreal dpr = QGuiApplication::primaryScreen() ? QGuiApplication::primaryScreen()->devicePixelRatio() : 1.0;
+            Splash::show(dpr > 1.01 ? image.scaled(image.size() * dpr, Qt::KeepAspectRatio, Qt::SmoothTransformation) : image, 2500);
+        }
+    }
 
     if (args.contains(QStringLiteral("--check-env"))) {
         const EnvCheck::Result r = EnvCheck::run();
@@ -231,7 +248,7 @@ int main(int argc, char* argv[]) {
             fflush(stdout);
             QTimer::singleShot(300, &app, [] { QApplication::quit(); });
         } else if (!app.property("automation").toBool() && !testMode) {
-            QTimer::singleShot(800, w.get(), [&w] { w->offerRecovery(); });
+            QTimer::singleShot(3000, w.get(), [&w] { w->offerRecovery(); });     // po ekranie powitalnym
         }
         if (!testMode && safeStart) {
             manager.setPersistence(true);
@@ -240,6 +257,7 @@ int main(int argc, char* argv[]) {
             manager.setPersistence(true);
             const QString last = settings.value(QStringLiteral("lastList")).toString();
             if (QFile::exists(ChannelManager::autosavePath())) {
+                Splash::close();        // pytanie nie moze sie schowac pod ekranem powitalnym
                 if (args.contains(QStringLiteral("--restore")) || QMessageBox::question(w.get(), QStringLiteral("ISO Recorder"),
                         T("The program did not close properly last time. Restore the unsaved channel list?")) == QMessageBox::Yes)
                     manager.restoreAutosave();

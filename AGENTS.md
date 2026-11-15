@@ -76,6 +76,11 @@ zostawał proces „zombie” (HasExited = true, 1 wątek, `taskkill /F` odpowia
 blokuje plik EXE do wylogowania. Taki proces da się obejść tylko zmianą nazwy zablokowanego pliku. W testach nie ufaj
 `WaitForExit` — sprawdzaj, czy proces zniknął z listy (`Get-CimInstance Win32_Process`).
 
+Ekran powitalny (3.3): `app/Splash.*` — okno warstwowe Win32 w osobnym wątku, 2,5 s, obraz z zasobu `:/splash.png`
+(`res/splash.png`, źródło: `ISO_Recorder_3.3_splash.png`). `QSplashScreen` się nie nadaje: wątek główny jest przy starcie
+zajęty ok. 3 s i nie zamknąłby okna na czas. Nie pojawia się w trybach testowych (`--demo`, `--list`, tryby automatyczne);
+`--no-splash` wyłącza go ręcznie. Licencja projektu: MIT (`LICENSE`).
+
 WebRTC, odzyskiwanie, instalator (3.3): wejście `whep` — `Channel::makeWhepSource()` (bin z `whepclientsrc`, podawany
 `fallbacksrc` jako `source`, tak jak NDI; `InputConfig::customSource()`). Pułapki: (1) `stun-server` jest zerowany —
 domyślny publiczny STUN opóźnia połączenie o kilka sekund i wysyła zapytania do obcej usługi; (2) sprzętowe dekodery

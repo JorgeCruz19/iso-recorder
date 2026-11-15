@@ -15,6 +15,9 @@ Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
   wcześniej przez split są kompletne w każdym kontenerze.
 - **Instalator** (`IsoRecorder-<wersja>-setup.exe`, Inno Setup): instalacja bez uprawnień administratora, skrót w menu
   Start, deinstalator, sześć języków. Wydanie zawiera też wersję przenośną (ZIP).
+- **Ekran powitalny** (2,5 s przy zwykłym uruchomieniu; własny wątek, więc znika na czas także wtedy, gdy start programu
+  trwa dłużej), **licencja MIT** (plik `LICENSE`), nowe README z aktualnym zrzutem ekranu. Te zmiany weszły do 3.3 bez
+  zmiany numeru — pliki wydania 3.3 zostały podmienione.
 - Testy: `tests\recovery_test.ps1`, `tests\net_test.ps1 -Type whep`; skrypt `scripts\installer.ps1`; argument `--recover`.
 
 ## 3.2

@@ -19,7 +19,7 @@ endif()
 file(GLOB_RECURSE SRC CONFIGURE_DEPENDS src/*.cpp src/*.h)
 # Ikona: res/app.rc daje ikone pliku EXE (Eksplorator, pasek zadan), zasob Qt - ikone okien programu.
 qt_add_executable(IsoRecorder WIN32 ${SRC} res/app.rc)
-qt_add_resources(IsoRecorder "appicon" PREFIX "/" BASE res FILES res/icon.png)
+qt_add_resources(IsoRecorder "appicon" PREFIX "/" BASE res FILES res/icon.png res/splash.png)
 
 target_include_directories(IsoRecorder PRIVATE
     src
