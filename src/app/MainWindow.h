@@ -22,6 +22,8 @@ public:
     Inspector* inspector() const { return m_inspector; }
     void openEventLog() { showEventLog(); }
     void openSettings() { showSettings(); }
+    // Nagrania przerwane awaria (dziennik Recovery): pytanie o naprawe plikow; ask = false naprawia bez pytania.
+    void offerRecovery(bool ask = true);
     void setView(int view);                 // 2, 3, 4 = siatka n x n; 0 = lista
 
 signals:

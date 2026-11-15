@@ -37,6 +37,7 @@
 #include "core/EnvCheck.h"
 #include "core/EventLog.h"
 #include "core/Lang.h"
+#include "core/Recovery.h"
 #include "media/Devices.h"
 
 // Argumenty:
@@ -116,7 +117,7 @@ int main(int argc, char* argv[]) {
     QApplication::setApplicationVersion(QStringLiteral(APP_VERSION));
     const QStringList args = app.arguments();
     // Uruchomienie sterowane argumentami (zrzuty, testy) konczy sie samo - bez pytan o zapis listy.
-    for (const char* a : {"--screenshot", "--save-list", "--save-list-real", "--rec-test", "--shot-big", "--shot-disks", "--drag-test", "--shot-combo", "--shot-log", "--shot-settings", "--list-ndi", "--shot-rename", "--quit-after"})
+    for (const char* a : {"--screenshot", "--save-list", "--save-list-real", "--rec-test", "--shot-big", "--shot-disks", "--drag-test", "--shot-combo", "--shot-log", "--shot-settings", "--list-ndi", "--shot-rename", "--quit-after", "--recover"})
         if (args.contains(QLatin1String(a))) app.setProperty("automation", true);
 
     if (args.contains(QStringLiteral("--check-env"))) {
@@ -220,6 +221,18 @@ int main(int argc, char* argv[]) {
             EventLog::enableFile(QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + QLatin1Char('/') +
                                  ChannelManager::settingsOrg() + QStringLiteral("/logs"));
         EventLog::add(T("Program started — version %1").arg(QLatin1String(APP_VERSION)));
+        // Dziennik nagran w toku (odzyskiwanie po awarii): w trybach testowych tylko z osobnym profilem ustawien.
+        Recovery::setEnabled(!testMode || !qEnvironmentVariableIsEmpty("ISOREC_PROFILE"));
+        if (args.contains(QStringLiteral("--recover"))) {       // --recover: napraw przerwane nagrania bez pytania i wyjdz
+            const int n = int(Recovery::pending().size());
+            w->offerRecovery(false);
+            const QByteArray line = "recovered=" + QByteArray::number(n) + " left=" + QByteArray::number(Recovery::pending().size()) + "\n";
+            fwrite(line.constData(), 1, size_t(line.size()), stdout);
+            fflush(stdout);
+            QTimer::singleShot(300, &app, [] { QApplication::quit(); });
+        } else if (!app.property("automation").toBool() && !testMode) {
+            QTimer::singleShot(800, w.get(), [&w] { w->offerRecovery(); });
+        }
         if (!testMode && safeStart) {
             manager.setPersistence(true);
             manager.discardAutosave();
@@ -282,7 +295,8 @@ int main(int argc, char* argv[]) {
             }
         }
         if (argAfter("--input") == QLatin1String("srt") || argAfter("--input") == QLatin1String("rtsp") || argAfter("--input") == QLatin1String("ndi") ||
-            argAfter("--input") == QLatin1String("none") || argAfter("--input") == QLatin1String("decklink")) {
+            argAfter("--input") == QLatin1String("none") || argAfter("--input") == QLatin1String("decklink") ||
+            argAfter("--input") == QLatin1String("whep")) {
             for (Channel* c : manager.channels()) {
                 InputConfig in = c->config().in;
                 in.type = argAfter("--input");

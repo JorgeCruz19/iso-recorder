@@ -42,6 +42,8 @@
 #include "core/ChannelManager.h"
 #include "core/DiskMonitor.h"
 #include "core/AppSettings.h"
+#include "core/EventLog.h"
+#include "core/Recovery.h"
 #include "core/EnvCheck.h"
 #include "core/EventLog.h"
 #include "core/Lang.h"
@@ -576,6 +578,35 @@ void MainWindow::showRecordings(QWidget* anchor) {
     QMenu menu(this);
     for (const QString& d : dirs) menu.addAction(QDir::toNativeSeparators(d), this, [open, d] { open(d); });
     menu.exec(anchor->mapToGlobal(QPoint(0, anchor->height())));
+}
+
+void MainWindow::offerRecovery(bool ask) {
+    const QStringList pending = Recovery::pending();
+    if (pending.isEmpty()) return;
+    if (ask) {
+        const auto answer = QMessageBox::question(this, QStringLiteral("ISO Recorder"),
+            T("%1 recordings were interrupted by a program or power failure. Repair their files now?\n\n"
+              "MKV files get their length and index back (the original is kept as *.crashed.mkv), MPEG-TS files need no repair, "
+              "MP4 and MOV files cannot be recovered.").arg(pending.size()));
+        if (answer != QMessageBox::Yes) {
+            Recovery::forget(pending);
+            return;
+        }
+    }
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    int repaired = 0, intact = 0, lost = 0;
+    for (const QString& sidecar : pending) {
+        notice(T("Repairing %1 …").arg(QFileInfo(sidecar).completeBaseName()));
+        const Recovery::Result r = Recovery::repair(sidecar);
+        repaired += r.repaired;
+        intact += r.intact;
+        lost += r.lost;
+    }
+    QApplication::restoreOverrideCursor();
+    const QString text = T("Interrupted recordings: %1 files repaired, %2 needed no repair, %3 could not be recovered")
+                             .arg(repaired).arg(intact).arg(lost);
+    EventLog::add(text);
+    notice(text);
 }
 
 void MainWindow::showSettings() {

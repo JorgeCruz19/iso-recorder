@@ -29,6 +29,11 @@ function Start-Sender {
         $a = "-q videotestsrc is-live=true pattern=smpte ! video/x-raw,format=UYVY,width=1280,height=720,framerate=25/1 ! ndisinkcombiner name=c ! " +
              "ndisink ndi-name=`"ISOTEST $Port`" audiotestsrc is-live=true ! audio/x-raw,format=F32LE,rate=48000,channels=2 ! c.audio"
         Start-Process "$gstBin\gst-launch-1.0.exe" -ArgumentList $a -PassThru -WindowStyle Hidden
+    } elseif ($Type -eq 'whep') {
+        # nadajnik WebRTC: serwer WHEP z gst-launch (obraz testowy + ton)
+        $a = "-q videotestsrc is-live=true pattern=smpte ! video/x-raw,width=1280,height=720,framerate=25/1 ! queue ! ws. " +
+             "audiotestsrc is-live=true ! audio/x-raw,rate=48000,channels=2 ! queue ! ws. whepserversink name=ws signaller::host-addr=http://127.0.0.1:$Port"
+        Start-Process "$gstBin\gst-launch-1.0.exe" -ArgumentList $a -PassThru -WindowStyle Hidden
     } else {
         $env:PATH = "$gstBin;$savedPath"
         $p = Start-Process "$root\build\rtsp_test_server.exe" -ArgumentList $Port -PassThru -WindowStyle Hidden
@@ -36,14 +41,14 @@ function Start-Sender {
         $p
     }
 }
-$uri = if ($Type -eq 'srt') { "srt://127.0.0.1:$Port" } elseif ($Type -eq 'ndi') { "`"$env:COMPUTERNAME (ISOTEST $Port)`"" } else { "rtsp://127.0.0.1:$Port/test" }
+$uri = if ($Type -eq 'srt') { "srt://127.0.0.1:$Port" } elseif ($Type -eq 'whep') { "http://127.0.0.1:$Port/whep/endpoint" } elseif ($Type -eq 'ndi') { "`"$env:COMPUTERNAME (ISOTEST $Port)`"" } else { "rtsp://127.0.0.1:$Port/test" }
 $out = Join-Path $env:TEMP "isorec_net_$(Get-Date -Format 'HHmmss')"
 New-Item -ItemType Directory $out | Out-Null
 
 # Przebieg (sekundy od startu programu): 0 nadajnik i program, 3 start nagrania, 13 nadajnik stop, 20 nadajnik start, 31 koniec nagrania.
 $seconds = 28
 $sender = Start-Sender
-Start-Sleep $(if ($Type -eq 'ndi') { 3 } else { 1 })
+Start-Sleep $(if ($Type -eq 'ndi' -or $Type -eq 'whep') { 3 } else { 1 })
 if ($Exe -like "*\build\*") { $env:PATH = "$qt\bin;$gstBin;$savedPath" }
 $appArgs = @('--demo', 1, '--lang', 'en', '--out', $out, '--input', $Type, '--uri', $uri, '--rec-test', $seconds)
 if ($Loss) { $appArgs += @('--loss', $Loss) }
@@ -97,7 +102,7 @@ $span = $pts[$pts.Count - 1] - $pts[0]
 Check 'czas nagrania zgodny' ($span -ge $seconds - 1.5 -and $span -le $seconds + 1) ("({0:N1} s, {1} klatek)" -f $span, $pts.Count)
 Check 'znaczniki obrazu bez przerw ponad dopuszczalna' ($gap -lt $maxGap) ("(najwieksza przerwa {0:N3} s, dopuszczalna {1})" -f $gap, $maxGap)
 $t0 = [datetime]::Parse($j.startedUtc, $inv, [Globalization.DateTimeStyles]::AdjustToUniversal -bor [Globalization.DateTimeStyles]::AssumeUniversal)
-$before = Luma $(if ($Type -eq 'ndi') { 7 } else { 2 })     # odbiornik NDI potrzebuje kilku sekund na znalezienie zrodla
+$before = Luma $(if ($Type -eq 'ndi' -or $Type -eq 'whep') { 7 } else { 2 })     # odbiornik NDI potrzebuje kilku sekund na znalezienie zrodla
 Check 'obraz ze strumienia przed zanikiem' ($before -gt 40) ("(jasnosc {0:N0})" -f $before)
 if ($NoBreak) {
     Check 'brak zanikow sygnalu w opisie' ($j.signalLosses -eq 0) "($($j.signalLosses))"

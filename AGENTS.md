@@ -1,6 +1,6 @@
 # ISO Recorder — stan projektu i instrukcje dla kolejnego modelu
 
-Ten plik jest punktem wejścia. Przeczytaj go w całości, zanim cokolwiek zmienisz. Stan na 2026‑11‑12, wersja **3.2**. Wydania od 2.0 są publikowane jako Release na GitHubie.
+Ten plik jest punktem wejścia. Przeczytaj go w całości, zanim cokolwiek zmienisz. Stan na 2026‑11‑12, wersja **3.3**. Wydania od 2.0 są publikowane jako Release na GitHubie.
 
 ## 1. Co to jest
 
@@ -23,7 +23,7 @@ z tłumaczeniami PL, DE, ES, IT, FR.
 | `mockup/`, `interfejs.png` | wzorzec wyglądu |
 | `docs/zrzut_<wersja>.png` | zrzut okna na każdą wersję |
 
-## 3. Co działa (3.2)
+## 3. Co działa (3.3)
 
 - **Wejścia**: generator testowy, ekran i pojedyncze okno (`d3d11screencapturesrc`), kamera z wyborem rozmiaru obrazu
   (`mfvideosrc`), SRT, RTSP i NDI (`fallbacksrc`; NDI: lista źródeł z sieci w polu Device); dźwięk: sygnał testowy, cisza, dźwięk systemowy (loopback) i wejścia
@@ -48,7 +48,7 @@ z tłumaczeniami PL, DE, ES, IT, FR.
 
 | Wersja | Zakres |
 |---|---|
-| **3.3** | WebRTC — tylko wejście WHEP (WHIP usunięty z planu decyzją właściciela z 2026‑11‑14), odzyskiwanie plików po awarii, instalator |
+| — | Plan z `instrukcja_koncowa.md` rozdz. 6 jest zrealizowany do 3.3. Dalsze prace: rzeczy niesprawdzone na sprzęcie (DeckLink, NVENC/AMF, pełny dysk) i uwagi właściciela |
 
 Decyzje właściciela (2026‑11‑11) — **nie wracać do tych tematów**:
 - wyjście na wirtualną kamerę nie będzie robione: wystarcza wyjście NDI + „Webcam” z NDI Tools;
@@ -75,6 +75,17 @@ Zwykłe wyjście (wyładowywanie bibliotek po `ExitProcess`) po nagrywaniu ze zd
 zostawał proces „zombie” (HasExited = true, 1 wątek, `taskkill /F` odpowiada „brak działającego wystąpienia”), który
 blokuje plik EXE do wylogowania. Taki proces da się obejść tylko zmianą nazwy zablokowanego pliku. W testach nie ufaj
 `WaitForExit` — sprawdzaj, czy proces zniknął z listy (`Get-CimInstance Win32_Process`).
+
+WebRTC, odzyskiwanie, instalator (3.3): wejście `whep` — `Channel::makeWhepSource()` (bin z `whepclientsrc`, podawany
+`fallbacksrc` jako `source`, tak jak NDI; `InputConfig::customSource()`). Pułapki: (1) `stun-server` jest zerowany —
+domyślny publiczny STUN opóźnia połączenie o kilka sekund i wysyła zapytania do obcej usługi; (2) sprzętowe dekodery
+VP8/VP9 (d3d11/d3d12/qsv, także warianty `...deviceNdec`) dostają w tym procesie rangę NONE, bo po ponownym połączeniu
+odrzucają strumień (`not negotiated`) i obraz nie wraca. Testowy nadajnik: `whepserversink` z gst-launch.
+Odzyskiwanie: `core/Recovery.*` — dziennik `recordings.journal.json` obok autozapisu; `Channel` pisze plik opisu od startu
+nagrania i przy każdej nowej części (`inProgress`). Naprawa przepisuje tylko część przerwaną (bez `endMs` albo ostatnią);
+przy przepisywaniu każda ścieżka musi mieć własną kolejkę, inaczej demukser i muxer blokują się nawzajem. Dziennik działa
+w trybach testowych tylko z `ISOREC_PROFILE`. Instalator: `installer/IsoRecorder.iss` + `scripts\installer.ps1`
+(Inno Setup 6 z winget). Wydanie = ZIP (przenośna) + `-setup.exe`.
 
 Druga lokalizacja zapisu (3.2): `OutputConfig::dir2Mode` = `off / spare / mirror`. Folder zapasowy: `ChannelManager::checkDisks`
 woła `Channel::switchToSpare()` (zwykłe `splitToFolder`), gdy wolne miejsce spada poniżej `spareMinMb` — przed regułą „Stop
@@ -208,6 +219,7 @@ sesji (`m_autoNames`). Pierwszy człon to krótka nazwa typu (Screen / Window / 
 | `tests\sync_test.ps1` | wspólny start / pauza / stop grupy, domyślnie 16 kanałów |
 | `tests\live_test.ps1` | odbiór wyjścia SRT (ffprobe) i NDI w trakcie nagrania |
 | `tests\net_test.ps1` | wejście SRT / RTSP / NDI z zanikiem i powrotem nadajnika (`build\rtsp_test_server.exe`; NDI: gst-launch) |
+| `tests\recovery_test.ps1` | odzyskiwanie po zabiciu programu w trakcie nagrania: MKV / TS / MP4 |
 | `tests\dir2_test.ps1` | druga lokalizacja: zapis podwójny, awaria drugiego folderu, folder zapasowy |
 | `tests\codec_test.ps1` | kodeki H.264 / H.265 / AV1 / ProRes w MKV / TS / MP4 / MOV, split i pauza, ProRes 1080p |
 | `tests\copy_test.ps1` | zapis bez ponownego kodowania SRT / RTSP: plik zgodny ze strumieniem, split, pauza, zanik |

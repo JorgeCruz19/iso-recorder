@@ -58,13 +58,17 @@ struct RecordPart {
 
 // Zrodlo obrazu i dzwieku kanalu.
 struct InputConfig {
-    QString type = QStringLiteral("test");        // "test" generator, "screen" ekran, "window" okno, "camera" kamera, "decklink", "srt", "rtsp", "ndi", "none" wylaczone
+    QString type = QStringLiteral("test");        // "test" generator, "screen" ekran, "window" okno, "camera" kamera, "decklink", "srt", "rtsp", "ndi", "whep", "none" wylaczone
     QString windowTitle;                          // okno: tytul (uchwyt jest szukany przy starcie kanalu)
     QString cameraMode;                           // kamera: "WxH" albo "WxH@licznik/mianownik" (klatkaz); puste = wybor sterownika
     QString lossPolicy = QStringLiteral("continue");   // zanik sygnalu sieciowego: "continue", "pause", "split"
     int gainDb = 0;                               // glosnosc wejscia dzwieku, dB
     QString uri;                                  // srt / rtsp: adres strumienia; ndi: nazwa zrodla "KOMPUTER (nazwa)"
-    bool isNetwork() const { return type == QLatin1String("srt") || type == QLatin1String("rtsp") || type == QLatin1String("ndi"); }
+    bool isNetwork() const {
+        return type == QLatin1String("srt") || type == QLatin1String("rtsp") || type == QLatin1String("ndi") || type == QLatin1String("whep");
+    }
+    // zrodlo podawane elementowi fallbacksrc jako gotowy element (a nie adres): NDI i WebRTC
+    bool customSource() const { return type == QLatin1String("ndi") || type == QLatin1String("whep"); }
     int screenIndex = 0;                          // ekran: numer monitora
     int deckIndex = 0;                            // DeckLink: numer wejscia karty (device-number)
     QString deckName;
@@ -191,6 +195,7 @@ public:
     // Zrodlo sieciowe nie podaje sygnalu: kanal gra dalej (czarny obraz, cisza), nagranie trwa, zrodlo laczy sie ponownie.
     bool signalLost() const { return m_signalLost; }
     QString networkUri() const;
+    GstElement* makeWhepSource() const;     // odbiornik WebRTC (WHEP) jako zrodlo dla fallbacksrc
     GstElement* makeNdiSource() const;      // odbiornik NDI jako zrodlo dla fallbacksrc (pady "video" i "audio")
 
 signals:

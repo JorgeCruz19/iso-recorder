@@ -2,6 +2,21 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 3.3
+
+- **Wejście WebRTC (WHEP)**: typ „WebRTC (WHEP)” — program łączy się z adresem strumienia na serwerze (np.
+  `http://host:8889/stream/whep`) jak widz. Zanik sygnału i ponowne łączenie działają jak przy SRT / RTSP / NDI, także
+  reakcje „pauza” i „nowa część”. Program nie używa zewnętrznego serwera STUN. Obraz VP8 / VP9 jest dekodowany
+  programowo (dekodery sprzętowe odrzucały strumień po ponownym połączeniu).
+- **Odzyskiwanie nagrań po awarii**: plik opisu `.json` powstaje już na starcie nagrania (ze znacznikiem „w toku”), a
+  program prowadzi dziennik trwających nagrań. Po starcie następującym po awarii programu albo zasilania proponuje
+  naprawę: przerwana część MKV jest przepisywana i odzyskuje długość oraz indeks (oryginał zostaje jako
+  `*.crashed.mkv`), MPEG-TS nie wymaga naprawy, przerwanej części MP4 / MOV nie da się odzyskać. Części zamknięte
+  wcześniej przez split są kompletne w każdym kontenerze.
+- **Instalator** (`IsoRecorder-<wersja>-setup.exe`, Inno Setup): instalacja bez uprawnień administratora, skrót w menu
+  Start, deinstalator, sześć języków. Wydanie zawiera też wersję przenośną (ZIP).
+- Testy: `tests\recovery_test.ps1`, `tests\net_test.ps1 -Type whep`; skrypt `scripts\installer.ps1`; argument `--recover`.
+
 ## 3.2
 
 - **Druga lokalizacja zapisu** (zakładka Output, pole „Second folder”), osobno dla każdego kanału:

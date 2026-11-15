@@ -14,6 +14,7 @@ material from every source must be kept in full for later editing.
 - HDMI / SDI through a Blackmagic DeckLink card (not yet tested on hardware),
 - SRT and RTSP network streams,
 - NDI sources found on the network (NDI|HX included),
+- WebRTC streams from a WHEP server,
 - system sound, a microphone or a line input,
 - a test generator (picture, clock and tone) for rehearsals,
 - a channel can be switched off without removing it (input type "None"),
@@ -48,6 +49,7 @@ material from every source must be kept in full for later editing.
 - a "Reconnect source" button for a camera or capture card that does not respond,
 - free-space monitoring per disk and a write-speed test,
 - channel list autosave and recovery after a crash,
+- recordings interrupted by a program or power failure are repaired at the next start (MKV; MPEG‑TS needs no repair),
 - an event log written to a file.
 
 **Interface**
@@ -56,8 +58,6 @@ material from every source must be kept in full for later editing.
 - channel lists saved to and loaded from files; default recording settings for new channels,
 - languages: English, Polish, German, Spanish, Italian, French.
 
-**Planned**
-- WebRTC input (WHEP), an installer.
 
 ## Requirements
 
@@ -70,9 +70,13 @@ Performance depends on the encoder. On the test machine (6 threads, Intel Quick 
 
 ## Installation
 
-1. Download `IsoRecorder-<version>-win64.zip` from **Releases**.
-2. Unpack it anywhere.
-3. Run `IsoRecorder.exe`. Nothing needs to be installed — Qt and GStreamer are included.
+From **Releases** take one of:
+
+- **Installer** — `IsoRecorder-<version>-setup.exe`. No administrator rights needed; it adds a Start menu shortcut and an
+  uninstaller.
+- **Portable** — `IsoRecorder-<version>-win64.zip`. Unpack it anywhere and run `IsoRecorder.exe`.
+
+Nothing else needs to be installed — Qt and GStreamer are included.
 
 If the program will not start with the last used channel list, hold **Shift** while launching it — it opens with an
 empty list.
@@ -98,6 +102,7 @@ You need: Visual Studio Build Tools (C++ and CMake), Qt 6 in `C:\Qt\<version>\ms
 scripts\build.ps1      # builds into build\
 scripts\run.ps1        # runs with the right paths
 scripts\package.ps1    # assembles a standalone package in dist\IsoRecorder\
+scripts\installer.ps1  # builds the installer from that package (needs Inno Setup 6)
 ```
 
 The tests (PowerShell, they need `ffprobe`) live in `tests\`; they are described in [AGENTS.md](AGENTS.md).

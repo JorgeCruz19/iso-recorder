@@ -165,11 +165,7 @@ QWidget* Inspector::buildInputPage() {
     m_type->addItem(QStringLiteral("SRT"), QStringLiteral("srt"));
     m_type->addItem(QStringLiteral("RTSP"), QStringLiteral("rtsp"));
     m_type->addItem(QStringLiteral("NDI"), QStringLiteral("ndi"));
-    const int firstFuture = m_type->count();
-    const struct { QString name; const char* from; } types[] = {{QStringLiteral("WebRTC WHEP"), Roadmap::webrtc}};
-    for (const auto& t : types) m_type->addItem(t.name + QStringLiteral("  ") + T("(from %1)").arg(QLatin1String(t.from)));
-    if (auto* model = qobject_cast<QStandardItemModel*>(m_type->model()))
-        for (int i = firstFuture; i < model->rowCount(); ++i) model->item(i)->setEnabled(false);
+    m_type->addItem(QStringLiteral("WebRTC (WHEP)"), QStringLiteral("whep"));
     row(g, T("Input type"), m_type);
     m_device = new QComboBox;
     row(g, T("Device"), m_device);
@@ -1011,10 +1007,12 @@ void Inspector::refresh() {
     if (!m_uri->hasFocus()) m_uri->setText(hasAddress ? in.uri : QString());
     m_uri->setEnabled(editable && hasAddress);
     m_uri->setPlaceholderText(in.type == QLatin1String("srt") ? QStringLiteral("host:9000   |   :9000")
+                              : in.type == QLatin1String("whep") ? QStringLiteral("http://host:8889/stream/whep")
                               : in.type == QLatin1String("rtsp") ? QStringLiteral("rtsp://host:554/stream") : QString());
     m_uri->setToolTip(in.type == QLatin1String("srt")
         ? T("host:9000 — this computer connects to the sender;  :9000 — this computer waits for the sender on port 9000")
-        : in.type == QLatin1String("rtsp") ? T("rtsp://host:554/stream — use rtspt:// to force TCP") : QString());
+        : in.type == QLatin1String("rtsp") ? T("rtsp://host:554/stream — use rtspt:// to force TCP")
+        : in.type == QLatin1String("whep") ? T("The WHEP address of the stream on the server, for example http://host:8889/stream/whep") : QString());
     const bool off = in.type == QLatin1String("none");      // wejscie wylaczone: nie ma czego ustawiac
     m_wave->setEnabled(editable && !in.embeddedAudio() && !off);      // dzwiek pochodzi ze strumienia albo z karty
     m_gain->setEnabled(!off);

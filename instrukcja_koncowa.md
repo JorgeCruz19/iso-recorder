@@ -384,7 +384,7 @@ Każda wersja: działający program, commit, tag, push. Kryterium = to, co da si
 | **3.0** | Poprawki: przycisk „Reconnect source”, sortowanie listy po kolumnach, klatkaż kanału i tryby kamery z klatkażem, przyciski okien w języku interfejsu | **wydana** |
 | **3.1** | Kodeki H.265, AV1 i ProRes 422; kontenery MP4 i MOV; wejście DeckLink (niesprawdzone na sprzęcie); ikona programu. DNxHR nie wchodzi — żaden kontener GStreamera go nie przyjmuje | **wydana** — `tests\codec_test.ps1` |
 | **3.2** | Druga lokalizacja zapisu: folder zapasowy (przejście przy małej ilości miejsca, bez utraty klatek) i zapis podwójny (awaria drugiego folderu nie przerywa nagrania) | **wydana** — `tests\dir2_test.ps1` |
-| **3.3** | WHEP (WHIP usunięty z planu), odzyskiwanie plików po awarii, instalator Inno Setup | instalacja na czystym Windows; test 24 h |
+| **3.3** | Wejście WebRTC (WHEP), odzyskiwanie nagrań po awarii (naprawa MKV), instalator Inno Setup obok wersji przenośnej | **wydana** — `tests\recovery_test.ps1`, `tests\net_test.ps1 -Type whep` |
 
 **Decyzje właściciela z 2026‑11‑11 (zmieniają wcześniejsze rozdziały):** (1) słowo „passthrough” właściciel rozumie jako przekazanie sygnału dalej — to robi wyjście na żywo (5.9). Zapis strumienia **bez ponownego kodowania** najpierw wypadł z planu, a tego samego dnia wrócił jako **opcja enkodera** („No re-encoding (stream copy)”, etap 2.9), pod warunkiem jasnego opisu, co użytkownik dostaje, a co traci — opis jest w oknie Settings; (2) wyjście na wirtualną kamerę nie będzie robione (wystarcza NDI + NDI Webcam); (3) hasło RTSP zostaje w adresie; (4) wejście SRT już jest (1.6), potrzebne są jeszcze wejście NDI i scheduler — stąd kolejność 2.2 i 2.3.
 

@@ -3,6 +3,7 @@
 #include <QStorageInfo>
 
 #include "DiskMonitor.h"
+#include "Recovery.h"
 
 #include "Lang.h"
 #include "media/Devices.h"
@@ -384,6 +385,7 @@ QString Channel::formatText() const {
 QString Channel::networkUri() const {
     const QString u = m_cfg.in.uri.trimmed();
     if (m_cfg.in.type == QLatin1String("srt")) return srtUri(u);
+    if (m_cfg.in.type == QLatin1String("whep")) return u.contains(QLatin1String("://")) ? u : QStringLiteral("http://") + u;
     return u.contains(QLatin1String("://")) ? u : QStringLiteral("rtsp://") + u;
 }
 
@@ -397,7 +399,8 @@ QString Channel::sourceText() const {
         a = a.mid(a.indexOf(QLatin1String("://")) + 3);
         if (a.contains(QLatin1Char('@'))) a = a.mid(a.indexOf(QLatin1Char('@')) + 1);     // bez loginu i hasla
         if (a.contains(QLatin1Char('?'))) a = a.left(a.indexOf(QLatin1Char('?')));
-        return (m_cfg.in.type == QLatin1String("srt") ? QStringLiteral("SRT ") : QStringLiteral("RTSP ")) + a;
+        return (m_cfg.in.type == QLatin1String("srt") ? QStringLiteral("SRT ")
+                : m_cfg.in.type == QLatin1String("whep") ? QStringLiteral("WHEP ") : QStringLiteral("RTSP ")) + a;
     }
     if (m_cfg.in.type == QLatin1String("screen")) return T("Screen %1").arg(m_cfg.in.screenIndex + 1);
     if (m_cfg.in.type == QLatin1String("window")) return T("Window: %1").arg(m_cfg.in.windowTitle);
@@ -476,8 +479,8 @@ QString Channel::sourceDescription() const {
     };
     const QString size = QStringLiteral("width=%1,height=%2,pixel-aspect-ratio=1/1").arg(m_cfg.width).arg(m_cfg.height);
     const QString gain = QStringLiteral(" ! volume name=avol volume=%1").arg(QString::number(std::pow(10.0, m_cfg.in.gainDb / 20.0), 'f', 4));
-    if (m_cfg.in.type == QLatin1String("ndi")) {
-        // NDI: ten sam tor co SRT/RTSP, ale zrodlem fallbacksrc jest odbiornik NDI (makeNdiSource), ustawiany
+    if (m_cfg.in.customSource()) {
+        // NDI i WebRTC: ten sam tor co SRT/RTSP, ale zrodlem fallbacksrc jest gotowy odbiornik (makeNdiSource / makeWhepSource), ustawiany
         // w startPreview - wlasciwosci "source" nie da sie podac w opisie tekstowym.
         return QStringLiteral("fallbacksrc name=fs timeout=2000000000 restart-timeout=3000000000 retry-timeout=86400000000000 "
                               "enable-dummy=true immediate-fallback=true restart-on-eos=true "
@@ -565,6 +568,73 @@ QString Channel::sourceDescription() const {
 
 // Odbiornik NDI w postaci, ktorej oczekuje fallbacksrc: element ze stalymi padami "video" i "audio" z surowym
 // obrazem i dzwiekiem. Zrodlo NDI bez dzwieku zostawia pad "audio" pusty - fallbacksrc podaje wtedy cisze.
+// Odbiornik WebRTC (WHEP): program laczy sie z adresem serwera jak widz. Element sam rozpakowuje obraz i dzwiek, gdy dalsza
+// czesc toru przyjmuje tylko dane surowe. Pady pojawiaja sie po zestawieniu polaczenia i od nowa po kazdym ponownym.
+GstElement* Channel::makeWhepSource() const {
+    // Sprzetowe dekodery VP8 / VP9 (Direct3D) odrzucaja strumien WebRTC po ponownym polaczeniu (format bez rozmiaru obrazu
+    // do pierwszej klatki kluczowej) - obraz wtedy nie wraca. W tym procesie traca range, wiec wybierane sa dekodery programowe.
+    static bool ranked = false;
+    if (!ranked) {
+        ranked = true;
+        // nazwy: "d3d12vp8dec", a dla kolejnych kart graficznych "d3d12vp8device1dec", "...device2dec" itd.
+        for (const char* base : {"d3d12vp8", "d3d11vp8", "d3d12vp9", "d3d11vp9", "qsvvp9", "nvvp8", "nvvp9", "amfvp9"})
+            for (int device = 0; device <= 4; ++device) {
+                const QByteArray name = device == 0 ? QByteArray(base) + "dec" : QByteArray(base) + "device" + QByteArray::number(device) + "dec";
+                if (GstElementFactory* f = gst_element_factory_find(name.constData())) {
+                    gst_plugin_feature_set_rank(GST_PLUGIN_FEATURE(f), GST_RANK_NONE);
+                    gst_object_unref(f);
+                }
+            }
+    }
+    GError* err = nullptr;
+    GstElement* bin = gst_parse_bin_from_description(
+        "whepclientsrc name=whep queue name=vq ! videoconvert name=vout queue name=aq ! audioconvert name=aout", FALSE, &err);
+    if (!bin || err) {
+        g_clear_error(&err);
+        if (bin) gst_object_unref(bin);
+        return nullptr;
+    }
+    if (GstElement* src = gst_bin_get_by_name(GST_BIN(bin), "whep")) {
+        // Bez serwera STUN: domyslnie element pyta publiczny serwer Google o adres zewnetrzny, co opoznia polaczenie o kilka
+        // sekund i wysyla zapytania do obcej uslugi. Odbiornik laczy sie z serwerem o znanym adresie, wiec STUN nie jest potrzebny.
+        g_object_set(src, "stun-server", nullptr, nullptr);
+        GObject* signaller = nullptr;
+        g_object_get(src, "signaller", &signaller, nullptr);
+        if (signaller) {
+            g_object_set(signaller, "whep-endpoint", networkUri().toUtf8().constData(), nullptr);
+            g_object_unref(signaller);
+        }
+        g_signal_connect(src, "pad-added", G_CALLBACK(+[](GstElement* s, GstPad* pad, gpointer) {
+            GstObject* parent = gst_element_get_parent(s);
+            if (!parent) return;
+            gchar* name = gst_pad_get_name(pad);
+            GstElement* q = gst_bin_get_by_name(GST_BIN(parent), g_str_has_prefix(name, "video") ? "vq" : "aq");
+            g_free(name);
+            if (q) {
+                GstPad* sink = gst_element_get_static_pad(q, "sink");
+                if (GstPad* old = gst_pad_get_peer(sink)) {     // pad z poprzedniego polaczenia
+                    gst_pad_unlink(old, sink);
+                    gst_object_unref(old);
+                }
+                gst_pad_link(pad, sink);
+                gst_object_unref(sink);
+                gst_object_unref(q);
+            }
+            gst_object_unref(parent);
+        }), nullptr);
+        gst_object_unref(src);
+    }
+    const struct { const char* element; const char* pad; } outs[] = {{"vout", "video"}, {"aout", "audio"}};
+    for (const auto& o : outs) {
+        GstElement* el = gst_bin_get_by_name(GST_BIN(bin), o.element);
+        GstPad* target = gst_element_get_static_pad(el, "src");
+        gst_element_add_pad(bin, gst_ghost_pad_new(o.pad, target));
+        gst_object_unref(target);
+        gst_object_unref(el);
+    }
+    return bin;
+}
+
 GstElement* Channel::makeNdiSource() const {
     GError* err = nullptr;
     // Pady "video" i "audio" demuksera pojawiaja sie od nowa po kazdym ponownym polaczeniu, wiec laczy je wlasna
@@ -786,6 +856,10 @@ void Channel::startPreview() {
         setState(ChannelState::Error, T("no NDI source selected"));      // bez ponawiania: czeka na wybor zrodla
         return;
     }
+    if (m_cfg.in.type == QLatin1String("whep") && m_cfg.in.uri.trimmed().isEmpty()) {
+        setState(ChannelState::Error, T("no address entered"));
+        return;
+    }
     const QString source = sourceDescription();
     if (source.isEmpty()) {              // np. okno o zapamietanym tytule nie istnieje
         setState(ChannelState::Error, T("window not found"));
@@ -815,15 +889,17 @@ void Channel::startPreview() {
     // EOS galezi nagrywania nie moze czekac na EOS calego pipeline'u (podglad gra dalej) -
     // pipeline przekazuje go od razu jako komunikat "GstBinForwarded".
     g_object_set(m_pipeline, "message-forward", TRUE, nullptr);
-    if (m_cfg.in.type == QLatin1String("ndi")) {
+    if (m_cfg.in.customSource()) {
         GstElement* fs = gst_bin_get_by_name(GST_BIN(m_pipeline), "fs");
-        GstElement* ndi = makeNdiSource();
+        const bool whep = m_cfg.in.type == QLatin1String("whep");
+        GstElement* ndi = whep ? makeWhepSource() : makeNdiSource();
         if (fs && ndi) g_object_set(fs, "source", ndi, nullptr);
         if (fs) gst_object_unref(fs);
         if (!ndi) {         // brak wtyczki NDI albo bibliotek NDI w systemie
             gst_object_unref(m_pipeline);
             m_pipeline = nullptr;
-            setState(ChannelState::Error, T("NDI is not available (install NDI Tools or the NDI Runtime)"));
+            setState(ChannelState::Error, whep ? T("WebRTC input is not available")
+                                               : T("NDI is not available (install NDI Tools or the NDI Runtime)"));
             return;
         }
     }
@@ -1397,6 +1473,9 @@ bool Channel::startRecording(const QString& session, int index) {
     m_recMbps = 0;
     m_recClock.start();
     setState(ChannelState::Recording);
+    // Plik opisu powstaje od razu (ze znacznikiem "w toku") i trafia do dziennika - po awarii wiadomo, co naprawic.
+    writeSidecar(false, QStringLiteral("in progress"));
+    Recovery::begin(m_recSidecar);
     emit notice(T("%1: recording started (%2)").arg(m_cfg.name, copy ? T("stream copy") : EncoderFactory::displayName(enc.name)));
     if (copy && !copyAudio)
         emit notice((m_copyAudio.load() < 0 ? T("%1: the audio format of the source cannot be copied — the file has no sound")
@@ -1667,6 +1746,7 @@ void Channel::writeSidecar(bool clean, const QString& reason) const {
         {QStringLiteral("firstFrameClockNs"), m_firstVideoRt.load() < 0 ? -1.0 : double(m_firstVideoRt.load() + baseTime)},
         {QStringLiteral("lastFrameClockNs"), m_lastVideoRt.load() < 0 ? -1.0 : double(m_lastVideoRt.load() + baseTime)},
         {QStringLiteral("clean"), clean},
+        {QStringLiteral("inProgress"), reason == QLatin1String("in progress")},
         {QStringLiteral("stopReason"), reason},
         {QStringLiteral("pauses"), pauses},
         {QStringLiteral("signalLosses"), m_recLosses},
@@ -1711,6 +1791,7 @@ void Channel::finishRecording(bool clean, const QString& reason) {
     pollRecording();
     if (!m_parts.isEmpty() && m_parts.last().endNs < 0) m_parts.last().endNs = (m_recClock.elapsed() - m_pausedMs) * 1000000LL;
     writeSidecar(clean, reason);
+    Recovery::end(m_recSidecar);
     const QString file = m_recFile;
     m_mirrorMux = nullptr;
     if (isRecording()) m_state = ChannelState::Preview;
@@ -1761,7 +1842,7 @@ void Channel::pollSource() {
     // priorytet 0, zastepcze - wyzszy.
     bool lost = false;
     int switches = 0;
-    const bool videoOnly = m_cfg.in.type == QLatin1String("ndi");
+    const bool videoOnly = m_cfg.in.customSource();
     GstIterator* it = gst_bin_iterate_recurse(GST_BIN(fs));
     GValue item = G_VALUE_INIT;
     while (gst_iterator_next(it, &item) == GST_ITERATOR_OK) {
@@ -2069,6 +2150,7 @@ GstBusSyncReply Channel::onBus(GstBus*, GstMessage* msg, gpointer user) {
                     self->m_parts.append(RecordPart{file, GST_CLOCK_TIME_IS_VALID(rt) ? qint64(rt) : 0, -1});
                     if (self->m_parts.size() > 1)
                         emit self->notice(T("%1: part %2 started").arg(self->m_cfg.name).arg(self->m_parts.size()));
+                    self->writeSidecar(false, QStringLiteral("in progress"));      // lista czesci aktualna takze po awarii
                     emit self->changed();
                 }, Qt::QueuedConnection);
             }
