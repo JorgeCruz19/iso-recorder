@@ -482,11 +482,16 @@ QString Channel::sourceDescription() const {
     if (m_cfg.in.customSource()) {
         // NDI i WebRTC: ten sam tor co SRT/RTSP, ale zrodlem fallbacksrc jest gotowy odbiornik (makeNdiSource / makeWhepSource), ustawiany
         // w startPreview - wlasciwosci "source" nie da sie podac w opisie tekstowym.
-        return QStringLiteral("fallbacksrc name=fs timeout=2000000000 restart-timeout=3000000000 retry-timeout=86400000000000 "
+        // WebRTC zestawia polaczenie (ICE) kilka sekund - na komputerze z wieloma interfejsami (VPN, kilka kart sieciowych) dluzej
+        // niz domyslne 2 s limitu fallbacksrc, ktory wtedy restartowalby zrodlo w kolko i nigdy sie nie polaczyl.
+        const bool whep = m_cfg.in.type == QLatin1String("whep");
+        return QStringLiteral("fallbacksrc name=fs timeout=%4 restart-timeout=%5 retry-timeout=86400000000000 "
                               "enable-dummy=true immediate-fallback=true restart-on-eos=true "
                               "fs. ! queue ! videoconvertscale add-borders=true ! videorate ! video/x-raw,%1,framerate=%2/1 ! tee name=tv "
                               "fs. ! queue ! audioconvert ! audioresample%3 ! audio/x-raw,rate=48000,channels=2 ")
-            .arg(size).arg(m_cfg.fps).arg(gain);
+            .arg(size).arg(m_cfg.fps).arg(gain)
+            .arg(QStringLiteral("2000000000"))                                     // przejscie na obraz zastepczy po 2 s ciszy
+            .arg(whep ? QStringLiteral("9000000000") : QStringLiteral("3000000000"));   // restart zrodla po 9 s (WebRTC: tyle trwa ICE)
     }
     if (copyMode()) {
         // Kopia strumienia: urisourcebin oddaje strumienie skompresowane (pady pojawiaja sie po polaczeniu - laczy je
@@ -1303,6 +1308,8 @@ bool Channel::startRecording(const QString& session, int index) {
     Q_UNUSED(ts);
     if (container == QLatin1String("mkv") && g_object_class_find_property(G_OBJECT_GET_CLASS(mkv), "offset-to-zero"))
         g_object_set(mkv, "offset-to-zero", TRUE, nullptr);
+    const bool growing = m_cfg.out.growing && (container == QLatin1String("mp4") || container == QLatin1String("mov"));
+    if (growing) applyGrowing(mkv);
     g_object_set(mux, "muxer", mkv, "async-finalize", FALSE, "start-index", 1,
                  "location", location.toUtf8().constData(), nullptr);
     // Nazwe i folder kazdej czesci podaje program (a nie wzorzec location) - dzieki temu kolejna czesc moze trafic
@@ -1349,6 +1356,7 @@ bool Channel::startRecording(const QString& session, int index) {
         if (mux2 && m2 && vt && vq2 && ve2 && (!aq || (at && aq2 && ae2))) {
             if (container == QLatin1String("mkv") && g_object_class_find_property(G_OBJECT_GET_CLASS(m2), "offset-to-zero"))
                 g_object_set(m2, "offset-to-zero", TRUE, nullptr);
+            if (growing) applyGrowing(m2);
             g_object_set(mux2, "muxer", m2, "async-finalize", FALSE, "start-index", 1,
                          "location", QDir(dir2).filePath(pattern + ext).toUtf8().constData(), nullptr);
             g_signal_connect(mux2, "format-location", G_CALLBACK(&Channel::onFormatLocation2), this);
@@ -1418,6 +1426,7 @@ bool Channel::startRecording(const QString& session, int index) {
     m_copyStarted = !copy;
     m_recCodec = copy ? (m_copyVideo.load() == 2 ? QStringLiteral("h265") : QStringLiteral("h264")) : codec;
     m_recContainer = container;
+    m_recGrowing = growing;
     m_recTee[0] = copy ? "cv" : "tv";
     m_recTee[1] = copy ? "ca" : "ta";
     m_stopRt = G_MAXINT64;
@@ -1599,6 +1608,18 @@ gchar* Channel::onFormatLocation(GstElement*, guint, gpointer user) {
 }
 
 // Watek streamingu: sciezka kolejnej czesci kopii lustrzanej - ta sama nazwa, drugi folder.
+// Growing file: indeks (moov) na poczatku pliku, potem fragmenty co 1 s (jeden GOP), a na koncu indeks jest przepisywany na
+// pelny. Plik jest czytelny w trakcie zapisu i po awarii - bez ostatniego niepelnego fragmentu.
+void Channel::applyGrowing(GstElement* muxer) {
+    if (!muxer || !g_object_class_find_property(G_OBJECT_GET_CLASS(muxer), "fragment-duration")) return;
+    g_object_set(muxer, "fragment-duration", 1000, nullptr);
+    if (g_object_class_find_property(G_OBJECT_GET_CLASS(muxer), "fragment-mode")) {
+        GParamSpec* spec = g_object_class_find_property(G_OBJECT_GET_CLASS(muxer), "fragment-mode");
+        if (GEnumValue* v = g_enum_get_value_by_nick(G_PARAM_SPEC_ENUM(spec)->enum_class, "first-moov-then-finalise"))
+            g_object_set(muxer, "fragment-mode", v->value, nullptr);
+    }
+}
+
 gchar* Channel::onFormatLocation2(GstElement*, guint, gpointer user) {
     auto* self = static_cast<Channel*>(user);
     const int part = ++self->m_partCounter2;
@@ -1746,6 +1767,7 @@ void Channel::writeSidecar(bool clean, const QString& reason) const {
         {QStringLiteral("firstFrameClockNs"), m_firstVideoRt.load() < 0 ? -1.0 : double(m_firstVideoRt.load() + baseTime)},
         {QStringLiteral("lastFrameClockNs"), m_lastVideoRt.load() < 0 ? -1.0 : double(m_lastVideoRt.load() + baseTime)},
         {QStringLiteral("clean"), clean},
+        {QStringLiteral("growing"), m_recGrowing},
         {QStringLiteral("inProgress"), reason == QLatin1String("in progress")},
         {QStringLiteral("stopReason"), reason},
         {QStringLiteral("pauses"), pauses},

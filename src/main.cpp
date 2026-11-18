@@ -388,6 +388,7 @@ int main(int argc, char* argv[]) {
             if (!argAfter("--container").isEmpty()) o.container = argAfter("--container");
             if (!argAfter("--encoder").isEmpty()) o.encoder = argAfter("--encoder");      // np. --encoder copy
             if (!argAfter("--codec").isEmpty()) o.codec = argAfter("--codec");            // h264 | h265 | av1 | prores
+            if (args.contains(QStringLiteral("--growing"))) o.growing = true;             // MP4 / MOV rosnace (fragmenty)
             // --dir2 folder --dir2-mode spare|mirror [--spare-mb N]: druga lokalizacja zapisu
             if (!argAfter("--dir2").isEmpty()) o.dir2 = argAfter("--dir2");
             if (!argAfter("--dir2-mode").isEmpty()) o.dir2Mode = argAfter("--dir2-mode");

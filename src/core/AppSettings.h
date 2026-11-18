@@ -7,6 +7,10 @@
 namespace AppSettings {
 // Domyslne parametry nagrywania - dostaje je kazdy nowo dodany kanal.
 OutputConfig defaultOutput();
+// Domyslny rozmiar obrazu i klatkaz nowo dodawanego kanalu (okno Settings).
+struct DefaultFormat { int width = 1280; int height = 720; int fps = 25; };
+DefaultFormat defaultFormat();
+void setDefaultFormat(const DefaultFormat& f);
 void setDefaultOutput(const OutputConfig& out);
 // Karta dzwiekowa do odsluchu kanalu (id urzadzenia WASAPI; puste = domyslne wyjscie systemu).
 QString monitorDevice();

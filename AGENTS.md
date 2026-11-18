@@ -1,6 +1,6 @@
 # ISO Recorder — stan projektu i instrukcje dla kolejnego modelu
 
-Ten plik jest punktem wejścia. Przeczytaj go w całości, zanim cokolwiek zmienisz. Stan na 2026‑11‑12, wersja **3.3**. Wydania od 2.0 są publikowane jako Release na GitHubie.
+Ten plik jest punktem wejścia. Przeczytaj go w całości, zanim cokolwiek zmienisz. Stan na 2026‑11‑12, wersja **3.4**. Wydania od 2.0 są publikowane jako Release na GitHubie.
 
 ## 1. Co to jest
 
@@ -23,7 +23,7 @@ z tłumaczeniami PL, DE, ES, IT, FR.
 | `mockup/`, `interfejs.png` | wzorzec wyglądu |
 | `docs/zrzut_<wersja>.png` | zrzut okna na każdą wersję |
 
-## 3. Co działa (3.3)
+## 3. Co działa (3.4)
 
 - **Wejścia**: generator testowy, ekran i pojedyncze okno (`d3d11screencapturesrc`), kamera z wyborem rozmiaru obrazu
   (`mfvideosrc`), SRT, RTSP i NDI (`fallbacksrc`; NDI: lista źródeł z sieci w polu Device); dźwięk: sygnał testowy, cisza, dźwięk systemowy (loopback) i wejścia
@@ -75,6 +75,20 @@ Zwykłe wyjście (wyładowywanie bibliotek po `ExitProcess`) po nagrywaniu ze zd
 zostawał proces „zombie” (HasExited = true, 1 wątek, `taskkill /F` odpowiada „brak działającego wystąpienia”), który
 blokuje plik EXE do wylogowania. Taki proces da się obejść tylko zmianą nazwy zablokowanego pliku. W testach nie ufaj
 `WaitForExit` — sprawdzaj, czy proces zniknął z listy (`Get-CimInstance Win32_Process`).
+
+Domyślny format nowych kanałów (3.4): `AppSettings::defaultFormat()` (szerokość, wysokość, klatkaż) stosowane w
+`ChannelManager::addChannel()` tylko przy włączonej trwałości (nie w trybach `--demo`). WHEP: `fallbacksrc` ma dla niego
+`restart-timeout` 9 s (reszta 3 s) — ICE na komputerze z Tailscale i kilkoma kartami trwa dłużej niż 3 s i źródło
+restartowało się w kółko; `timeout` zostaje 2 s (szybkie przejście na obraz zastępczy). Test `net_test.ps1 -Type whep`
+ma poluzowane progi: zanik do 16 s, powrót obrazu po 11 s, pauza do 17 s.
+
+Growing file (3.4): `OutputConfig::growing`; `Channel::applyGrowing(muxer)` ustawia na `mp4mux`/`qtmux` `fragment-duration=1000` i
+`fragment-mode=first-moov-then-finalise` (też na `mux2` w zapisie podwójnym). Bez tego MP4/MOV mają indeks dopiero na końcu
+i są nieczytelne w trakcie oraz po awarii. Sprawdzone `ffprobe`, nie w programach montażowych. Odczyt w chwili zapisu
+fragmentu bywa chybiony — test mierzy 6 odczytów i wymaga 5 udanych. Odporność na awarię rosnącego MP4/MOV jest ograniczona: przy zabijaniu programu w 8 różnych chwilach 3 pliki dały błąd
+nagłówka w ffprobe/ffmpeg (różnica w przesunięciu audio/wideo w pierwszym `moov`, struktura boxów identyczna); naprawa
+qtdemux→mp4mux zawiesza się, więc `Recovery` nadal raportuje je jako `lost`. Nie obiecuj odporności na awarię dla MP4/MOV.
+Test: `tests\growing_test.ps1`. MXF OP1a (Avid/EVS) poza zakresem: GStreamer ogranicza kodeki.
 
 Ekran powitalny (3.3): `app/Splash.*` — okno warstwowe Win32 w osobnym wątku, 2,5 s, obraz z zasobu `:/splash.png`
 (`res/splash.png`, źródło: `ISO_Recorder_3.3_splash.png`). `QSplashScreen` się nie nadaje: wątek główny jest przy starcie
@@ -224,6 +238,7 @@ sesji (`m_autoNames`). Pierwszy człon to krótka nazwa typu (Screen / Window / 
 | `tests\sync_test.ps1` | wspólny start / pauza / stop grupy, domyślnie 16 kanałów |
 | `tests\live_test.ps1` | odbiór wyjścia SRT (ffprobe) i NDI w trakcie nagrania |
 | `tests\net_test.ps1` | wejście SRT / RTSP / NDI z zanikiem i powrotem nadajnika (`build\rtsp_test_server.exe`; NDI: gst-launch) |
+| `tests\growing_test.ps1` | growing file: MP4 / MOV czytelne i rosnące w trakcie zapisu, split, pauza, zapis podwójny, awaria |
 | `tests\recovery_test.ps1` | odzyskiwanie po zabiciu programu w trakcie nagrania: MKV / TS / MP4 |
 | `tests\dir2_test.ps1` | druga lokalizacja: zapis podwójny, awaria drugiego folderu, folder zapasowy |
 | `tests\codec_test.ps1` | kodeki H.264 / H.265 / AV1 / ProRes w MKV / TS / MP4 / MOV, split i pauza, ProRes 1080p |

@@ -2,6 +2,27 @@
 
 Numeracja: 0.1, 0.2, … (plan wersji: `instrukcja_koncowa.md`, rozdz. 6).
 
+## 3.4
+
+- **Ekran powitalny 3.4** (nowa grafika).
+- **Settings — domyślny format nowych kanałów**: obok kontenera (formatu pliku), kodeku i enkodera, które już tam były,
+  doszły **Video format** (rozmiar obrazu) i **Frame rate**. Dostaje je każdy nowo dodany kanał; istniejące się nie zmieniają.
+- **WebRTC (WHEP) na komputerze z wieloma interfejsami sieciowymi** (VPN, kilka kart): zestawienie połączenia trwało
+  dłużej niż 2 s i kanał restartował źródło w kółko. Restart źródła WHEP następuje teraz po 9 s. Ponowne połączenie po
+  zaniku nadajnika WebRTC trwa kilka sekund dłużej niż przy SRT / RTSP / NDI (nowa sesja ICE).
+- **Growing file** (zakładka Output i Settings, pole „Growing file”): MP4 i MOV zapisywane we fragmentach po 1 s z indeksem
+  na początku pliku (`fragment-mode=first-moov-then-finalise`). Plik można otworzyć w programie montażowym, gdy
+  nagrywanie jeszcze trwa, a na końcu indeks jest przepisywany na pełny. Działa z H.264, H.265 i ProRes, ze splitem,
+  pauzą i zapisem podwójnym. Dla MKV i MPEG-TS bez znaczenia (są czytelne od początku); pole jest wtedy nieaktywne.
+- **MP4 i MOV po awarii — ograniczenie**: rosnący plik po awarii programu często da się otworzyć (ucięty zostaje ostatni
+  fragment), ale **nie zawsze**: w próbach z zabijaniem programu w ośmiu różnych chwilach 3 pliki nie dały się otworzyć w
+  `ffprobe` ani `ffmpeg` (błąd nagłówka). Naprawy tych plików program nie umie, więc odzyskiwanie nadal zgłasza przerwaną
+  część MP4 / MOV jako niemożliwą do odzyskania. Gdy ważna jest odporność na awarię, używaj MKV albo MPEG-TS.
+- Plik opisu `.json` ma pole `growing`.
+- Plik rosnący jest sprawdzony `ffprobe` (długość rośnie w trakcie zapisu), nie w Premiere / Resolve / vMix — tego nie
+  da się sprawdzić automatycznie. Odczyt w chwili zapisu fragmentu bywa chybiony; program montażowy powinien ponowić.
+- Test: `tests\growing_test.ps1`; argument `--growing`.
+
 ## 3.3
 
 - **Wejście WebRTC (WHEP)**: typ „WebRTC (WHEP)” — program łączy się z adresem strumienia na serwerze (np.

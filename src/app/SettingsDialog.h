@@ -1,6 +1,7 @@
 #pragma once
 #include <QDialog>
 
+class QCheckBox;
 class QComboBox;
 class QLineEdit;
 
@@ -17,8 +18,11 @@ private:
     QLineEdit* m_dir;
     QLineEdit* m_template;
     QComboBox* m_container;
+    QCheckBox* m_growing;
     QComboBox* m_split;
     QComboBox* m_encoder;
+    QComboBox* m_format;
+    QComboBox* m_fps;
     QComboBox* m_codec;
     QComboBox* m_videoRate;
     QComboBox* m_audioRate;
@@ -35,3 +39,5 @@ void fillCodecCombo(QComboBox* combo);                           // kodeki doste
 void fillEncoderCombo(QComboBox* combo, const QString& codec);   // Auto + enkodery kodeka + kopia strumienia
 void enableContainersFor(QComboBox* combo, const QString& codec);   // wylacza kontenery, ktore nie przyjma kodeka
 QString containerHelp();
+QString growingHelp();
+void updateGrowing(QCheckBox* box, const QString& container);     // aktywny tylko dla MP4 i MOV

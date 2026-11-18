@@ -327,6 +327,9 @@ QWidget* Inspector::buildOutputPage() {
     m_outContainer = new QComboBox;
     fillContainerCombo(m_outContainer);
     row(g, T("Container"), m_outContainer)->setToolTip(containerHelp());
+    m_outGrowing = new QCheckBox(T("Readable while recording (MP4 / MOV)"));
+    row(g, T("Growing file"), m_outGrowing)->setToolTip(growingHelp());
+    m_outGrowing->setToolTip(growingHelp());
     // Auto-split: dane = sekundy (dodatnie) albo bajty zapisane jako liczba ujemna
     m_outSplit = new QComboBox;
     m_outSplit->addItem(T("Off"), qlonglong(0));
@@ -407,6 +410,7 @@ QWidget* Inspector::buildOutputPage() {
     connect(m_outTemplate, &QLineEdit::editingFinished, this, &Inspector::commitOutput);
     for (QComboBox* c : {m_outCodec, m_outEncoder, m_outVideoRate, m_outAudioRate, m_outContainer, m_outSplit})
         connect(c, &QComboBox::activated, this, &Inspector::commitOutput);
+    connect(m_outGrowing, &QCheckBox::clicked, this, &Inspector::commitOutput);
     connect(browse, &QPushButton::clicked, this, [this] {
         Channel* ch = m_mgr->active();
         if (!ch) return;
@@ -709,6 +713,7 @@ void Inspector::commitOutput() {
     out.videoKbps = m_outVideoRate->currentData().toInt();
     out.audioKbps = m_outAudioRate->currentData().toInt();
     out.container = m_outContainer->currentData().toString();
+    out.growing = m_outGrowing->isChecked();
     // kontener, ktory nie przyjmie kodeka, jest zamieniany na pasujacy (w kopii strumienia kodek ustala zrodlo)
     if (out.encoder != QLatin1String("copy")) out.container = EncoderFactory::containerFor(out.container, out.codec);
     const qlonglong split = m_outSplit->currentData().toLongLong();
@@ -943,6 +948,8 @@ void Inspector::refresh() {
     m_outEncoder->setToolTip(m_outEncoder->currentText());
     m_outCodec->setEnabled(!ch->copyMode());
     enableContainersFor(m_outContainer, ch->copyMode() ? QString() : out.codec);
+    m_outGrowing->setChecked(out.growing);
+    updateGrowing(m_outGrowing, out.container);
     // kopia strumienia: tylko SRT / RTSP; bitrate i dzwiek ustala wtedy zrodlo
     const bool canCopy = ch->config().in.type == QLatin1String("srt") || ch->config().in.type == QLatin1String("rtsp");
     if (auto* model = qobject_cast<QStandardItemModel*>(m_outEncoder->model()))

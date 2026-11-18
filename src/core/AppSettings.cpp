@@ -21,9 +21,26 @@ OutputConfig AppSettings::defaultOutput() {
     o.audioKbps = qBound(64, s.value(QStringLiteral("defaults/audioKbps"), d.audioKbps).toInt(), 512);
     const QString cont = s.value(QStringLiteral("defaults/container")).toString();
     o.container = cont == QLatin1String("ts") || cont == QLatin1String("mp4") || cont == QLatin1String("mov") ? cont : QStringLiteral("mkv");
+    o.growing = s.value(QStringLiteral("defaults/growing"), false).toBool();
     o.splitSeconds = qMax(0, s.value(QStringLiteral("defaults/splitSeconds"), 0).toInt());
     o.splitBytes = qMax<qint64>(0, s.value(QStringLiteral("defaults/splitBytes"), 0).toLongLong());
     return o;
+}
+
+AppSettings::DefaultFormat AppSettings::defaultFormat() {
+    QSettings s = store();
+    DefaultFormat f;
+    f.width = qBound(160, s.value(QStringLiteral("defaults/width"), f.width).toInt(), 7680);
+    f.height = qBound(120, s.value(QStringLiteral("defaults/height"), f.height).toInt(), 4320);
+    f.fps = qBound(1, s.value(QStringLiteral("defaults/fps"), f.fps).toInt(), 120);
+    return f;
+}
+
+void AppSettings::setDefaultFormat(const DefaultFormat& f) {
+    QSettings s = store();
+    s.setValue(QStringLiteral("defaults/width"), f.width);
+    s.setValue(QStringLiteral("defaults/height"), f.height);
+    s.setValue(QStringLiteral("defaults/fps"), f.fps);
 }
 
 void AppSettings::setDefaultOutput(const OutputConfig& o) {
@@ -35,6 +52,7 @@ void AppSettings::setDefaultOutput(const OutputConfig& o) {
     s.setValue(QStringLiteral("defaults/videoKbps"), o.videoKbps);
     s.setValue(QStringLiteral("defaults/audioKbps"), o.audioKbps);
     s.setValue(QStringLiteral("defaults/container"), o.container);
+    s.setValue(QStringLiteral("defaults/growing"), o.growing);
     s.setValue(QStringLiteral("defaults/splitSeconds"), o.splitSeconds);
     s.setValue(QStringLiteral("defaults/splitBytes"), o.splitBytes);
 }

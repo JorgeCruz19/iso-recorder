@@ -77,7 +77,7 @@ if ($Loss) {
     Check 'jeden zanik sygnalu w opisie' ($j.signalLosses -eq 1) "($($j.signalLosses))"
     if ($Loss -eq 'pause') {
         Check 'jedna czesc i jedna pauza w opisie' ($j.parts.Count -eq 1 -and @($j.pauses).Count -eq 1) ("(czesci {0}, pauz {1}, dlugosc pauzy {2:N1} s)" -f $j.parts.Count, @($j.pauses).Count, $(if (@($j.pauses).Count) { $j.pauses[0].durationMs / 1000 } else { 0 }))
-        Check 'material krotszy o czas pauzy' ($frames -lt ($seconds - 2) * 25 -and $frames -gt ($seconds - 8) * 25) "($frames klatek)"
+        Check 'material krotszy o czas pauzy' ($frames -lt ($seconds - 2) * 25 -and $frames -gt ($seconds - $(if ($Type -eq 'whep') { 17 } else { 8 })) * 25) "($frames klatek)"
     } else {
         Check 'dwie czesci pliku' ($j.parts.Count -eq 2) "(czesci $($j.parts.Count))"
         Check 'material pelnej dlugosci' ($frames -ge ($seconds - 2) * 25) "($frames klatek)"
@@ -109,9 +109,11 @@ if ($NoBreak) {
 } else {
     # nadajnik staje ok. 10. sekundy pliku i wraca ok. 17.; przez pierwsze ok. 3 s zaniku stoi ostatnia klatka, potem jest czarny obraz
     $stopT = ($stopAt.ToUniversalTime() - $t0).TotalSeconds; $backT = ($backAt.ToUniversalTime() - $t0).TotalSeconds
-    $during = Luma ([math]::Round($backT - 1.5, 1)); $after = Luma ([math]::Round($backT + 5, 1))
+    # WebRTC zestawia nowa sesje (ICE) po powrocie nadajnika - kilka sekund dluzej niz pozostale wejscia
+    $reconnect = if ($Type -eq 'whep') { 11 } else { 5 }; $maxLossMs = if ($Type -eq 'whep') { 16000 } else { 7500 }
+    $during = Luma ([math]::Round($backT - 1.5, 1)); $after = Luma ([math]::Round($backT + $reconnect, 1))
     "      nadajnik zatrzymany w {0:N1} s pliku, wznowiony w {1:N1} s" -f $stopT, $backT
-    Check 'jeden zanik sygnalu w opisie, 2-7 s' ($j.signalLosses -eq 1 -and $j.signalLostMs -ge 2000 -and $j.signalLostMs -le 7500) ("({0}, lacznie {1:N1} s)" -f $j.signalLosses, ($j.signalLostMs / 1000))
+    Check 'jeden zanik sygnalu w opisie, 2-7 s' ($j.signalLosses -eq 1 -and $j.signalLostMs -ge 2000 -and $j.signalLostMs -le $maxLossMs) ("({0}, lacznie {1:N1} s)" -f $j.signalLosses, ($j.signalLostMs / 1000))
     Check 'obraz zastepczy (czarny) w trakcie zaniku' ($during -ge 0 -and $during -lt 30) ("(jasnosc {0:N0})" -f $during)
     Check 'obraz ze strumienia po powrocie' ($after -gt 40) ("(jasnosc {0:N0})" -f $after)
 }

@@ -39,7 +39,7 @@ post-production.
 | **Channels** | 1–16, each with its own pipeline |
 | **Ingest** | SRT (caller / listener), RTSP, NDI and NDI\|HX, WebRTC (WHEP), Blackmagic DeckLink (SDI / HDMI), UVC cameras and capture cards, screen and window capture, test generator |
 | **Recording codecs** | H.264, H.265 (HEVC), AV1, ProRes 422; stream copy (no re-encoding) for SRT and RTSP |
-| **Containers** | MKV, MPEG‑TS, MP4, MOV |
+| **Containers** | MKV, MPEG‑TS, MP4, MOV; growing MP4 / MOV (readable while recording) |
 | **Encoders** | NVIDIA NVENC, Intel Quick Sync, AMD AMF, Media Foundation; software fallback |
 | **Audio** | embedded audio of the source, WASAPI inputs and loopback; AAC; peak meters; monitoring on a chosen sound card |
 | **Live output** | NDI or SRT per channel, in parallel with recording |
@@ -89,6 +89,9 @@ using a dedicated gateway.
 - **Stream copy** for SRT and RTSP: the elementary streams are remuxed as received — the sender's codec, bitrate and
   time stamps, no encoder load.
 - **Containers**: MKV and MPEG‑TS (both stay readable after a crash), MP4 and MOV.
+- **Growing files**: MP4 / MOV can be written in 1-second fragments with the index first, so the file opens in the editing
+  program while it is still being recorded (after a crash such a file is often, but not always, still readable —
+  use MKV or MPEG‑TS when crash safety matters).
 - **Pause and resume inside one file** with a continuous timeline.
 - **Splitting** on a key frame: by hand, every N minutes, every N GB, or into a new folder.
 - **Group transport**: REC, PAUSE, STOP and SPLIT for any selection of channels at the same instant; all channels run
@@ -135,7 +138,7 @@ using a dedicated gateway.
   columns; full-size preview of any channel.
 - Inspector with Input, Output and Scheduler tabs for the active channel; settings that must not change mid-take are
   locked while recording.
-- Channel lists saved to and loaded from files; default recording settings for new channels.
+- Channel lists saved to and loaded from files; default container, codec, encoder, resolution and frame rate for new channels.
 - Keyboard shortcuts: `R` record, `P` pause, `S` stop, `X` split, `Ctrl+A` select all, `Ctrl+S` save the list, arrow
   keys change the active channel. Double-click a picture for the full-size preview.
 

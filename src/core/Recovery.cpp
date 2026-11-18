@@ -158,6 +158,8 @@ Recovery::Result Recovery::repair(const QString& sidecar) {
         const QString ext = QFileInfo(file).suffix().toLower();
         // Czesc zamknieta przed awaria (split) ma w opisie czas konca i jest kompletna - naprawy wymaga tylko czesc przerwana.
         const bool closed = v.toObject().contains(QStringLiteral("endMs")) && v != root.value(QStringLiteral("parts")).toArray().last();
+        // Rosnacy MP4 / MOV po awarii bywa czytelny, ale nie zawsze (w probach ok. 3 z 8 plikow nie dalo sie otworzyc) i nie
+        // umiemy go naprawic - dlatego nie jest tu liczony jako nienaruszony. Naprawiane sa tylko MKV.
         if (closed || ext == QLatin1String("ts")) {
             ++r.intact;
         } else if (ext == QLatin1String("mkv")) {

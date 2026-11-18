@@ -34,6 +34,9 @@ struct OutputConfig {
     int videoKbps = 8000;
     int audioKbps = 192;
     QString container = QStringLiteral("mkv");   // "mkv", "ts", "mp4", "mov"
+    // Growing file: MP4 / MOV zapisywane we fragmentach z indeksem na poczatku - plik da sie otworzyc w montazu w trakcie
+    // nagrywania i po awarii programu. Dla MKV i MPEG-TS bez znaczenia (sa czytelne od poczatku).
+    bool growing = false;
     int splitSeconds = 0;           // auto-split co N sekund (0 = wylaczony)
     qint64 splitBytes = 0;          // auto-split co N bajtow (0 = wylaczony)
     bool operator==(const OutputConfig&) const = default;
@@ -236,6 +239,8 @@ private:
     std::atomic<bool> m_copyStarted{false};
     QByteArray m_recTee[2];                 // nazwy tee, do ktorych dopieta jest galaz zapisu (obraz, dzwiek)
     QString m_recCodec = QStringLiteral("h264");
+    bool m_recGrowing = false;
+    static void applyGrowing(GstElement* muxer);
     QString m_recContainer = QStringLiteral("mkv");
     static GstPadProbeReturn onStopBlock(GstPad* pad, GstPadProbeInfo* info, gpointer user);
     void setState(ChannelState s, const QString& error = {});

@@ -202,6 +202,12 @@ Channel* ChannelManager::addChannel() {
     cfg.name = QStringLiteral("TEST %1").arg(++m_nameCounter);
     cfg.pattern = patterns[(m_nameCounter - 1) % 8];
     cfg.audioVolume = 0.03 + 0.03 * ((m_nameCounter - 1) % 8);
+    if (m_persist) {
+        const AppSettings::DefaultFormat f = AppSettings::defaultFormat();      // domyslny rozmiar obrazu i klatkaz z okna Settings
+        cfg.width = f.width;
+        cfg.height = f.height;
+        cfg.fps = f.fps;
+    }
     if (m_persist) cfg.out = AppSettings::defaultOutput();      // domyslne parametry nagrywania z okna Settings
     return addChannel(cfg);
 }
@@ -487,6 +493,7 @@ QJsonObject channelToJson(const Channel* ch) {
             {QStringLiteral("second"), QJsonObject{{QStringLiteral("mode"), o.dir2Mode}, {QStringLiteral("dir"), o.dir2},
                                                    {QStringLiteral("minFreeMb"), o.spareMinMb}}},
             {QStringLiteral("container"), o.container},
+            {QStringLiteral("growing"), o.growing},
             {QStringLiteral("video"), QJsonObject{{QStringLiteral("codec"), o.codec}, {QStringLiteral("encoder"), o.encoder},
                                                   {QStringLiteral("bitrateKbps"), o.videoKbps}}},
             {QStringLiteral("audio"), QJsonObject{{QStringLiteral("codec"), QStringLiteral("aac")}, {QStringLiteral("bitrateKbps"), o.audioKbps}}},
@@ -541,6 +548,7 @@ ChannelConfig channelFromJson(const QJsonObject& j, int number) {
     c.out.spareMinMb = qBound(1024, sec.value(QStringLiteral("minFreeMb")).toInt(d.out.spareMinMb), 1024 * 1024);
     const QString cont = out.value(QStringLiteral("container")).toString();
     c.out.container = cont == QLatin1String("ts") || cont == QLatin1String("mp4") || cont == QLatin1String("mov") ? cont : QStringLiteral("mkv");
+    c.out.growing = out.value(QStringLiteral("growing")).toBool(false);
     const QJsonObject v = out.value(QStringLiteral("video")).toObject();
     c.out.encoder = v.value(QStringLiteral("encoder")).toString(d.out.encoder);
     const QString codec = v.value(QStringLiteral("codec")).toString();

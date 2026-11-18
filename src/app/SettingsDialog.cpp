@@ -1,5 +1,6 @@
 #include "SettingsDialog.h"
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDir>
@@ -56,6 +57,15 @@ void enableContainersFor(QComboBox* combo, const QString& codec) {
     if (!model) return;
     for (int i = 0; i < model->rowCount(); ++i)
         model->item(i)->setEnabled(codec.isEmpty() || EncoderFactory::containerAccepts(combo->itemData(i).toString(), codec));
+}
+
+QString growingHelp() {
+    return T("Growing file: the MP4 / MOV file can be opened in the editing program while it is still being recorded, and it survives a program or power failure. The index is written first and the file is extended in 1-second fragments. Works for MP4 and MOV only; MKV and MPEG-TS can always be read while recording.");
+}
+
+void updateGrowing(QCheckBox* box, const QString& container) {
+    const bool ok = container == QLatin1String("mp4") || container == QLatin1String("mov");
+    box->setEnabled(ok);
 }
 
 QString containerHelp() {
@@ -135,6 +145,11 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     fillContainerCombo(m_container);
     m_container->setCurrentIndex(qMax(0, m_container->findData(def.container)));
     row(T("Container"), m_container, containerHelp());
+    m_growing = new QCheckBox(T("Readable while recording (MP4 / MOV)"));
+    m_growing->setChecked(def.growing);
+    row(T("Growing file"), m_growing, growingHelp());
+    updateGrowing(m_growing, m_container->currentData().toString());
+    connect(m_container, &QComboBox::activated, this, [this] { updateGrowing(m_growing, m_container->currentData().toString()); });
 
     m_split = new QComboBox;
     m_split->addItem(T("Off"), qlonglong(0));
@@ -142,6 +157,23 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
     for (int gbs : {1, 2, 4}) m_split->addItem(T("every %1 GB").arg(gbs), qlonglong(-(qlonglong(gbs) << 30)));
     m_split->setCurrentIndex(qMax(0, m_split->findData(def.splitSeconds > 0 ? qlonglong(def.splitSeconds) : -qlonglong(def.splitBytes))));
     row(T("Auto-split"), m_split);
+
+    // domyslny rozmiar obrazu i klatkaz nowych kanalow (te same pozycje co w zakladce Input)
+    const AppSettings::DefaultFormat defFmt = AppSettings::defaultFormat();
+    m_format = new QComboBox;
+    const struct { int w, h; const char* ratio; } formats[] = {
+        {1280, 720, "16:9"}, {1920, 1080, "16:9"}, {1024, 768, "4:3"}, {720, 1280, "9:16"}, {1920, 800, "2.40:1"}, {1080, 1080, "1:1"}};
+    for (const auto& f : formats)
+        m_format->addItem(QStringLiteral("%1 × %2  ·  %3").arg(f.w).arg(f.h).arg(QLatin1String(f.ratio)), QSize(f.w, f.h));
+    if (m_format->findData(QSize(defFmt.width, defFmt.height)) < 0)
+        m_format->addItem(QStringLiteral("%1 × %2").arg(defFmt.width).arg(defFmt.height), QSize(defFmt.width, defFmt.height));
+    m_format->setCurrentIndex(m_format->findData(QSize(defFmt.width, defFmt.height)));
+    row(T("Video format"), m_format);
+    m_fps = new QComboBox;
+    for (int f : {24, 25, 30, 50, 60}) m_fps->addItem(T("%1 fps").arg(f), f);
+    if (m_fps->findData(defFmt.fps) < 0) m_fps->addItem(T("%1 fps").arg(defFmt.fps), defFmt.fps);
+    m_fps->setCurrentIndex(m_fps->findData(defFmt.fps));
+    row(T("Frame rate"), m_fps);
 
     m_codec = new QComboBox;
     fillCodecCombo(m_codec);
@@ -160,6 +192,7 @@ SettingsDialog::SettingsDialog(QWidget* parent) : QDialog(parent) {
         m_encoder->setCurrentIndex(qMax(0, m_encoder->findData(keep)));
         enableContainersFor(m_container, codec);
         m_container->setCurrentIndex(qMax(0, m_container->findData(EncoderFactory::containerFor(m_container->currentData().toString(), codec))));
+        updateGrowing(m_growing, m_container->currentData().toString());
         m_videoRate->setEnabled(!EncoderFactory::fixedBitrate(codec));
     });
 
@@ -243,9 +276,15 @@ void SettingsDialog::save() {
     o.codec = m_codec->currentData().toString();
     if (o.codec.isEmpty()) o.codec = QStringLiteral("h264");
     o.container = EncoderFactory::containerFor(o.container, o.codec);
+    o.growing = m_growing->isChecked();
     o.videoKbps = m_videoRate->currentData().toInt();
     o.audioKbps = m_audioRate->currentData().toInt();
     AppSettings::setDefaultOutput(o);
+    AppSettings::DefaultFormat fmt;
+    fmt.width = m_format->currentData().toSize().width();
+    fmt.height = m_format->currentData().toSize().height();
+    fmt.fps = m_fps->currentData().toInt();
+    AppSettings::setDefaultFormat(fmt);
     AppSettings::setMonitorDevice(m_monitor->currentData().toString());
     AppSettings::setSplitFolderTemplate(m_folderTemplate->text());
     AppSettings::setRenameOnSource(m_rename->currentData().toString());
